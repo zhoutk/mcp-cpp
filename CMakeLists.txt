@@ -2,11 +2,12 @@
 # mcp-cpp: independent MCP (Model Context Protocol) C++ SDK.
 #
 # Builds two ways:
-#   1. standalone:  cmake -S thirds/mcp-cpp -B build && cmake --build build
-#      (needs a zjson single-header copy under ./thirds/zjson)
-#   2. as a subdirectory of the zorm project: the root CMakeLists adds this
-#      directory; zjson is then found in the repo sibling dir and googletest
-#      is reused from the parent build when already present.
+#   1. standalone (primary): cmake -S . -B build && cmake --build build
+#      - deps are bundled under ./thirds (zjson single header, httplib,
+#        googletest)
+#   2. as a subdirectory of a host project (legacy zorm layout): zjson is then
+#      found in the repo sibling dir and googletest is reused from the parent
+#      build when already present.
 #
 # Targets: mcp (static) + mcp::mcp alias; mcp tests registered with CTest.
 # See PLAN.md for the roadmap and decision log.
@@ -76,7 +77,9 @@ target_compile_options(mcp PRIVATE ${MCP_CXX_WARNINGS})
 # build with a warning when httplib is unavailable.
 if(NOT MCP_DISABLE_HTTP)
   if(NOT TARGET httplib)
-    if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../httplib/CMakeLists.txt")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirds/httplib/CMakeLists.txt")
+      add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/thirds/httplib" httplib-build)
+    elseif(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../httplib/CMakeLists.txt")
       add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../httplib" httplib-build)
     endif()
   endif()
@@ -115,7 +118,10 @@ endforeach()
 set(MCP_TEST_EXECUTABLES "")
 if(MCP_BUILD_TESTS)
   if(NOT TARGET gtest)
-    if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../googletest-1.18.0/CMakeLists.txt")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirds/googletest-1.18.0/CMakeLists.txt")
+      add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/thirds/googletest-1.18.0"
+                       "${CMAKE_BINARY_DIR}/mcp-googletest" EXCLUDE_FROM_ALL)
+    elseif(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../googletest-1.18.0/CMakeLists.txt")
       add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../googletest-1.18.0"
                        "${CMAKE_BINARY_DIR}/mcp-googletest" EXCLUDE_FROM_ALL)
     else()
