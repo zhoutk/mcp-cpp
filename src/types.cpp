@@ -94,6 +94,8 @@ McpResult<RequestMeta> decodeRequestMeta(const Json& params) {
   m.clientCapabilities = caps;
   const Json info = member(meta, kMetaClientInfo);
   if (info.isObject()) m.clientInfo = decodeImplementation(info);
+  const Json token = member(meta, kMetaProgressToken);
+  if (token.isString() || token.isNumber()) m.progressToken = decodeRequestId(token);
   return Ok(std::move(m));
 }
 
@@ -134,16 +136,22 @@ McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params) {
   m.complete = haveVersion && haveCaps;
   const Json info = member(meta, kMetaClientInfo);
   if (info.isObject()) m.clientInfo = decodeImplementation(info);
+  const Json token = member(meta, kMetaProgressToken);
+  if (token.isString() || token.isNumber()) m.progressToken = decodeRequestId(token);
   return Ok(std::move(m));
 }
 
 Json encodeRequestMeta(std::string_view protocolVersion,
                        const Json& clientCapabilities,
-                       const std::optional<Implementation>& clientInfo) {
+                       const std::optional<Implementation>& clientInfo,
+                       const std::optional<RequestId>& progressToken) {
   Json meta;
   meta.add(std::string(kMetaProtocolVersion), Json::str(std::string(protocolVersion)));
   meta.add(std::string(kMetaClientCapabilities), clientCapabilities);
   if (clientInfo) meta.add(std::string(kMetaClientInfo), encodeImplementation(*clientInfo));
+  if (progressToken) {
+    meta.add(std::string(kMetaProgressToken), encodeRequestId(*progressToken));
+  }
   Json params;
   params.add("_meta", std::move(meta));
   return params;

@@ -49,6 +49,18 @@ struct Ctx {
   const Json& params;              // full request params (validated object)
   const RequestMeta& meta;         // decoded params._meta
   const std::function<bool()>& isCancelled;  // true once notifications/cancelled names this request id
+
+  // Emits notifications/progress for THIS request (basic/patterns/progress.md).
+  // A no-op when the request carried no params._meta.progressToken - the spec
+  // only allows progress notifications for tokens from an active request.
+  // `progress` MUST increase across calls (the SDK does not enforce ordering).
+  // Pass `total < 0` to omit the total; an empty `message` is omitted.
+  std::function<void(double progress, double total, const std::string& message)> progress;
+
+  // Emits an arbitrary notification object on the active transport, e.g.
+  // notifications/message for logging (2026-07-28 carries log level in _meta).
+  // Best-effort: write errors are ignored. A no-op on one-shot transports.
+  std::function<void(const std::string& method, Json params)> notify;
 };
 
 // ---- subscriptions -----------------------------------------------------------
@@ -88,6 +100,25 @@ bool matchUriTemplate(const std::string& tmpl, const std::string& uri,
 // becomes the JSON-RPC error response verbatim.
 using Handler = std::function<McpResult<Json>(Ctx&)>;
 
+// Sends one server-to-client notification (method + params) on the active
+// transport. Best-effort: write failures are ignored.
+using NotifyFn = std::function<void(const std::string& method, Json params)>;
+
+// ---- result builders ---------------------------------------------------------
+// Convenience constructors for the two shapes a tools/call handler usually
+// returns (server/tools.md "Tool Result"). Both set resultType:"complete".
+
+// A single TextContent block: {"resultType":"complete","content":[{type,text}]}.
+// `isError` marks a tool-level (not protocol-level) failure.
+Json textResult(const std::string& text, bool isError = false);
+
+// A structured result: structuredContent plus - per the spec's
+// backward-compatibility SHOULD - the serialized JSON as a TextContent block.
+// When `textForCompat` is empty the SDK serializes `structured` itself.
+// Validate the result against the tool's outputSchema (the server does this
+// automatically when the tool definition declares one).
+Json structuredResult(const Json& structured, const std::string& textForCompat = "");
+
 // ---- server --------------------------------------------------------------------
 
 class Server {
@@ -105,6 +136,10 @@ class Server {
   // --- introspection for tests ---
   const Json& serverCapabilities() const { return capabilities_; }
   const std::vector<std::string>& supportedVersions() const { return supported_; }
+  // True when the server was built to serve legacy (pre-2026) clients. The
+  // HTTP transport consults this to apply the spec's backward-compatibility
+  // rule for a missing MCP-Protocol-Version header (treat as 2025-03-26).
+  bool acceptsLegacyClients() const { return acceptLegacy_; }
 
   // The wire-form definition of a registered tool (Error Json if unknown).
   // Used by the HTTP transport to validate Mcp-Param-* mirrored headers.
@@ -141,14 +176,16 @@ class Server {
 
   // handler dispatch, after meta/version/capability validation
   McpResult<Json> dispatchRequest(const JsonRpcRequest& req, const RequestMeta& meta,
-                                  const std::function<bool()>& cancelled);
+                                  const std::function<bool()>& cancelled,
+                                  const NotifyFn& notify);
 
   McpResult<Json> handleDiscover(const RequestMeta& meta);
   McpResult<Json> handleInitialize(const JsonRpcRequest& req);
   McpResult<Json> handlePaginatedList(const Registry& reg, const Json& params,
                                       std::string_view arrayKey);
   McpResult<Json> handleToolCall(const JsonRpcRequest& req, const RequestMeta& meta,
-                                 const std::function<bool()>& cancelled);
+                                 const std::function<bool()>& cancelled,
+                                 const NotifyFn& notify);
 
   bool versionSupported(std::string_view wire) const;
 
@@ -171,6 +208,7 @@ class Server {
   long listTtlMs_ = 0;
   bool acceptLegacy_ = false;
   std::string listCacheScope_ = "public";
+  std::string logLevel_;  // legacy logging/setLevel value (informational)
   std::string name_ = "mcp-cpp-server";
   std::string version_ = "0.1.0";
   Handler completionsHandler_;
@@ -194,7 +232,11 @@ class Builder {
   Builder& name(std::string n);
   Builder& version(std::string v);
   Builder& instructions(std::string text);
-  Builder& supports(ProtocolVersion v);         // repeatable; default: Latest only
+  // Adds a supported protocol version. Repeatable. NOTE: the default is
+  // Latest-only, and the FIRST explicit call REPLACES that default - to keep
+  // serving the latest revision alongside older ones, call
+  // `.supports(ProtocolVersion::Latest)` as well.
+  Builder& supports(ProtocolVersion v);
   Builder& pageSize(int n);                     // 0 disables *\/list pagination
   Builder& discoverTtlMs(long ms);
 

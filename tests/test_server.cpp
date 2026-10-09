@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <string>
 #include <variant>
 
@@ -613,4 +614,206 @@ TEST(ServerLegacy, StrictByDefault) {
       Json(R"({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cc","version":"1"}})")));
   ASSERT_NE(o.error, nullptr);
   EXPECT_EQ(o.error->error.code, -32601);
+}
+
+// ---- progress notifications (basic/patterns/progress.md) -------------------------
+
+TEST(ServerProgress, EmitsProgressForOptedInRequest) {
+  Builder b;
+  b.simpleTool("work", "long task", [](Ctx& c) -> McpResult<Json> {
+    c.progress(1, 3, "starting");
+    c.progress(3, 3, "");  // no message, total known
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+
+  // Request WITH a progressToken in _meta: expect 2 progress notifications then
+  // the result (3 wire messages).
+  Json params = encodeRequestMeta("2026-07-28", Json(R"({})"), std::nullopt,
+                                  RequestId(std::string("tok-1")));
+  params.add("name", Json::str("work"));
+  params.add("arguments", Json(R"({})"));
+  const std::string line = encodeRequest(RequestId(int64_t(1)), "tools/call", params);
+
+  MemTransport t({line});
+  server->processLine(line, t);
+  ASSERT_EQ(t.output_.size(), 3u);
+
+  auto n1 = parseMessage(t.output_[0]);
+  auto* notif1 = std::get_if<JsonRpcNotification>(&n1);
+  ASSERT_NE(notif1, nullptr);
+  EXPECT_EQ(notif1->method, "notifications/progress");
+  EXPECT_EQ(notif1->params["progressToken"].toString(), "tok-1");
+  EXPECT_DOUBLE_EQ(notif1->params["progress"].toDouble(), 1.0);
+  EXPECT_DOUBLE_EQ(notif1->params["total"].toDouble(), 3.0);
+  EXPECT_EQ(notif1->params["message"].toString(), "starting");
+
+  auto n2 = parseMessage(t.output_[1]);
+  auto* notif2 = std::get_if<JsonRpcNotification>(&n2);
+  ASSERT_NE(notif2, nullptr);
+  EXPECT_DOUBLE_EQ(notif2->params["progress"].toDouble(), 3.0);
+  EXPECT_FALSE(notif2->params.contains(std::string("message")));
+
+  auto res = parseMessage(t.output_[2]);
+  EXPECT_NE(std::get_if<JsonRpcResult>(&res), nullptr);
+}
+
+TEST(ServerProgress, SilentWithoutToken) {
+  Builder b;
+  b.simpleTool("work", "long task", [](Ctx& c) -> McpResult<Json> {
+    c.progress(1, 3, "ignored");  // no token -> no-op
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+  Out o = serveOnce(server, makeRequest("1", "tools/call",
+                                        Json(R"({"name":"work","arguments":{}})")));
+  ASSERT_NE(o.result, nullptr);
+  // Exactly one message (the result) - serveOnce already asserts output size 1.
+}
+
+TEST(ServerProgress, ArbitraryNotificationReachesTransport) {
+  Builder b;
+  b.simpleTool("log", "logs", [](Ctx& c) -> McpResult<Json> {
+    Json p;
+    p.add("level", Json::str("info"));
+    p.add("data", Json::str("hello"));
+    c.notify("notifications/message", std::move(p));
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+  const std::string line =
+      makeRequest("1", "tools/call", Json(R"({"name":"log","arguments":{}})"));
+  MemTransport t({line});
+  server->processLine(line, t);
+  ASSERT_EQ(t.output_.size(), 2u);
+  auto n = parseMessage(t.output_[0]);
+  auto* notif = std::get_if<JsonRpcNotification>(&n);
+  ASSERT_NE(notif, nullptr);
+  EXPECT_EQ(notif->method, "notifications/message");
+}
+
+// ---- outputSchema enforcement (server/tools.md "Output Schema") ------------------
+
+TEST(ServerOutputSchema, RejectsNonConformingStructuredContent) {
+  Builder b;
+  Json def(R"({"name":"weather","description":"w",
+               "inputSchema":{"type":"object"},
+               "outputSchema":{"type":"object","properties":{"temp":{"type":"number"}},
+                               "required":["temp"]}})");
+  b.tool(def, [](Ctx&) -> McpResult<Json> {
+    // temp is a string, not a number -> violates outputSchema.
+    return Ok(Json(R"({"resultType":"complete","content":[],"structuredContent":{"temp":"cold"}})"));
+  });
+  auto server = b.build();
+  Out o = serveOnce(server, makeRequest("1", "tools/call",
+                                        Json(R"({"name":"weather","arguments":{}})")));
+  ASSERT_NE(o.error, nullptr);
+  EXPECT_EQ(o.error->error.code, static_cast<int32_t>(McpErrorCode::InternalError));
+}
+
+TEST(ServerOutputSchema, AcceptsConformingStructuredContent) {
+  Builder b;
+  Json def(R"({"name":"weather","description":"w",
+               "inputSchema":{"type":"object"},
+               "outputSchema":{"type":"object","properties":{"temp":{"type":"number"}},
+                               "required":["temp"]}})");
+  b.tool(def, [](Ctx&) -> McpResult<Json> {
+    return Ok(Json(R"({"resultType":"complete","content":[],"structuredContent":{"temp":21.5}})"));
+  });
+  auto server = b.build();
+  Out o = serveOnce(server, makeRequest("1", "tools/call",
+                                        Json(R"({"name":"weather","arguments":{}})")));
+  ASSERT_NE(o.result, nullptr);
+  EXPECT_DOUBLE_EQ(o.result->result["structuredContent"]["temp"].toDouble(), 21.5);
+}
+
+TEST(ServerOutputSchema, TextOnlyResultSkipsValidation) {
+  Builder b;
+  Json def(R"({"name":"weather","description":"w",
+               "inputSchema":{"type":"object"},
+               "outputSchema":{"type":"object","required":["temp"]}})");
+  b.tool(def, [](Ctx&) -> McpResult<Json> {
+    // No structuredContent: nothing to validate (text-only results stay valid).
+    return Ok(Json(R"({"resultType":"complete","content":[]})"));
+  });
+  auto server = b.build();
+  Out o = serveOnce(server, makeRequest("1", "tools/call",
+                                        Json(R"({"name":"weather","arguments":{}})")));
+  ASSERT_NE(o.result, nullptr);
+}
+
+// ---- legacy-era compatibility (2025-xx clients) ----------------------------------
+// 2026-07-28 removed ping and logging/setLevel and replaced per-URI resource
+// subscriptions with subscriptions/listen. In legacy mode they are served
+// again, and legacy results omit resultType (pre-2026 schemas reject it).
+
+TEST(ServerLegacy, PingAndLoggingServedInLegacyMode) {
+  Builder b;
+  b.acceptLegacyClients(true);
+  auto server = b.build();
+
+  Out p = serveOnce(server, encodeRequest(RequestId(int64_t(1)), "ping", Json(nullptr)));
+  ASSERT_NE(p.result, nullptr);
+  EXPECT_FALSE(p.result->result.contains(std::string("resultType")));  // legacy: no resultType
+
+  Out l = serveOnce(server, encodeRequest(RequestId(int64_t(2)), "logging/setLevel",
+                                          Json(R"({"level":"debug"})")));
+  ASSERT_NE(l.result, nullptr);
+}
+
+TEST(ServerLegacy, PingIsMethodNotFoundInStrictMode) {
+  Builder b;  // strict 2026-07-28 server
+  auto server = b.build();
+  Out o = serveOnce(server, makeRequest("1", "ping", Json(nullptr)));
+  ASSERT_NE(o.error, nullptr);
+  EXPECT_EQ(o.error->error.code, -32601);
+}
+
+TEST(ServerLegacy, ResourceSubscribeServedInLegacyMode) {
+  Builder b;
+  b.acceptLegacyClients(true);
+  b.resource(Json(R"({"uri":"test://r","name":"r"})"),
+             [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"contents":[]})")); });
+  auto server = b.build();
+  Out o = serveOnce(server, encodeRequest(RequestId(int64_t(1)), "resources/subscribe",
+                                          Json(R"({"uri":"test://r"})")));
+  ASSERT_NE(o.result, nullptr);
+}
+
+TEST(ServerLegacy, LegacyRequestOmitsResultTypeModernKeepsIt) {
+  Builder b;
+  b.acceptLegacyClients(true);
+  b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server = b.build();
+
+  // Legacy: no _meta -> relaxed meta -> no resultType on the result.
+  Out legacy = serveOnce(server, encodeRequest(RequestId(int64_t(1)), "tools/call",
+                                               Json(R"({"name":"t","arguments":{}})")));
+  ASSERT_NE(legacy.result, nullptr);
+  EXPECT_FALSE(legacy.result->result.contains(std::string("resultType")));
+
+  // Modern: full _meta -> resultType injected (2026-07-28 requirement).
+  Out modern = serveOnce(server, makeRequest("2", "tools/call",
+                                             Json(R"({"name":"t","arguments":{}})")));
+  ASSERT_NE(modern.result, nullptr);
+  ASSERT_TRUE(modern.result->result.contains(std::string("resultType")));
+  EXPECT_EQ(modern.result->result["resultType"].toString(), "complete");
+}
+
+TEST(ServerLegacy, DeclaresConfiguredVersionsInDiscover) {
+  Builder b;
+  b.supports(ProtocolVersion::Latest)
+      .supports(ProtocolVersion::V2025_11_25)
+      .supports(ProtocolVersion::V2025_06_18);
+  auto server = b.build();
+  const auto& versions = server->supportedVersions();
+  EXPECT_EQ(versions.size(), 3u);
+  auto has = [&](const char* v) {
+    return std::find(versions.begin(), versions.end(), v) != versions.end();
+  };
+  // All three declared versions are advertised; the first supports() call
+  // replaced the Latest-only default, so Latest must be listed explicitly.
+  EXPECT_TRUE(has("2026-07-28"));
+  EXPECT_TRUE(has("2025-11-25"));
+  EXPECT_TRUE(has("2025-06-18"));
 }

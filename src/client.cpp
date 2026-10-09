@@ -43,11 +43,13 @@ std::string idToString(const RequestId& id) {
 
 // ---- request plumbing -------------------------------------------------------
 
-Json Client::buildParams(const Json& extraParams) const {
+Json Client::buildParams(const Json& extraParams,
+                         const std::optional<RequestId>& progressToken) const {
   Json params = encodeRequestMeta(
       protocolVersion_, clientCapabilities_,
       Implementation{clientName_, std::string(), clientVersion_, std::string(), std::string(),
-                     Json(nullptr)});
+                     Json(nullptr)},
+      progressToken);
   if (extraParams.isObject()) {
     for (const auto& item : extraParams.getAllKeys().toVector()) {
       params.add(item.toString(), extraParams[item.toString()]);
@@ -56,13 +58,14 @@ Json Client::buildParams(const Json& extraParams) const {
   return params;
 }
 
-McpResult<Json> Client::request(std::string_view method, const Json& extraParams) {
+McpResult<Json> Client::request(std::string_view method, const Json& extraParams,
+                                const std::optional<RequestId>& progressToken) {
   if (transport_ == nullptr) {
     return Err(McpErrorCode::InternalError, "client is not connected");
   }
   const RequestId id = nextRequestId(nextId_);
   const std::string idString = idToString(id);
-  const std::string line = encodeRequest(id, method, buildParams(extraParams));
+  const std::string line = encodeRequest(id, method, buildParams(extraParams, progressToken));
   auto wrote = transport_->write(line);
   if (!wrote.has_value()) return Err(wrote.error());
 
@@ -143,14 +146,34 @@ McpResult<Json> Client::listResourceTemplates(const std::string& cursor) {
   return request("resources/templates/list", extra);
 }
 
+McpResult<Json> Client::listResources(const std::string& cursor) {
+  Json extra;
+  if (!cursor.empty()) extra.add("cursor", Json::str(cursor));
+  return request("resources/list", extra);
+}
+
+McpResult<Json> Client::listPrompts(const std::string& cursor) {
+  Json extra;
+  if (!cursor.empty()) extra.add("cursor", Json::str(cursor));
+  return request("prompts/list", extra);
+}
+
+McpResult<Json> Client::complete(const Json& ref, const Json& argument) {
+  Json extra;
+  extra.add("ref", ref);
+  extra.add("argument", argument);
+  return request("completion/complete", extra);
+}
+
 McpResult<Json> Client::callTool(const std::string& name, const Json& arguments,
-                                 const Json& inputResponses) {
+                                 const Json& inputResponses,
+                                 const std::optional<RequestId>& progressToken) {
   mirrorHeaderParams(name, arguments);
   Json extra;
   extra.add("name", Json::str(name));
   if (!arguments.isNull()) extra.add("arguments", arguments);
   if (!inputResponses.isNull()) extra.add("inputResponses", inputResponses);
-  return request("tools/call", extra);
+  return request("tools/call", extra, progressToken);
 }
 
 McpResult<Json> Client::readResource(const std::string& uri) {

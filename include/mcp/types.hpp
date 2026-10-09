@@ -91,6 +91,10 @@ struct RequestMeta {
   std::string protocolVersion;         // required (a wire version string)
   Json clientCapabilities;             // required (object; Null only in decode failure)
   std::optional<Implementation> clientInfo;  // optional
+  // params._meta.progressToken when the client asked for progress updates on
+  // this request (basic/patterns/progress.md: string or integer, unique across
+  // active requests). Empty when the client did not opt in.
+  std::optional<RequestId> progressToken;
   // True when _meta carried the modern-required fields (protocolVersion +
   // clientCapabilities). Strict callers reject !complete; relaxed callers
   // (legacy mode) serve such requests with defaults.
@@ -109,9 +113,11 @@ McpResult<RequestMeta> decodeRequestMeta(const Json& params);
 McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params);
 
 // Builds a params._meta object for outgoing client requests (M3).
+// `progressToken` (optional) opts the request into progress notifications.
 Json encodeRequestMeta(std::string_view protocolVersion,
                        const Json& clientCapabilities,
-                       const std::optional<Implementation>& clientInfo);
+                       const std::optional<Implementation>& clientInfo,
+                       const std::optional<RequestId>& progressToken = std::nullopt);
 
 // ---- capability objects ------------------------------------------------------
 // Capabilities evolve per spec revision, so the SDK keeps them Json-backed

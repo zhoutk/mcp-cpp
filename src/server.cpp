@@ -20,12 +20,16 @@ struct MethodRoute {
 constexpr MethodRoute kRoutes[] = {
     {"server/discover", "", ""},
     {"initialize", "", ""},  // legacy handshake; served only when acceptLegacy_
+    {"ping", "", ""},        // legacy (removed in 2026-07-28)
+    {"logging/setLevel", "", ""},  // legacy (removed in 2026-07-28)
     {"subscriptions/listen", "", ""},
     {"tools/list", "tools", "tools"},
     {"tools/call", "tools", "tools"},
     {"resources/list", "resources", "resources"},
     {"resources/read", "resources", "resources"},
     {"resources/templates/list", "resources", "resources"},
+    {"resources/subscribe", "resources", "resources"},    // legacy
+    {"resources/unsubscribe", "resources", "resources"},  // legacy
     {"prompts/list", "prompts", "prompts"},
     {"prompts/get", "prompts", "prompts"},
     {"completion/complete", "completions", ""},
@@ -148,6 +152,32 @@ Server::Server(Server&& other) noexcept
       cancellations_(std::move(other.cancellations_)),
       subscriptions_(std::move(other.subscriptions_)) {}
 
+// ---- result builders ---------------------------------------------------------
+
+Json textResult(const std::string& text, bool isError) {
+  Json item;
+  item.add("type", Json::str("text"));
+  item.add("text", Json::str(text));
+  Json content = Json("[]");
+  content.push_back(std::move(item));
+  Json result;
+  result.add("content", std::move(content));
+  if (isError) result.add("isError", Json(true));
+  return result;
+}
+
+Json structuredResult(const Json& structured, const std::string& textForCompat) {
+  Json result;
+  Json item;
+  item.add("type", Json::str("text"));
+  item.add("text", Json::str(textForCompat.empty() ? structured.toString() : textForCompat));
+  Json content = Json("[]");
+  content.push_back(std::move(item));
+  result.add("content", std::move(content));
+  result.add("structuredContent", structured);
+  return result;
+}
+
 // ---- dispatch loop -----------------------------------------------------------
 
 McpResult<void> Server::run(ITransport& transport) {
@@ -201,9 +231,8 @@ void Server::processLine(const std::string& line, ITransport& out) {
     }
     McpResult<Json> initResult = handleInitialize(req);
     if (initResult.has_value()) {
-      if (initResult->isObject() && !initResult->contains(std::string(kResultTypeKey))) {
-        initResult->add(std::string(kResultTypeKey), Json::str(std::string(kResultTypeComplete)));
-      }
+      // Legacy InitializeResult: pre-2026 schemas have no resultType and reject
+      // unknown keys, so it is not added here (see the modern path below).
       (void)out.write(encodeResultResponse(req.id, *initResult));
     } else {
       (void)out.write(encodeErrorResponse(req.id, toErrorValue(initResult.error())));
@@ -280,11 +309,19 @@ void Server::processLine(const std::string& line, ITransport& out) {
   if (!cancelFlag) cancelFlag = std::make_shared<std::atomic_bool>(false);
   const std::function<bool()> cancelled = [cancelFlag] { return cancelFlag->load(); };
 
-  McpResult<Json> result = dispatchRequest(req, meta, cancelled);
+  // Server-to-client notifications for this request (progress, logging).
+  // Best-effort: a write failure must not abort the request.
+  const NotifyFn notify = [&out](const std::string& method, Json params) {
+    (void)out.write(encodeNotification(method, std::move(params)));
+  };
+
+  McpResult<Json> result = dispatchRequest(req, meta, cancelled, notify);
   if (result.has_value()) {
-    // Spec: servers implementing this version MUST include resultType on
-    // every result. Handlers that forgot it get "complete".
-    if (result->isObject() && !result->contains(std::string(kResultTypeKey))) {
+    // 2026-07-28 requires resultType on every result; the pre-2026 schemas have
+    // no such field and reject unknown keys, so it is injected only for modern
+    // requests (a legacy request is one served with relaxed, incomplete _meta).
+    if (meta.complete && result->isObject() &&
+        !result->contains(std::string(kResultTypeKey))) {
       result->add(std::string(kResultTypeKey), Json::str(std::string(kResultTypeComplete)));
     }
     (void)out.write(encodeResultResponse(req.id, *result));
@@ -295,7 +332,8 @@ void Server::processLine(const std::string& line, ITransport& out) {
 }
 
 McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const RequestMeta& meta,
-                                        const std::function<bool()>& cancelled) {
+                                        const std::function<bool()>& cancelled,
+                                        const NotifyFn& notify) {
   const MethodRoute* route = findRoute(req.method);
 
   // Capability gate: the server must have advertised the feature.
@@ -304,13 +342,39 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
                "Method not found: " + req.method + " (capability not advertised)");
   }
 
+  // Legacy-era utilities. 2026-07-28 removed ping and logging/setLevel, and
+  // replaced resource subscriptions with subscriptions/listen. They are served
+  // only when the server opted into legacy clients; a strict 2026 server
+  // answers MethodNotFound (-32601), matching the "unknown method" contract.
+  if (req.method == "ping" || req.method == "logging/setLevel") {
+    if (!acceptLegacy_) {
+      return Err(McpErrorCode::MethodNotFound, "Method not found: " + req.method);
+    }
+    // logging/setLevel: accept and record the level (notifications/message is
+    // emitted through Ctx::notify; filtering is the handler's concern).
+    if (req.method == "logging/setLevel") {
+      const Json level = member(req.params, "level");
+      if (level.isString()) logLevel_ = std::string(level.toString());
+    }
+    return Ok(Json(R"({})"));
+  }
+  if (req.method == "resources/subscribe" || req.method == "resources/unsubscribe") {
+    if (!acceptLegacy_) {
+      return Err(McpErrorCode::MethodNotFound, "Method not found: " + req.method);
+    }
+    // The legacy per-URI subscription model: accept and acknowledge. Servers
+    // that need real per-URI update fan-out implement it in their transport
+    // (2026 clients use subscriptions/listen instead).
+    return Ok(Json(R"({})"));
+  }
+
   if (req.method == "server/discover") return handleDiscover(meta);
   if (req.method == "tools/list") return handlePaginatedList(tools_, req.params, "tools");
   if (req.method == "completion/complete") {
-    Ctx ctx{req.params, meta, cancelled};
+    Ctx ctx{req.params, meta, cancelled, {}, {}};
     return completionsHandler_(ctx);
   }
-  if (req.method == "tools/call") return handleToolCall(req, meta, cancelled);
+  if (req.method == "tools/call") return handleToolCall(req, meta, cancelled, notify);
   if (req.method == "resources/list") return handlePaginatedList(resources_, req.params, "resources");
   if (req.method == "prompts/list") return handlePaginatedList(prompts_, req.params, "prompts");
 
@@ -349,7 +413,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     if (handler == nullptr) {
       return Err(McpErrorCode::InvalidParams, "Unknown resource: " + uriText);
     }
-    Ctx ctx{req.params, meta, cancelled};
+    Ctx ctx{req.params, meta, cancelled, {}, {}};
     McpResult<Json> read = (*handler)(ctx);
     // 2026-07-28 requires CacheableResult (ttlMs + cacheScope) on resources/read
     // too: a strict modern client rejects the result without them, so a handler
@@ -372,7 +436,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     if (it == prompts_.handlers.end()) {
       return Err(McpErrorCode::InvalidParams, "Unknown prompt: " + std::string(name.toString()));
     }
-    Ctx ctx{req.params, meta, cancelled};
+    Ctx ctx{req.params, meta, cancelled, {}, {}};
     return it->second(ctx);
   }
 
@@ -441,7 +505,8 @@ McpResult<Json> Server::handlePaginatedList(const Registry& reg, const Json& par
 }
 
 McpResult<Json> Server::handleToolCall(const JsonRpcRequest& req, const RequestMeta& meta,
-                                       const std::function<bool()>& cancelled) {
+                                       const std::function<bool()>& cancelled,
+                                       const NotifyFn& notify) {
   const Json name = member(req.params, "name");
   if (!name.isString()) {
     return Err(McpErrorCode::InvalidParams, "tools/call requires a string name");
@@ -462,8 +527,40 @@ McpResult<Json> Server::handleToolCall(const JsonRpcRequest& req, const RequestM
       return Err(McpErrorCode::InvalidParams, "Invalid tool arguments: " + verdict.error().message);
     }
   }
-  Ctx ctx{req.params, meta, cancelled};
-  return it->second(ctx);
+
+  // Ctx: handlers may emit progress notifications and arbitrary notifications.
+  Ctx ctx{req.params, meta, cancelled, {}, {}};
+  ctx.notify = notify;
+  ctx.progress = [notify, token = meta.progressToken](double value, double total,
+                                                      const std::string& message) {
+    if (!token) return;  // client did not opt in to progress for this request
+    Json params;
+    params.add("progressToken", encodeRequestId(*token));
+    params.add("progress", Json(value));
+    if (total >= 0) params.add("total", Json(total));
+    if (!message.empty()) params.add("message", Json::str(message));
+    notify("notifications/progress", std::move(params));
+  };
+
+  McpResult<Json> result = it->second(ctx);
+  if (!result.has_value()) return result;
+
+  // outputSchema enforcement: the spec says a server that declares an output
+  // schema MUST return structuredContent conforming to it (tools.md "Output
+  // Schema"). Only enforced when the handler actually returned structured
+  // content - a text-only result stays valid.
+  const Json outputSchema = member(def, "outputSchema");
+  if (outputSchema.isObject()) {
+    const Json structured = member(*result, "structuredContent");
+    if (!structured.isNull()) {
+      auto verdict = validateSchema(structured, outputSchema);
+      if (!verdict.has_value()) {
+        return Err(McpErrorCode::InternalError,
+                   "Tool result does not conform to outputSchema: " + verdict.error().message);
+      }
+    }
+  }
+  return result;
 }
 
 

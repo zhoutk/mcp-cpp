@@ -219,3 +219,49 @@ TEST(Client, NotConnectedIsInternalError) {
   ASSERT_FALSE(r.has_value());
   EXPECT_EQ(r.error().code, McpErrorCode::InternalError);
 }
+
+// ---- progress opt-in (basic/patterns/progress.md) --------------------------------
+
+TEST(ClientProgress, EmbedsTokenAndDeliversNotifications) {
+  // The scripted server sends one progress notification, then the result.
+  Json progressParams;
+  progressParams.add("progressToken", Json::str("tok-9"));
+  progressParams.add("progress", Json(50.0));
+  progressParams.add("total", Json(100.0));
+  std::string progressLine = encodeNotification("notifications/progress", progressParams);
+  std::string resultLine = makeResultLine(RequestId(int64_t(1)), Json(R"({"ok":true})"));
+
+  ScriptedTransport t({resultLine}, {progressLine});
+  Client c("probe", "1.0");
+  c.connect(t);
+
+  std::vector<JsonRpcNotification> seen;
+  c.onNotification([&](const JsonRpcNotification& n) { seen.push_back(n); });
+
+  auto r = c.callTool("work", Json(R"({})"), Json(nullptr), RequestId(std::string("tok-9")));
+  ASSERT_TRUE(r.has_value()) << r.error().message;
+
+  // The outgoing request carried the token in params._meta.
+  ASSERT_FALSE(t.sent_.empty());
+  auto sent = parseMessage(t.sent_[0]);
+  auto* req = std::get_if<JsonRpcRequest>(&sent);
+  ASSERT_NE(req, nullptr);
+  EXPECT_EQ(req->params["_meta"]["progressToken"].toString(), "tok-9");
+
+  // The interleaved notification was surfaced, not swallowed.
+  ASSERT_EQ(seen.size(), 1u);
+  EXPECT_EQ(seen[0].method, "notifications/progress");
+  EXPECT_DOUBLE_EQ(seen[0].params["progress"].toDouble(), 50.0);
+}
+
+TEST(ClientProgress, OmitsTokenWhenNotRequested) {
+  ScriptedTransport t({makeResultLine(RequestId(int64_t(1)), Json(R"({"ok":true})"))}, {});
+  Client c("probe", "1.0");
+  c.connect(t);
+  auto r = c.callTool("work", Json(R"({})"));
+  ASSERT_TRUE(r.has_value()) << r.error().message;
+  auto sent = parseMessage(t.sent_[0]);
+  auto* req = std::get_if<JsonRpcRequest>(&sent);
+  ASSERT_NE(req, nullptr);
+  EXPECT_FALSE(req->params["_meta"].contains(std::string("progressToken")));
+}
