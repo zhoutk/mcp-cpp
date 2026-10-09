@@ -111,9 +111,10 @@ AI 行为（一次会话内，透明跨库）：
 ### 2.3 Resources（表结构自描述）
 
 - `db://schema` → 所有后端的库清单与表清单总览；
-- `db://schema/{db}/{table}` → 某表列/类型/主键（setup 已知表集合，启动时注册）；
+- `db://schema/{db}/{table}` → 某表列/类型/主键；
+- `db://schema/{db}/{table}` 经 `Builder::resourceTemplate` 以 RFC 6570 子集模板注册（字面量段 + `{var}`/`{+var}`），由 `resources/read` 的模板回退解析——运行期新建的表无需重启即可读；
 - 写操作落盘后调用 `notifyResourceUpdated`（mcp-cpp 已支持）→ 配合订阅演示实时通知。
-- v1 简化决策：**不做动态 resource 注册**——demo 的表集合在 setup 时已知，启动时静态注册全部；新增表走 `--setup` 幂等重建 + 重启。
+- v1 简化决策（2026-10-09 修订）：原定"**不做动态 resource 注册**——demo 的表集合在 setup 时已知，启动时静态注册全部；新增表走 `--setup` 幂等重建 + 重启"；mcp-cpp 已支持 resource URI templates（见 PLAN Update 9），故改为：`db://schema/{db}/{table}` 以模板一次注册，运行期新建的表直接可读，不再需要重启或重注册。
 
 ### 2.4 Completion
 
@@ -197,7 +198,7 @@ inputResponses.approved != true → 返回 complete + content 说明"已取消"�
 | # | 任务 | 产出 |
 | --- | --- | --- |
 | 2.1 | 写确认状态机：pending map + `input_required` 组装 + inputResponses 处理（§2.5 流程） | `db_insert/db_update/db_delete` 安全闸门 |
-| 2.2 | Resources：`db://schema` 总览 + `db://schema/{db}/{table}` 逐表注册（setup 表集合已知）；元数据缓存（表→列/类型） | 表结构自描述 |
+| 2.2 | Resources：`db://schema` 总览 + `db://schema/{db}/{table}` 经 `Builder::resourceTemplate` 模板注册（RFC 6570 子集）；元数据缓存（表→列/类型） | 表结构自描述 |
 | 2.3 | Completion：`b.completions(handler)` 对 table/fields 补全（读元数据缓存） | 参数补全 |
 | 2.4 | 写后 `notifyListChanged/notifyResourceUpdated` 接线 | 订阅演示素材 |
 | 2.5 | `db_exec_sql`：`--allow-sql` 白名单开关（默认不注册） | 高级能力（默认关） |
@@ -251,7 +252,7 @@ inputResponses.approved != true → 返回 complete + content 说明"已取消"�
 
 1. spawn 子进程（`--yes` 关确认用于常规路径）
 2. discover → tools/list 断言 6 工具与 schema
-3. resources/list 断言 db://schema 集合；resources/read 断言列结构
+3. resources/list 断言 db://schema 集合；resources/templates/list 断言 `db://schema/{db}/{table}` 模板存在；resources/read 断言列结构
 4. db_list_tables / db_query（含 group+sum 跨库）/ db_count 逐个断言结果
 5. MRTR 流：不带确认调用 db_insert → 断言 `input_required` + requestState；带 `inputResponses.approved:true` 重试 → 断言 complete 且数据落盘；带 approved:false → 断言未执行
 6. completion/complete：table 前缀补全断言

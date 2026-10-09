@@ -167,7 +167,7 @@ auto server = b.build();
 server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
 ```
 
-- Client API 对标 python-sdk `ClientSession`：`connect(transport)` / `list_tools()` / `call_tool()` / `read_resource()` / `subscribe(...)`，全部 `McpResult<T>`。
+- Client API 对标 python-sdk `ClientSession`：`connect(transport)` / `list_tools()` / `call_tool()` / `read_resource()` / `list_resource_templates()` / `subscribe(...)`，全部 `McpResult<T>`。
 - C++17 惯用法补强：builder 链式返回用引用限定 `T&& set_x(...)&&`（C++17 即可精确控制 `&&` 生命周期）；编译期 schema 注册用 `constexpr` 聚合 + `consteval` 前身（若检测到 C++20 编译器则启用 `consteval`，否则 `constexpr`）。
 
 ## 5. 与官方 Tier-1 SDK 的功能对齐矩阵（设计验收）
@@ -179,6 +179,7 @@ server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
 | stdio 传输 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
 | Streamable HTTP + SSE | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
 | tools/resources/prompts 完整类型 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| resource URI templates（`resources/templates/list` + read 模板回退） | ✅ | ✅ | ✅ | ✅ | ✅ | M5 后补 |
 | 错误码 + `resultType` 三态 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
 | MRTR（input_required → inputResponses 重试） | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
 | 取消 notifications/cancelled | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
@@ -349,7 +350,7 @@ server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
 - **能力广播与注册联动**：`Builder::tool/resource/prompt` 注册即广播对应 capability。能力对象 `capabilities_` 必须初始化为**空 Object** 而非 Null——往 Null 节点 `add` 无效且静默（这次踩了：9 个测试一起红，根因一行）。Json 的 Null/Object 区分要当作类型系统来尊重。
 - **取消**：`requestId → shared_ptr<atomic_bool>` 槽位表；`notifications/cancelled` 置位；请求到达时**复用已有槽**（乱序投递下取消不能被新标志覆盖）；请求完成即清槽。单线程下这是完备语义；M4 多 worker 时同一槽位设计天然线程安全。
 - **resultType 注入**：server 对 handler 返回的缺省 resultType 补 `"complete"`（规范：2026 实现必须带；handler 只在自己关心多态时写）。`input_required`（MRTR）原样透传——handler 自己构造 InputRequiredResult 即可，M3 client 配合闭环。
-- **分页**：`*\/list` 用不透明 cursor（本实现编码为 offset 数字串），pageSize 0 = 不分页；非法 cursor → `-32602`。`resources/templates/list` 已注册路由但模板注册表 v1 未做（记录为缺口）。
+- **分页**：`*\/list` 用不透明 cursor（本实现编码为 offset 数字串），pageSize 0 = 不分页；非法 cursor → `-32602`。`resources/templates/list` 已注册路由但模板注册表 v1 未做（记录为缺口）（已由 Update 9 补齐）。
 
 **踩坑**：
 
@@ -431,7 +432,22 @@ server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
 
 **M5 验收**：10/10 CTest 全绿 + 3 个基准可运行（mcp_bench_parse/dispatch/e2e，附带 --bench-child 自spawn 模式）。
 
-**项目收官状态**：M0–M5 全部完成。PLAN §5 功能矩阵中除有意不实现的 Roots/Sampling（SEP-2577 弃用）与 v2 项（Tasks/OAuth）外全部落地。后续候选（按价值排序）：零拷贝解析优化（B1 差距）、Tasks 扩展、resources/templates/list 注册表、conformance 仓库对齐。
+**项目收官状态**：M0–M5 全部完成。PLAN §5 功能矩阵中除有意不实现的 Roots/Sampling（SEP-2577 弃用）与 v2 项（Tasks/OAuth）外全部落地。后续候选（按价值排序）：零拷贝解析优化（B1 差距）、Tasks 扩展、~~resources/templates/list 注册表~~（已完成，见 Update 9）、conformance 仓库对齐。
+
+### 2026-10-09 Update 9 — resource URI templates（M5 后补）
+
+**动机**：参数化 resource（典型如运行期才建出的数据库表）在 v1 下必须启动时逐条静态注册——表在启动后新增就得重启或重注册，客户端拿到的还是启动快照。URI 模板让"一类 URI"一次注册、任意实例可读，正好补上 M2 Update 5 记下的"`resources/templates/list` 已注册路由但模板注册表 v1 未做"这一缺口。
+
+**交付**：
+
+- **`Builder::resourceTemplate(Json definition, Handler readHandler)`**（`src/server.cpp`、声明于 `include/mcp/server.hpp`）：按定义对象的 `uriTemplate` 字段建键注册，与 `resource()` 一样按需广播 `resources` capability；缺 `uriTemplate` 的定义忽略并告警。
+- **RFC 6570 子集匹配**：字面量段 + `{var}`（非空、不含 `/`）+ `{+var}`（非空、可含 `/`）；不支持 `{?query}`/`{#fragment}`/多变量表达式。单遍贪婪匹配，变量由下一个字面量定界。
+- **`resources/templates/list`**：现返回 `resourceTemplates` 数组（分页/缓存与 `resources/list` 同路，`handlePaginatedList`）；此前该路由存在但回 MethodNotFound。
+- **`resources/read` 模板回退**：精确注册优先；无精确命中时按最具体模板解析——变量数最少者优先，并列时字面量前缀最长者优先。
+- **公共 helper `mcp::server::matchUriTemplate(tmpl, uri, vars)`**（`include/mcp/server.hpp`）：server 内部路由即用它，也开放给需要同款匹配的 server 作者。
+- **客户端 `Client::listResourceTemplates(cursor)`**（`include/mcp/client.hpp`、`src/client.cpp`）：带分页游标的 `resources/templates/list` 封装。
+
+**验收**：新增 `ServerRegistrys.ResourceTemplates`（模板与具体 resource 分列、未注册 URI 经模板可读、精确命中胜过模板、无匹配仍 `-32602`、模板继承 CacheableResult 提示）与 `ServerRegistrys.UriTemplateMatching`（`{var}` 不跨 `/`/不匹配空串、`{+var}` 跨 `/`、尾随字面量精确消费）两用例；`ctest` 10/10 全绿。
 
 ---
 *文档维护规则：每个里程碑完成后，把遇到的偏差、性能实测数字、被否决的设计记录到对应用节下新增「Update YYYY-MM-DD」条目，原文不删。*

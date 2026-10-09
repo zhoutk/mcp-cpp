@@ -169,6 +169,7 @@ Tools 是**模型可调用**的函数，每个工具由 `name` 唯一标识并�
 - 以 `URI`（`file://`、`db://` 等）定位的上下文数据。
 - 方法：`resources/list`、`resources/read`、`resources/templates/list`、`resources/subscribe`（订阅变更）。
 - 适合暴露：表结构元数据（schema）、配置、字典数据、查询结果快照。
+- **Resource Templates（资源模板）**：以 RFC 6570 子集模板（字面量段 + `{var}`/`{+var}`）一次注册一类 URI，经 `resources/templates/list` 列出、`resources/read` 模板回退解析（精确命中优先，模板按变量最少 → 字面量前缀最长取最具体者）；解决"启动快照"问题——运行期才出现的资源（如新建的表）无需重启即可读。
 
 ### 5.3 Prompts（提示词）
 
@@ -221,10 +222,10 @@ Tools 是**模型可调用**的函数，每个工具由 `name` 唯一标识并�
 | `Idb::select/querySql`（查询） | **Tool**（或 Resource 快照） | `tools/call` → 生成 SQL → 返回 JSON |
 | `Idb::create/update/remove/execSql`（写操作） | **Tool**（需 human-in-the-loop 确认） | `tools/call` + `isError` |
 | `Idb::insertBatch/transGo`（事务） | **Tool**（MRTR 收集确认） | `tools/call` |
-| 表结构/字段元数据（`DbUtils`） | **Resource**（`db://schema/{table}`） | `resources/read` |
+| 表结构/字段元数据（`DbUtils`） | **Resource Template**（`db://schema/{table}`） | `resources/templates/list` + `resources/read` 模板回退 |
 | 字段名/表名补全 | **Completion** | `completion/complete` |
 | 常见查询套路 | **Prompt** | `prompts/get` |
-| 分页查询 | **Pagination**（游标） | `tools/list`/`resources/list` 游标 |
+| 分页查询 | **Pagination**（游标） | `tools/list`/`resources/list`/`resources/templates/list` 游标 |
 
 > 注意 zorm 数据以 **Json（zjson）** 进出 —— MCP 消息本身就是 JSON，zjson 可直接复用做消息编解码（需注意 zjson 的 JSON 嗅探约定：文本值需 `Json::str()` 包裹）。
 

@@ -50,6 +50,7 @@
 | HTTP 头镜像（MCP-Protocol-Version/Mcp-Method/Mcp-Name + `Mcp-Param-*`） | `transport_http.cpp` validateHeaders + `x-mcp-header` 编解码 | ✅ 含 `-32020` HeaderMismatch |
 | 404/405 区分、202 通知、Origin 防护（DNS rebinding） | 均已实现且有 e2e 覆盖 | ✅ |
 | 弃用项 Roots/Sampling（SEP-2577） | 有意不实现；未知方法回 `-32601` | ✅ 符合规范建议 |
+| Resource URI templates（`resources/templates/list` + read 模板回退） | `server.cpp` `matchUriTemplate` + `Builder::resourceTemplate` | ✅ RFC 6570 子集；精确命中优先，模板按具体度（变量最少→字面量前缀最长）回退 |
 
 **结论：协议面与 2026-07-28 规范高度一致，没有发现协议级偏差。**
 
@@ -120,7 +121,7 @@
 | --- | --- | --- |
 | **构建集成** | 根 CMakeLists `add_subdirectory(thirds/mcp-cpp)`；zorm_server 链接 `mcp zormlib` | ✅ 已落地 |
 | **工具面** | `db_select/db_insert/db_update/db_delete` 四工具 + JSON Schema 校验；写操作建议后续走 MRTR 确认（`require_confirmation`） | ✅ 已有四工具；确认闸门是下一步 |
-| **能力扩展**（建议） | ① 表结构暴露为 Resources（`db://schema/{table}`）；② 表名/字段名补全（`completion/complete`）；③ 连接池化（每请求租用 `DbPool::Lease`，摆脱单连接 g_db）；④ `execSql` 默认禁用的白名单开关 | 未实现，见 §六 路线 |
+| **能力扩展**（建议） | ① 表结构暴露为 Resources（`db://schema/{table}`，已可用 `Builder::resourceTemplate` 表达为 URI 模板）；② 表名/字段名补全（`completion/complete`）；③ 连接池化（每请求租用 `DbPool::Lease`，摆脱单连接 g_db）；④ `execSql` 默认禁用的白名单开关 | 未实现，见 §六 路线 |
 
 ### 4.3 独立发布与 zorm 的关系
 
@@ -143,7 +144,7 @@
 
 ## 六、后续路线建议（按价值排序）
 
-1. **zorm_server 增强**：`DbPool` 租用（并发就绪）+ 写操作 MRTR 确认闸门 + 表结构 Resources + `completion` 表/字段补全——让 zorm 集成成为 mcp-cpp 的"旗舰 demo"；
+1. **zorm_server 增强**：`DbPool` 租用（并发就绪）+ 写操作 MRTR 确认闸门 + 表结构 Resources（`db://schema/{table}`，已可表达为 resource URI template）+ `completion` 表/字段补全——让 zorm 集成成为 mcp-cpp 的"旗舰 demo"；
 2. **B1 性能优化**：零拷贝 `string_view` 解析（zjson arena 已支持）+ envelope 预扫描快路径，把 0.38×→1×+（兑现 §8 承诺或调低承诺）；
 3. **conformance 对齐**：接入 `modelcontextprotocol/conformance` 仓库，冲击 Tier-1 100% 必测项——这是"官方无 C++ SDK"补位的关键认证；
 4. **Tasks 扩展 / OAuth 2.1**（v2）：HTTP 远程部署场景需要；

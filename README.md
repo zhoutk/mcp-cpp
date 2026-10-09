@@ -2,7 +2,7 @@
 
 Independent MCP (Model Context Protocol) C++ SDK — C++17, no dependencies beyond a bundled JSON single-header (zjson) and optionally cpp-httplib for HTTP. Targets the MCP specification **2026-07-28** with Tier-1 SDK (TS/Python/C#/Go/Rust) feature coverage and a value-semantic C++ design (no async runtime required).
 
-**Status: M0–M5 complete (feature-complete per PLAN.md §5 matrix).** Roadmap and decision log: [PLAN.md](PLAN.md).
+**Status: M0–M5 complete (feature-complete per PLAN.md §5 matrix).** Post-M5 addition: resource URI templates (RFC 6570 subset) with `resources/templates/list` and template-fallback `resources/read` — see PLAN.md Update 9. Roadmap and decision log: [PLAN.md](PLAN.md).
 
 ## Feature matrix (vs the official Tier-1 SDKs)
 
@@ -15,7 +15,8 @@ Independent MCP (Model Context Protocol) C++ SDK — C++17, no dependencies beyo
 | stdio transport (newline framing, binary mode on Windows, EOF shutdown) | ✅ | ✅ |
 | Streamable HTTP (POST-only, header mirroring, `Mcp-Param-*`, 202/404/405, `-32020`) | ✅ | ✅ |
 | SSE response streams + `subscriptions/listen` (ack, filter fan-out, graceful closure, keep-alive) | ✅ | ✅ |
-| tools/resources/prompts registries, capability gating, pagination cursors | ✅ | ✅ |
+| tools/resources/prompts registries (incl. resource URI templates), capability gating, pagination cursors | ✅ | ✅ |
+| Resource URI templates (RFC 6570 subset: literals, `{var}`, `{+var}`; `resources/templates/list` + template-fallback `resources/read`) | ✅ | ✅ |
 | `notifications/cancelled` + queryable cancellation flag | ✅ | ✅ |
 | MRTR: `input_required` results + `inputResponses` retry | ✅ | ✅ |
 | `completion/complete` | ✅ | ✅ |
@@ -68,12 +69,25 @@ b.simpleTool("add", "adds two integers", [](mcp::server::Ctx& c) -> mcp::McpResu
                               c.params["arguments"]["b"].toInt64()));
   return mcp::Ok(std::move(result));
 });
+
+// A parametric resource: one template serves every db/table URI, including
+// tables created after the server started (no restart, no re-registration).
+b.resourceTemplate(
+    mcp::Json(R"({"uriTemplate":"db://schema/{db}/{table}","name":"table schema"})"),
+    [](mcp::server::Ctx& c) -> mcp::McpResult<mcp::Json> {
+      std::vector<std::pair<std::string, std::string>> vars;
+      mcp::server::matchUriTemplate("db://schema/{db}/{table}",
+                                    c.params["uri"].toString(), &vars);
+      mcp::Json result;
+      result.add("contents", mcp::Json("[]"));  // e.g. column schema for vars[0].second / vars[1].second
+      return mcp::Ok(std::move(result));
+    });
 auto server = b.build();
 mcp::StdioTransport transport;
 (void)server->run(transport);
 ```
 
-Client side mirrors it: `mcp::client::Client` over any `ITransport` (stdio, in-memory, or `mcp::http::HttpClientTransport`).
+Client side mirrors it: `mcp::client::Client` over any `ITransport` (stdio, in-memory, or `mcp::http::HttpClientTransport`), with `discover()`, `listTools()`, `callTool()`, `readResource()`, `listResourceTemplates()`, `getPrompt()`, and `subscribe()`.
 
 ### zorm integration
 

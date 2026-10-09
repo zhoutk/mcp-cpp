@@ -14,7 +14,7 @@
 | 阶段 0 协议验证/选型 | ✅ 完成（mcp-cpp 即选型结论：自研优于社区 SDK） |
 | 阶段 1 协议层 | ✅ 完成（mcp-cpp 提供，远超原计划子集：含 HTTP/SSE/订阅/校验器） |
 | 阶段 2 工具适配层 | ✅ 完成（`examples/zorm_server.cpp` 四工具 + JSON Schema） |
-| 阶段 3 Resources/Prompts/补全 | ⏳ 部分（mcp-cpp 能力就绪，zorm 侧表结构 Resource/补全待接线） |
+| 阶段 3 Resources/Prompts/补全 | ⏳ 部分（mcp-cpp 能力就绪，含 resource URI templates；zorm 侧表结构 Resource/补全待接线） |
 | 阶段 4 HTTP + 安全 | ✅ 完成（mcp-cpp Streamable HTTP + 头镜像 + Origin 防护；OAuth 为 v2） |
 | 阶段 5 测试与发布 | ⏳ mcp-cpp 侧完成（10/10 测试 + 独立发布检查单）；zorm 集成 e2e/发布待做 |
 
@@ -86,7 +86,7 @@
 | 实现语言 | **C++17，复用 zormlib** | 核心库不动；避免再维护一套 TS/Python 版本 |
 | 协议层 | **`thirds/mcp-cpp` 独立库**（原"自研 src/mcp"） | 已 M0–M5 完成、独立可发布、Tier-1 功能对齐（见评审报告）；zorm 只需写工具定义 |
 | 传输 | **stdio + Streamable HTTP 均已就绪**（mcp-cpp） | 本地 stdio 为主，HTTP 已具备（含 SSE 订阅） |
-| 服务器能力 | **Tools（四工具已实现）+ Resources（表结构，待接线）+ Prompts（待定）** | Tools 是刚需已落地；Resources 增量小、体验提升大 |
+| 服务器能力 | **Tools（四工具已实现）+ Resources（表结构，待接线；mcp-cpp 已支持 resource URI templates）+ Prompts（待定）** | Tools 是刚需已落地；Resources 增量小、体验提升大 |
 | 客户端能力 | 首期不实现（Sampling/Roots 已弃用；Elicitation 走 MRTR） | 裁剪协议面，mcp-cpp 按 SEP-2577 有意不做 Roots/Sampling |
 | 连接管理 | 复用 `DbPool::HandlePool` | 当前 zorm_server 用单连接 `g_db`；并发场景改为每请求租用 |
 | JSON 层 | 复用 zjson（mcp-cpp 经 IJsonAdapter 注入） | 已含解析/序列化；注意 `Json::str()` 嗅探约定 |
@@ -111,7 +111,7 @@
 - [x] `server/discover`、`subscriptions/listen`、分页、CacheableResult、错误码分区——`server.hpp/.cpp`；
 - [x] Streamable HTTP + SSE + 头镜像 + Origin 防护——`transport_http.hpp/.cpp`；
 - [x] JSON Schema 2020-12 校验器（资源上限防护）——`schema.hpp/.cpp`；
-- [x] Client API（`client.hpp/.cpp`）+ MRTR（input_required 重试）。
+- [x] Client API（`client.hpp/.cpp`：`listTools`/`callTool`/`readResource`/`listResourceTemplates` 等）+ MRTR（input_required 重试）。
 
 ### 阶段 2：工具适配层 —— ✅ 完成（`examples/zorm_server.cpp`，四工具）
 
@@ -127,6 +127,7 @@
 mcp-cpp 能力已就绪（resources/prompts/completion 注册表 + 分页游标），zorm 侧待接线：
 
 - [ ] **Resources**：`db://schema`（库表清单）、`db://schema/{table}`（表结构：列、类型、主键）——基于 `DbUtils`/各库元数据查询；
+  - `db://schema/{table}` 用 `Builder::resourceTemplate`（RFC 6570 子集）注册，运行期新建的表经 `resources/read` 模板回退直接可读，无需重启或重注册；
 - [ ] **Completion**：`completion/complete` 为工具参数提供表名、字段名候选（mcp-cpp 已支持 handler）；
 - [ ] **Prompts**（可选）：预置查询模板；
 - [ ] **分页**：`db_select` 复用 zorm page/size 保留字，接 mcp-cpp 游标。
