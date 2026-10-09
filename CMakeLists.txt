@@ -21,6 +21,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(MCP_BUILD_TESTS "Build mcp-cpp unit tests" ON)
+# Examples/benchmarks are dev-facing; a host project embedding mcp-cpp as a
+# third-party dependency normally turns them off.
+option(MCP_BUILD_EXAMPLES "Build mcp-cpp examples and benchmarks" ON)
 # Reserved now, effective from M3 (Streamable HTTP transport); a pure-stdio
 # build for low-footprint hosts must stay possible.
 option(MCP_DISABLE_HTTP "Build without the Streamable HTTP transport" OFF)
@@ -93,19 +96,26 @@ if(NOT MCP_DISABLE_HTTP)
 endif()
 
 # ---- examples ---------------------------------------------------------------
+# Convention: build/ holds intermediate artifacts, bin/ holds the final
+# executables (this project's own bin/ when standalone, the host project's
+# bin/ when embedded).
 
-add_executable(minimal_server examples/minimal_server.cpp)
-target_link_libraries(minimal_server PRIVATE mcp)
+if(MCP_BUILD_EXAMPLES)
+  add_executable(minimal_server examples/minimal_server.cpp)
+  target_link_libraries(minimal_server PRIVATE mcp)
 
-# ---- benchmarks (not registered with CTest; run manually) --------------------
+  # benchmarks (not registered with CTest; run manually)
+  add_executable(mcp_bench_parse bench/bench_parse.cpp)
+  add_executable(mcp_bench_dispatch bench/bench_dispatch.cpp)
+  add_executable(mcp_bench_e2e bench/bench_e2e.cpp)
+  foreach(t mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e)
+    target_link_libraries(${t} PRIVATE mcp)
+    target_compile_options(${t} PRIVATE ${MCP_CXX_WARNINGS})
+  endforeach()
 
-add_executable(mcp_bench_parse bench/bench_parse.cpp)
-add_executable(mcp_bench_dispatch bench/bench_dispatch.cpp)
-add_executable(mcp_bench_e2e bench/bench_e2e.cpp)
-foreach(t mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e)
-  target_link_libraries(${t} PRIVATE mcp)
-  target_compile_options(${t} PRIVATE ${MCP_CXX_WARNINGS})
-endforeach()
+  set_target_properties(minimal_server mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+endif()
 
 # ---- tests -----------------------------------------------------------------
 # googletest discovery, in order:
@@ -167,9 +177,8 @@ if(MCP_BUILD_TESTS)
   add_test(NAME mcp_test_stdio_e2e COMMAND mcp_test_stdio_e2e)
   list(APPEND MCP_TEST_EXECUTABLES mcp_test_stdio_e2e)
 
-  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    # Standalone build: keep artifacts inside this project's build dir.
-    set_target_properties(${MCP_TEST_EXECUTABLES} PROPERTIES
-      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-  endif()
+  # Convention: final executables go to <project root>/bin (own root when
+  # standalone, host project's root when embedded).
+  set_target_properties(${MCP_TEST_EXECUTABLES} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 endif()
