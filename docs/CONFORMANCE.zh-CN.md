@@ -97,6 +97,32 @@ npx @modelcontextprotocol/conformance tier-check \
 作为产物上传。非零退出码（即一次意外失败）会使该任务失败，因此在已知的四个失败
 保持基线化的同时，回归也能被捕获。
 
+## 3b. 仓库内的 2026-07-28 套件
+
+由于官方套件没有 2026-07-28 场景，本仓库自带了一套：
+**`tests/test_conformance_2026.cpp`**（`mcp_test_conformance_2026`，已注册到
+CTest 并由 CI 运行）。它以具名场景的形式编写，每个场景对应一条规范要求，因此
+2026 接口面能像官方套件将来补齐后那样得到覆盖。
+
+| 场景 | 规范章节 |
+| --- | --- |
+| `DiscoverAdvertisesVersionsCapabilitiesAndCacheHints` | `server/discover`、缓存 |
+| `StatelessMetaIsRequiredOnEveryRequest` | `basic/index.md` 无状态性 |
+| `UnsupportedVersionReportsSupportedList` | `basic/versioning.md`（`-32022`） |
+| `CapabilityGatingReturnsMethodNotFound` | 未声明特性的 `-32601` |
+| `UnknownToolIsInvalidParams` | 未知工具的 `-32602` |
+| `ResultTypeIsCompleteOnEveryResult` | `basic/index.md` 响应 |
+| `ProgressOnlyForOptedInRequests` | `basic/patterns/progress.md` |
+| `OutputSchemaIsEnforced` | `server/tools.md` 输出 schema |
+| `MrtrRejectsUndeclaredClientCapability` | `basic/patterns/mrtr.md` 服务端要求 7 |
+| `MrtrNotAllowedOnUnsupportedMethods` | `basic/patterns/mrtr.md` 支持的请求 |
+| `MrtrElicitationRoundTrip` | 通过双工内存管道的完整 MRTR 流程 |
+| `MrtrClientEchoesRequestStateExactly` | MRTR 客户端要求 2 |
+
+```bash
+ctest --test-dir build -R mcp_test_conformance_2026 -V
+```
+
 ## 4. 处理失败
 
 - **真正的失败** → 在 SDK 中修复它。这些是最有价值的场景。

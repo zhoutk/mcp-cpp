@@ -32,6 +32,7 @@
 | 达到所有适用必需场景的 100% | 🔄 4 个受阻（服务器发起的请求；见下文） |
 | 发布 `conformance/report.json` + 一份 `--expected-failures` 基线 | ✅ |
 | 客户端模式的一致性运行（需要一个 `client_probe` 示例） | ⏳ |
+| 仓库内 **2026-07-28** 一致性测试套件（`mcp_test_conformance_2026`，12 个场景，含完整的 MRTR 往返） | ✅ |
 | 稳定的 **v1.0.0** 发布 | ⏳ |
 
 其余四个服务端失败（`tools-call-sampling`、
@@ -45,7 +46,7 @@
 | 事项 | 状态 |
 | --- | --- |
 | OAuth 2.1 + Client ID Metadata Documents（远程 HTTP） | ⏳ |
-| 强类型 MRTR / elicitation 辅助工具（`Ctx::elicit`、schema 构建器） | ⏳ |
+| 强类型 MRTR / elicitation 辅助工具（`Ctx::elicit`、`Ctx::inputRequired`、客户端 `retry`） | ✅ |
 | 日志辅助工具（`Ctx::log`）+ `_meta` 日志级别打通 | ⏳ |
 | Doxygen API 参考；客户端 + HTTP 示例 | ⏳ |
 | 零拷贝解析优化（重新测量 B1） | ⏳ |

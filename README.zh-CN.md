@@ -55,13 +55,14 @@ CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 | tools / resources / prompts 注册表、能力门控、分页游标 | ✅ | ✅ |
 | 资源 URI 模板（RFC 6570 子集）+ 模板回退式 `resources/read` | ✅ | ✅ |
 | `notifications/cancelled` + 可查询的取消标志 | ✅ | ✅ |
-| MRTR：`input_required` 结果 + `inputResponses` 重试 | ✅ | ✅ |
+| MRTR：`input_required` 结果 + `inputResponses` 重试、`requestState` 回显、带能力门控的 `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | 进度通知（`Ctx::progress`，客户端通过 `progressToken` 选择性加入） | ✅ | ✅ |
 | `completion/complete`（服务端 + 客户端） | ✅ | ✅ |
 | discover、`*/list`、`resources/read` 上的 CacheableResult（`ttlMs`/`cacheScope`） | ✅ | ✅ |
 | JSON Schema 2020-12 校验器；强制执行工具的 `inputSchema` **与** `outputSchema` | ✅ | ✅ |
 | `x-mcp-header` 镜像（客户端）+ 服务端校验 | ✅ | ✅ |
 | 结构化结果（`structuredResult()` + 规范推荐的文本块） | ✅ | ✅ |
+| 2026-07-28 一致性测试套件（仓库内，`mcp_test_conformance_2026`） | ✅ | n/a |
 | CMake 包（`find_package(mcp CONFIG)`，导出 `mcp::mcp`） | ✅ | n/a |
 | Roots / Sampling（已被 SEP-2577 弃用） | ❌ 有意不支持 | Tier-1 保留兼容垫片 |
 | Tasks 扩展（`io.modelcontextprotocol/tasks`） | ⏳ 路线图 | 扩展 |

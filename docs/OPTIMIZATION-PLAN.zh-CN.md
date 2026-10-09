@@ -94,7 +94,7 @@ Tier 1 要求 2 个工作日的分类处理与 7 天的严重缺陷 SLA——没
 | 事项 | 说明 | 行动 |
 | --- | --- | --- |
 | OAuth 2.1 / Client ID Metadata Documents | Tier-1 SDK 均提供认证；远程 HTTP 服务器所必需。工作量大。 | P1（v2） |
-| 强类型 MRTR/elicitation 辅助工具 | 目前处理器需手工构建 `input_required` JSON。官方 SDK 提供 `elicit()`/schema 辅助。 | P1 |
+| ~~强类型 MRTR/elicitation 辅助工具~~ | **已完成（2026-10-09）**：`Ctx::elicit`/`Ctx::inputRequired` 带能力门控，`Client::retry` 精确回显 `requestState`。 | ✅ |
 | 日志辅助工具 | `Ctx::notify` 覆盖了原始的 `notifications/message`；一个 `Ctx::log(level, data)` 语法糖 + `_meta` 日志级别打通会更符合 SDK 的人机工效。 | P2 |
 | 工具注解的人机工效 | 定义是原始 JSON（透传可用）；强类型辅助会改善开发体验。 | P2 |
 | 进度限流辅助 | 规范建议（SHOULD）；目前由调用方负责。 | P2 |
@@ -167,7 +167,6 @@ Tier 1 要求"覆盖所有特性、带示例的全面文档"、一份公开的�
 ### 里程碑 C —— "具备 Tier-1 就绪条件"（目标：1–2 个月）
 
 - [ ] OAuth 2.1 + Client ID Metadata Documents（远程 HTTP）
-- [ ] 强类型 MRTR/elicitation 辅助工具
 - [ ] Doxygen API 参考；客户端 + HTTP 示例
 - [ ] 零拷贝解析优化（重新测量 B1）
 - [ ] Tasks 扩展（v2）
