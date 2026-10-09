@@ -166,6 +166,8 @@ if(MCP_BUILD_TESTS)
   add_executable(mcp_test_schema tests/test_schema.cpp)
   # Owns its main(): doubles as the stdio e2e child server.
   add_executable(mcp_test_stdio_e2e tests/test_stdio_e2e.cpp)
+  # 2026-07-28 conformance scenarios (the official suite has no 2026 scenarios yet).
+  add_executable(mcp_test_conformance_2026 tests/test_conformance_2026.cpp)
   foreach(t mcp_test_version mcp_test_error mcp_test_jsonrpc mcp_test_types mcp_test_transport
            mcp_test_server mcp_test_client mcp_test_schema)
     target_link_libraries(${t} PRIVATE mcp gtest gtest_main)
@@ -180,6 +182,11 @@ if(MCP_BUILD_TESTS)
     add_test(NAME mcp_test_http_e2e COMMAND mcp_test_http_e2e)
     list(APPEND MCP_TEST_EXECUTABLES mcp_test_http_e2e)
   endif()
+
+  target_link_libraries(mcp_test_conformance_2026 PRIVATE mcp gtest gtest_main)
+  target_compile_options(mcp_test_conformance_2026 PRIVATE ${MCP_CXX_WARNINGS})
+  add_test(NAME mcp_test_conformance_2026 COMMAND mcp_test_conformance_2026)
+  list(APPEND MCP_TEST_EXECUTABLES mcp_test_conformance_2026)
 
   target_link_libraries(mcp_test_stdio_e2e PRIVATE mcp gtest)
   target_compile_options(mcp_test_stdio_e2e PRIVATE ${MCP_CXX_WARNINGS})

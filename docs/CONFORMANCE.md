@@ -100,6 +100,33 @@ invokes the action with `--expected-failures conformance/expected-failures.yaml`
 and uploads the report as an artifact. A non-zero exit (an unexpected failure)
 fails the job, so regressions are caught while the known four stay baselined.
 
+## 3b. The in-repo 2026-07-28 suite
+
+Because the official suite has no 2026-07-28 scenarios, the repository carries
+its own: **`tests/test_conformance_2026.cpp`** (`mcp_test_conformance_2026`,
+registered with CTest and run by CI). It is written as named scenarios, one per
+spec requirement, so the 2026 surface is covered the way the official suite will
+cover it once it catches up.
+
+| Scenario | Spec section |
+| --- | --- |
+| `DiscoverAdvertisesVersionsCapabilitiesAndCacheHints` | `server/discover`, caching |
+| `StatelessMetaIsRequiredOnEveryRequest` | `basic/index.md` statelessness |
+| `UnsupportedVersionReportsSupportedList` | `basic/versioning.md` (`-32022`) |
+| `CapabilityGatingReturnsMethodNotFound` | `-32601` for unadvertised features |
+| `UnknownToolIsInvalidParams` | `-32602` for an unknown tool |
+| `ResultTypeIsCompleteOnEveryResult` | `basic/index.md` responses |
+| `ProgressOnlyForOptedInRequests` | `basic/patterns/progress.md` |
+| `OutputSchemaIsEnforced` | `server/tools.md` output schema |
+| `MrtrRejectsUndeclaredClientCapability` | `basic/patterns/mrtr.md` server req. 7 |
+| `MrtrNotAllowedOnUnsupportedMethods` | `basic/patterns/mrtr.md` supported requests |
+| `MrtrElicitationRoundTrip` | full MRTR flow over a duplex in-memory pipe |
+| `MrtrClientEchoesRequestStateExactly` | MRTR client requirement 2 |
+
+```bash
+ctest --test-dir build -R mcp_test_conformance_2026 -V
+```
+
 ## 4. Handling failures
 
 - **Real failure** → fix it in the SDK. These are the scenarios worth the most.

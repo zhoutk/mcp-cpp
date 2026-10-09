@@ -165,6 +165,29 @@ McpResult<Json> Client::complete(const Json& ref, const Json& argument) {
   return request("completion/complete", extra);
 }
 
+McpResult<Json> Client::retry(std::string_view method, const Json& extraParams,
+                              const Json& previous, const Json& inputResponses) {
+  Json params = extraParams.isObject() ? extraParams : Json(R"({})");
+  if (!inputResponses.isNull()) {
+    params.add(std::string(kInputResponsesKey), inputResponses);
+  }
+  // Echo requestState EXACTLY, and only when the server sent one (spec: a
+  // client MUST NOT invent one). Its contents are opaque and never inspected.
+  const std::string state = requestStateOf(previous);
+  if (!state.empty()) {
+    params.add(std::string(kRequestStateKey), Json::str(state));
+  }
+  return request(method, params);  // fresh request id
+}
+
+McpResult<Json> Client::retryToolCall(const std::string& name, const Json& arguments,
+                                      const Json& previous, const Json& inputResponses) {
+  Json extra;
+  extra.add("name", Json::str(name));
+  if (!arguments.isNull()) extra.add("arguments", arguments);
+  return retry("tools/call", extra, previous, inputResponses);
+}
+
 McpResult<Json> Client::callTool(const std::string& name, const Json& arguments,
                                  const Json& inputResponses,
                                  const std::optional<RequestId>& progressToken) {

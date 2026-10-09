@@ -61,6 +61,22 @@ struct Ctx {
   // notifications/message for logging (2026-07-28 carries log level in _meta).
   // Best-effort: write errors are ignored. A no-op on one-shot transports.
   std::function<void(const std::string& method, Json params)> notify;
+
+  // Builds an InputRequiredResult (MRTR, basic/patterns/mrtr.md) for this
+  // request. `inputRequests` maps server-assigned ids to request objects
+  // (elicitation/create, sampling/createMessage, roots/list); `requestState` is
+  // opaque server state the client echoes back on retry. Enforces the spec's
+  // server requirements: at least one of the two must be present, every
+  // inputRequests method must be one of the three valid ones, and the client
+  // must have declared the matching capability. Returns Err(InternalError) when
+  // a requirement is violated. Only tools/call, prompts/get and resources/read
+  // may answer with the result it builds.
+  std::function<McpResult<Json>(Json inputRequests, std::string requestState)> inputRequired;
+
+  // Convenience for the common single-elicitation case: builds an
+  // InputRequiredResult containing one elicitation/create request.
+  std::function<McpResult<Json>(std::string message, Json requestedSchema,
+                                std::string requestState)> elicit;
 };
 
 // ---- subscriptions -----------------------------------------------------------
@@ -186,6 +202,12 @@ class Server {
   McpResult<Json> handleToolCall(const JsonRpcRequest& req, const RequestMeta& meta,
                                  const std::function<bool()>& cancelled,
                                  const NotifyFn& notify);
+
+  // Builds the per-request Ctx, wiring progress/notify/inputRequired against the
+  // active transport and this request's metadata. `params`/`meta` must outlive
+  // the returned Ctx (they are referenced, not copied).
+  Ctx makeCtx(const Json& params, const RequestMeta& meta,
+              const std::function<bool()>& cancelled, const NotifyFn& notify) const;
 
   bool versionSupported(std::string_view wire) const;
 

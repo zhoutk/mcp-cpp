@@ -53,6 +53,33 @@ inline constexpr std::string_view kResultTypeKey = "resultType";
 // as "complete" per the spec's backward-compatibility rule.
 std::string resultTypeOf(const Json& result);
 
+// ---- MRTR (basic/patterns/mrtr.md) -------------------------------------------
+// Multi Round-Trip Requests replaced server-initiated requests in 2026-07-28.
+// A server answers a supported request (tools/call, prompts/get, resources/read)
+// with an InputRequiredResult; the client gathers the requested input and
+// retries the ORIGINAL request with `inputResponses`, echoing the opaque
+// `requestState` exactly as received (and omitting it if it was absent).
+
+inline constexpr std::string_view kInputRequestsKey = "inputRequests";
+inline constexpr std::string_view kInputResponsesKey = "inputResponses";
+inline constexpr std::string_view kRequestStateKey = "requestState";
+
+// True when `result` is an InputRequiredResult.
+bool isInputRequiredResult(const Json& result);
+
+// The opaque requestState of an InputRequiredResult; empty string when absent.
+// Clients must echo this value verbatim, never inspect it.
+std::string requestStateOf(const Json& result);
+
+// The inputRequests map of an InputRequiredResult; Null when absent.
+Json inputRequestsOf(const Json& result);
+
+// The client capability key that gates a server-request method
+// ("elicitation/create" -> "elicitation", "sampling/createMessage" -> "sampling",
+// "roots/list" -> "roots"); empty string_view when `method` is not a valid
+// MRTR request object.
+std::string_view mrtrCapabilityFor(std::string_view method);
+
 // ---- _meta reserved keys ----------------------------------------------------
 // (basic/index.md "Reserved keys" table.)
 

@@ -180,6 +180,74 @@ Json structuredResult(const Json& structured, const std::string& textForCompat) 
 
 // ---- dispatch loop -----------------------------------------------------------
 
+Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
+                    const std::function<bool()>& cancelled, const NotifyFn& notify) const {
+  Ctx ctx{params, meta, cancelled, {}, {}, {}, {}};
+  ctx.notify = notify;
+  ctx.progress = [notify, token = meta.progressToken](double value, double total,
+                                                      const std::string& message) {
+    if (!token) return;  // client did not opt in to progress for this request
+    Json p;
+    p.add("progressToken", encodeRequestId(*token));
+    p.add("progress", Json(value));
+    if (total >= 0) p.add("total", Json(total));
+    if (!message.empty()) p.add("message", Json::str(message));
+    notify("notifications/progress", std::move(p));
+  };
+  ctx.inputRequired = [meta](Json inputRequests, std::string requestState) -> McpResult<Json> {
+    const bool hasRequests =
+        inputRequests.isObject() && !inputRequests.getAllKeys().toVector().empty();
+    // Spec: at least one of inputRequests / requestState MUST be present.
+    if (!hasRequests && requestState.empty()) {
+      return Err(McpErrorCode::InternalError,
+                 "InputRequiredResult requires inputRequests or requestState");
+    }
+    if (hasRequests) {
+      for (const auto& key : inputRequests.getAllKeys().toVector()) {
+        const Json request = member(inputRequests, key.toString());
+        const Json method = member(request, "method");
+        if (!method.isString()) {
+          return Err(McpErrorCode::InternalError,
+                     "inputRequests entry '" + std::string(key.toString()) + "' has no method");
+        }
+        const std::string_view capability = mrtrCapabilityFor(method.toString());
+        if (capability.empty()) {
+          return Err(McpErrorCode::InternalError,
+                     "inputRequests method is not a valid MRTR request: " +
+                         std::string(method.toString()));
+        }
+        // Spec: MUST NOT request something the client did not declare.
+        if (!capabilitiesInclude(meta.clientCapabilities, capability)) {
+          return Err(McpErrorCode::InternalError,
+                     "client did not declare the '" + std::string(capability) +
+                         "' capability required by " + std::string(method.toString()));
+        }
+      }
+    }
+    Json result;
+    result.add(std::string(kResultTypeKey), Json::str(std::string(kResultTypeInputRequired)));
+    if (hasRequests) result.add(std::string(kInputRequestsKey), std::move(inputRequests));
+    if (!requestState.empty()) {
+      result.add(std::string(kRequestStateKey), Json::str(std::move(requestState)));
+    }
+    return Ok(std::move(result));
+  };
+  ctx.elicit = [inputRequired = ctx.inputRequired](std::string message, Json requestedSchema,
+                                                   std::string requestState) -> McpResult<Json> {
+    Json params;
+    params.add("mode", Json::str("form"));
+    params.add("message", Json::str(std::move(message)));
+    params.add("requestedSchema", std::move(requestedSchema));
+    Json request;
+    request.add("method", Json::str("elicitation/create"));
+    request.add("params", std::move(params));
+    Json requests = Json(R"({})");
+    requests.add("elicit", std::move(request));
+    return inputRequired(std::move(requests), std::move(requestState));
+  };
+  return ctx;
+}
+
 McpResult<void> Server::run(ITransport& transport) {
   while (true) {
     auto line = transport.read();
@@ -316,6 +384,13 @@ void Server::processLine(const std::string& line, ITransport& out) {
   };
 
   McpResult<Json> result = dispatchRequest(req, meta, cancelled, notify);
+  // MRTR: an InputRequiredResult may only answer tools/call, prompts/get and
+  // resources/read (basic/patterns/mrtr.md "Supported Requests").
+  if (result.has_value() && isInputRequiredResult(*result) && req.method != "tools/call" &&
+      req.method != "prompts/get" && req.method != "resources/read") {
+    result = Err(McpErrorCode::InternalError,
+                 "input_required is not a valid result for " + req.method);
+  }
   if (result.has_value()) {
     // 2026-07-28 requires resultType on every result; the pre-2026 schemas have
     // no such field and reject unknown keys, so it is injected only for modern
@@ -371,7 +446,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
   if (req.method == "server/discover") return handleDiscover(meta);
   if (req.method == "tools/list") return handlePaginatedList(tools_, req.params, "tools");
   if (req.method == "completion/complete") {
-    Ctx ctx{req.params, meta, cancelled, {}, {}};
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
     return completionsHandler_(ctx);
   }
   if (req.method == "tools/call") return handleToolCall(req, meta, cancelled, notify);
@@ -413,7 +488,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     if (handler == nullptr) {
       return Err(McpErrorCode::InvalidParams, "Unknown resource: " + uriText);
     }
-    Ctx ctx{req.params, meta, cancelled, {}, {}};
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
     McpResult<Json> read = (*handler)(ctx);
     // 2026-07-28 requires CacheableResult (ttlMs + cacheScope) on resources/read
     // too: a strict modern client rejects the result without them, so a handler
@@ -436,7 +511,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     if (it == prompts_.handlers.end()) {
       return Err(McpErrorCode::InvalidParams, "Unknown prompt: " + std::string(name.toString()));
     }
-    Ctx ctx{req.params, meta, cancelled, {}, {}};
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
     return it->second(ctx);
   }
 
@@ -528,19 +603,9 @@ McpResult<Json> Server::handleToolCall(const JsonRpcRequest& req, const RequestM
     }
   }
 
-  // Ctx: handlers may emit progress notifications and arbitrary notifications.
-  Ctx ctx{req.params, meta, cancelled, {}, {}};
-  ctx.notify = notify;
-  ctx.progress = [notify, token = meta.progressToken](double value, double total,
-                                                      const std::string& message) {
-    if (!token) return;  // client did not opt in to progress for this request
-    Json params;
-    params.add("progressToken", encodeRequestId(*token));
-    params.add("progress", Json(value));
-    if (total >= 0) params.add("total", Json(total));
-    if (!message.empty()) params.add("message", Json::str(message));
-    notify("notifications/progress", std::move(params));
-  };
+  // Ctx: handlers may emit progress notifications, arbitrary notifications, and
+  // MRTR input requests.
+  Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
 
   McpResult<Json> result = it->second(ctx);
   if (!result.has_value()) return result;

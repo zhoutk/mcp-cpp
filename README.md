@@ -57,13 +57,14 @@ client mid-call, which 2026-07-28 replaced with MRTR — see
 | tools / resources / prompts registries, capability gating, pagination cursors | ✅ | ✅ |
 | Resource URI templates (RFC 6570 subset) + template-fallback `resources/read` | ✅ | ✅ |
 | `notifications/cancelled` + queryable cancellation flag | ✅ | ✅ |
-| MRTR: `input_required` results + `inputResponses` retry | ✅ | ✅ |
+| MRTR: `input_required` results + `inputResponses` retry, `requestState` echo, capability-gated `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | Progress notifications (`Ctx::progress`, client `progressToken` opt-in) | ✅ | ✅ |
 | `completion/complete` (server + client) | ✅ | ✅ |
 | CacheableResult (`ttlMs`/`cacheScope`) on discover, `*/list`, `resources/read` | ✅ | ✅ |
 | JSON Schema 2020-12 validator; tool `inputSchema` **and** `outputSchema` enforced | ✅ | ✅ |
 | `x-mcp-header` mirroring (client) + server-side validation | ✅ | ✅ |
 | Structured results (`structuredResult()` + spec-recommended text block) | ✅ | ✅ |
+| 2026-07-28 conformance suite (in-repo, `mcp_test_conformance_2026`) | ✅ | n/a |
 | CMake package (`find_package(mcp CONFIG)`, exported `mcp::mcp`) | ✅ | n/a |
 | Roots / Sampling (deprecated by SEP-2577) | ❌ intentionally | Tier-1 keeps compat shims |
 | Tasks extension (`io.modelcontextprotocol/tasks`) | ⏳ roadmap | extension |

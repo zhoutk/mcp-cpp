@@ -74,6 +74,19 @@ class Client {
   // `ref` is a {type:"ref/prompt",name} or {type:"ref/resource",uri} object.
   McpResult<Json> complete(const Json& ref, const Json& argument);
 
+  // --- MRTR (basic/patterns/mrtr.md) ---------------------------------------
+  // Retries a request that previously answered with an InputRequiredResult.
+  // `previous` is that result; its `requestState` (if any) is echoed back
+  // verbatim and `inputResponses` is merged into params. The retry is a fresh
+  // JSON-RPC request (new id), as the spec requires.
+  McpResult<Json> retry(std::string_view method, const Json& extraParams, const Json& previous,
+                        const Json& inputResponses);
+
+  // tools/call convenience wrapper over retry(): same tool and arguments as the
+  // first attempt, plus the gathered inputs.
+  McpResult<Json> retryToolCall(const std::string& name, const Json& arguments,
+                                const Json& previous, const Json& inputResponses);
+
   // subscriptions/listen: opens a long-lived notification stream. Returns
   // after the acknowledged notification; subsequent notifications flow
   // through onNotification, each carrying io.modelcontextprotocol/

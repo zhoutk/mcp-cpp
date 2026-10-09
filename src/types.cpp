@@ -29,9 +29,34 @@ Json encodeRequestId(const RequestId& id) {
 
 std::string resultTypeOf(const Json& result) {
   if (!result.isObject()) return std::string(kResultTypeComplete);
-  const Json rt = result[std::string(kResultTypeKey)];
+  // DIRECT member lookup: resultType sits at the top level, and operator[]
+  // would deep-search a nested resultType inside `content` when it is absent.
+  const Json rt = member(result, kResultTypeKey);
   if (!rt.isString()) return std::string(kResultTypeComplete);
   return std::string(rt.toString());
+}
+
+// ---- MRTR (basic/patterns/mrtr.md) -------------------------------------------
+
+bool isInputRequiredResult(const Json& result) {
+  return resultTypeOf(result) == std::string(kResultTypeInputRequired);
+}
+
+std::string requestStateOf(const Json& result) {
+  const Json rs = member(result, kRequestStateKey);
+  return rs.isString() ? std::string(rs.toString()) : std::string();
+}
+
+Json inputRequestsOf(const Json& result) {
+  const Json ir = member(result, kInputRequestsKey);
+  return ir.isObject() ? ir : Json(nullptr);
+}
+
+std::string_view mrtrCapabilityFor(std::string_view method) {
+  if (method == "elicitation/create") return "elicitation";
+  if (method == "sampling/createMessage") return "sampling";
+  if (method == "roots/list") return "roots";
+  return {};
 }
 
 // ---- Implementation ----------------------------------------------------------

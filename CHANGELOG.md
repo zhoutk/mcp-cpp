@@ -21,6 +21,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   serialized-JSON text block for backward compatibility.
 - **Client wrappers.** `Client::listResources()`, `Client::listPrompts()`,
   `Client::complete()`.
+- **MRTR completed** (basic/patterns/mrtr.md): `Ctx::inputRequired()` builds an
+  `InputRequiredResult` and enforces the server requirements (at least one of
+  `inputRequests`/`requestState`; only valid MRTR methods; the client must have
+  declared the matching capability), `Ctx::elicit()` is the single-elicitation
+  convenience, an `input_required` result is rejected on methods that do not
+  support it, and `Client::retry()`/`retryToolCall()` echo `requestState`
+  verbatim on a fresh request id.
+- **2026-07-28 conformance suite.** `mcp_test_conformance_2026` — 12 named
+  scenarios covering discover, stateless `_meta`, version negotiation, capability
+  gating, resultType, progress, outputSchema, and a full MRTR round trip over a
+  duplex in-memory pipe.
 - **CMake package.** `install()` rules, an exported `mcp::mcp` target, and a
   `find_package(mcp CONFIG)` package config (verified with an out-of-tree consumer).
   httplib is now a build-interface-only dependency.

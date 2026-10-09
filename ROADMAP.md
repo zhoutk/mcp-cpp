@@ -33,6 +33,7 @@ Everything a consumer or reviewer needs to take the project seriously.
 | Reach 100% of applicable required scenarios | 🔄 4 blocked (server-initiated requests; see below) |
 | Publish `conformance/report.json` + an `--expected-failures` baseline | ✅ |
 | Client-mode conformance run (needs a `client_probe` example) | ⏳ |
+| In-repo **2026-07-28** conformance suite (`mcp_test_conformance_2026`, 12 scenarios incl. the full MRTR round trip) | ✅ |
 | Stable **v1.0.0** release | ⏳ |
 
 The four remaining server failures (`tools-call-sampling`,
@@ -46,7 +47,7 @@ implements; the suite has no 2026 scenario to score instead.
 | Item | Status |
 | --- | --- |
 | OAuth 2.1 + Client ID Metadata Documents (remote HTTP) | ⏳ |
-| Typed MRTR / elicitation helpers (`Ctx::elicit`, schema builders) | ⏳ |
+| Typed MRTR / elicitation helpers (`Ctx::elicit`, `Ctx::inputRequired`, client `retry`) | ✅ |
 | Logging helper (`Ctx::log`) + `_meta` log-level plumbing | ⏳ |
 | Doxygen API reference; client + HTTP examples | ⏳ |
 | Zero-copy parse optimization (re-measure B1) | ⏳ |

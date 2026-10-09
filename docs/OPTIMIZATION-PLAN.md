@@ -97,7 +97,7 @@ to demonstrate without automation, and no `.github/` exists today.
 | Item | Notes | Action |
 | --- | --- | --- |
 | OAuth 2.1 / Client ID Metadata Documents | Tier-1 SDKs ship auth; required for remote HTTP servers. Large. | P1 (v2) |
-| Typed MRTR/elicitation helpers | Today handlers build `input_required` JSON by hand. Official SDKs offer `elicit()`/schema helpers. | P1 |
+| ~~Typed MRTR/elicitation helpers~~ | **Done (2026-10-09)**: `Ctx::elicit`/`Ctx::inputRequired` with capability gating, `Client::retry` with exact `requestState` echo. | ✅ |
 | Logging helper | `Ctx::notify` covers raw `notifications/message`; a `Ctx::log(level, data)` sugar + `_meta` log-level plumbing would match SDK ergonomics. | P2 |
 | Tool annotations ergonomics | Definitions are raw JSON (pass-through works); typed helper would improve DX. | P2 |
 | Progress rate-limiting helper | Spec SHOULD; currently the caller's responsibility. | P2 |
@@ -171,7 +171,6 @@ Everything a consumer or reviewer needs to take the project seriously.
 ### Milestone C — "Tier-1 ready" (target: 1–2 months)
 
 - [ ] OAuth 2.1 + Client ID Metadata Documents (remote HTTP)
-- [ ] Typed MRTR/elicitation helpers
 - [ ] Doxygen API reference; client + HTTP examples
 - [ ] Zero-copy parse optimization (re-measure B1)
 - [ ] Tasks extension (v2)
