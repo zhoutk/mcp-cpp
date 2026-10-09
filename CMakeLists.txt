@@ -62,7 +62,8 @@ add_library(mcp::mcp ALIAS mcp)
 
 target_include_directories(mcp PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<BUILD_INTERFACE:${MCP_ZJSON_DIR}>)
+  $<BUILD_INTERFACE:${MCP_ZJSON_DIR}>
+  $<INSTALL_INTERFACE:include>)
 target_compile_features(mcp PUBLIC cxx_std_17)
 
 set(MCP_CXX_WARNINGS -Wall -Wextra -Wpedantic)
@@ -88,7 +89,11 @@ if(NOT MCP_DISABLE_HTTP)
   endif()
   if(TARGET httplib)
     target_compile_definitions(mcp PUBLIC MCP_HAS_HTTP)
-    target_link_libraries(mcp PUBLIC httplib)
+    # httplib is a header-only implementation detail kept out of the public
+    # headers (transport_http.hpp uses pimpl + forward declarations). Linking
+    # it through BUILD_INTERFACE keeps it out of the installed export, so a
+    # consumer of the mcp package needs nothing but mcp::mcp.
+    target_link_libraries(mcp PRIVATE $<BUILD_INTERFACE:httplib>)
     message(STATUS "mcp-cpp: HTTP transport enabled (httplib)")
   else()
     message(WARNING "mcp-cpp: httplib not found, building without HTTP transport")
@@ -166,7 +171,7 @@ if(MCP_BUILD_TESTS)
   endforeach()
   if(TARGET httplib)
     add_executable(mcp_test_http_e2e tests/test_http_e2e.cpp)
-    target_link_libraries(mcp_test_http_e2e PRIVATE mcp gtest gtest_main)
+    target_link_libraries(mcp_test_http_e2e PRIVATE mcp gtest gtest_main httplib)
     target_compile_options(mcp_test_http_e2e PRIVATE ${MCP_CXX_WARNINGS})
     add_test(NAME mcp_test_http_e2e COMMAND mcp_test_http_e2e)
     list(APPEND MCP_TEST_EXECUTABLES mcp_test_http_e2e)
@@ -181,4 +186,44 @@ if(MCP_BUILD_TESTS)
   # standalone, host project's root when embedded).
   set_target_properties(${MCP_TEST_EXECUTABLES} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+endif()
+
+# ---- install / package (find_package(mcp CONFIG)) ---------------------------
+# Makes mcp-cpp consumable as a normal CMake dependency (vcpkg/Conan/
+# add_subdirectory all build on this). zjson is a public header dependency of
+# mcp::Json, so its single header is installed alongside ours.
+option(MCP_INSTALL "Generate install/export rules for find_package(mcp)" ON)
+
+if(MCP_INSTALL)
+  include(GNUInstallDirs)
+  include(CMakePackageConfigHelpers)
+
+  install(TARGETS mcp
+    EXPORT mcpTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/mcp"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  install(FILES "${MCP_ZJSON_DIR}/zjson.hpp"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+  set(MCP_CMAKE_INSTALL_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/mcp)
+  install(EXPORT mcpTargets
+    NAMESPACE mcp::
+    DESTINATION ${MCP_CMAKE_INSTALL_DIR})
+
+  configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mcpConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/mcpConfig.cmake"
+    INSTALL_DESTINATION ${MCP_CMAKE_INSTALL_DIR})
+  write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/mcpConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+  install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/mcpConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/mcpConfigVersion.cmake"
+    DESTINATION ${MCP_CMAKE_INSTALL_DIR})
 endif()
