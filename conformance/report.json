@@ -1,0 +1,41 @@
+{
+  "tool": "@modelcontextprotocol/conformance",
+  "toolVersion": "0.1.16",
+  "mode": "server",
+  "server": "examples/conformance_server.cpp (legacy-client mode, versions 2025-03-26/2025-06-18/2025-11-25/2026-07-28)",
+  "specVersionsCoveredBySuite": [
+    "2025-03-26",
+    "2025-06-18",
+    "2025-11-25"
+  ],
+  "note": "The suite has no scenarios for 2026-07-28 (the revision this SDK targets); it drives the server with the 2025-era handshake.",
+  "date": "2026-10-09",
+  "scenariosScored": 30,
+  "passed": 26,
+  "failed": 4,
+  "passRate": 0.8667,
+  "failures": [
+    {
+      "scenario": "elicitation-sep1034-defaults",
+      "reason": "Failed: MCP error -32602: Unknown tool: test_elicitation_sep1034_defaults"
+    },
+    {
+      "scenario": "elicitation-sep1330-enums",
+      "reason": "Failed: MCP error -32602: Unknown tool: test_elicitation_sep1330_enums"
+    },
+    {
+      "scenario": "tools-call-elicitation",
+      "reason": "Failed: MCP error -32602: Unknown tool: test_elicitation"
+    },
+    {
+      "scenario": "tools-call-sampling",
+      "reason": "Failed: MCP error -32602: Unknown tool: test_sampling"
+    }
+  ],
+  "notScored": {
+    "scenario": "server-sse-multiple-streams",
+    "reason": "2025-only GET SSE stream scenario; 2026-07-28 removed the GET stream, so the suite records zero checks. Listed in expected-failures.yaml for the baseline gate."
+  },
+  "baseline": "conformance/expected-failures.yaml",
+  "reproduce": "./bin/conformance_server.exe --port 8099 & npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp --expected-failures conformance/expected-failures.yaml -o conformance/out"
+}

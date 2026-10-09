@@ -109,6 +109,10 @@ if(MCP_BUILD_EXAMPLES)
   add_executable(minimal_server examples/minimal_server.cpp)
   target_link_libraries(minimal_server PRIVATE mcp)
 
+  # Fixture server for the official conformance suite (docs/CONFORMANCE.md).
+  add_executable(conformance_server examples/conformance_server.cpp)
+  target_link_libraries(conformance_server PRIVATE mcp)
+
   # benchmarks (not registered with CTest; run manually)
   add_executable(mcp_bench_parse bench/bench_parse.cpp)
   add_executable(mcp_bench_dispatch bench/bench_dispatch.cpp)
@@ -118,7 +122,7 @@ if(MCP_BUILD_EXAMPLES)
     target_compile_options(${t} PRIVATE ${MCP_CXX_WARNINGS})
   endforeach()
 
-  set_target_properties(minimal_server mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e
+  set_target_properties(minimal_server conformance_server mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 endif()
 

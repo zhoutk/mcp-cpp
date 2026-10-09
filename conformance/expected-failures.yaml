@@ -1,0 +1,26 @@
+# Conformance expected-failures baseline.
+#
+# Pass with:
+#   npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp \
+#     --expected-failures conformance/expected-failures.yaml
+#
+# Every entry is a scenario mcp-cpp knowingly does not pass. Keep this list
+# small and shrinking; each entry needs a reason.
+#
+# Current state (2026-10-09, suite v0.1.16): 26/30 scored scenarios pass. The
+# four below all require the SERVER to send a REQUEST to the client mid-call
+# (`sampling/createMessage` / `elicitation/create`). The 2026-07-28
+# specification replaced server-initiated requests with MRTR (a result carrying
+# `resultType:"input_required"`), which mcp-cpp implements instead. These
+# scenarios are tagged [2025-06-18, 2025-11-25] only; there is no 2026
+# equivalent to pass.
+server:
+  - tools-call-sampling          # server->client sampling/createMessage
+  - tools-call-elicitation       # server->client elicitation/create
+  - elicitation-sep1034-defaults # server->client elicitation/create (defaults)
+  - elicitation-sep1330-enums    # server->client elicitation/create (enums)
+  # Not a real failure: this 2025-only scenario drives the GET SSE stream, which
+  # 2026-07-28 removed (GET returns 405). The suite runs it but records zero
+  # checks, and the baseline gate treats a non-passing scenario as unexpected.
+  - server-sse-multiple-streams
+client: []
