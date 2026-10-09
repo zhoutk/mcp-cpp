@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / ${{ matrix.cxx }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  cxx: g++-13,  cc: gcc-13 }
+          - { os: ubuntu-latest,  cxx: clang++-18, cc: clang-18 }
+          - { os: macos-latest,   cxx: clang++,  cc: clang }
+          - { os: windows-latest, cxx: cl,       cc: cl }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DMCP_BUILD_TESTS=ON -DMCP_BUILD_EXAMPLES=ON
+
+      - name: Configure (Windows / MSVC)
+        if: runner.os == 'Windows'
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DMCP_BUILD_TESTS=ON -DMCP_BUILD_EXAMPLES=ON
+
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo -j 4
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -C RelWithDebInfo
+
+  sanitizers:
+    name: ubuntu / ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # Runs the official conformance suite against examples/conformance_server.cpp.
+  # The four server-initiated-request scenarios are baselined in
+  # conformance/expected-failures.yaml (see docs/CONFORMANCE.md); any OTHER
+  # failure fails the job, so regressions are caught.
+  conformance:
+    name: conformance (server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure + build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
+      - name: Start fixture server
+        run: |
+          ./build/bin/conformance_server --port 8099 &
+          for i in $(seq 1 20); do
+            curl -sf -o /dev/null http://127.0.0.1:8099/mcp || sleep 0.5
+          done
+      - name: Run conformance suite
+        run: |
+          npx --yes @modelcontextprotocol/conformance server \
+            --url http://127.0.0.1:8099/mcp \
+            --expected-failures conformance/expected-failures.yaml \
+            -o conformance/out
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-report
+          path: conformance/out

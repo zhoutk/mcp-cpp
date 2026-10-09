@@ -1,104 +1,106 @@
-# zorm-mcp / cpp-sdk 独立库实施计划
+> Language: **English** | [中文](PLAN.zh-CN.md)
 
-> 状态：**草稿 v1**（先想好再做；本文档随实施过程滚动更新，记录思路历程）
-> 日期：2026-09-21 · 分支：`mcp`
-> 关联：`docs/mcp/mcp-summary.md`（协议概要）、`docs/mcp/specification-2026-07-28/`（规范原文）、`docs/mcp/mcp-migration-plan.md`（整体迁移计划，本文是其中"协议层独立库"的落地深化）
+# mcp-cpp — Standalone Library Implementation Plan
+
+> Status: **Draft v1** (think before doing; this document rolls forward with the implementation process, recording the train of thought)
+> Date: 2026-09-21 · Branch: `mcp`
+> Related: `docs/mcp/mcp-summary.md` (protocol summary), `docs/mcp/specification-2026-07-28/` (spec text), `docs/mcp/mcp-migration-plan.md` (overall migration plan; this document is the deepened landing of its "protocol-layer standalone library")
 
 ---
 
-## 0. 一句话目标
+## 0. One-sentence goal
 
-在 `thirds/` 下构建**独立可发布的 MCP C++ SDK**（工作名 `mcp-cpp`，命名空间 `MCP`）：
-以官方 Tier-1（TS/Python/C#/Go/Rust）功能全覆盖 + 协议一致性（conformance）对齐为目标，
-性能对标并超越 rust-sdk（零拷贝解析、arena 内存模型、无锁派发），并原生服务 zorm 的场景。
+Build a **standalone, publishable MCP C++ SDK** named `mcp-cpp` (namespace `mcp`):
+targeting full feature coverage of the official Tier-1 SDKs (TS/Python/C#/Go/Rust) plus protocol conformance alignment,
+with performance benchmarked against and exceeding rust-sdk (zero-copy parsing, arena memory model, lock-free dispatch), and natively serving zorm's scenarios.
 
-## 1. 已核实的输入（2026-09-21）
+## 1. Verified inputs (2026-09-21)
 
-| 事项 | 结论 | 来源 |
+| Item | Conclusion | Source |
 | --- | --- | --- |
-| 协议版本 | **2026-07-28** 为当前稳定规范；本文档所有协议描述以它为准 | spec changelog |
-| 协议面 | `server/discover`、`initialize`(遗留兼容)、`tools/list|call`、`resources/*`、`prompts/*`、`completion/complete`、`elicitation/create`(客户端)、`sampling/create`(已弃用)、`roots/list`(已弃用)、`notifications/*`(cancelled/progress/message/list_changed)、`subscriptions/listen`(2026 新)、结果必须带 `resultType` | schema.ts 枚举（已从本地 schema.md 提取全部方法名） |
-| 2026 版重大变化 | **无状态化**：`initialize` 握手移除、HTTP 端 `Mcp-Session-Id` 移除；客户端 per-request `_meta` 携带 `protocolVersion/clientCapabilities/clientInfo`；`subscribions/resource subscribe` → `subscriptions/listen`；`ping`/`logging/setLevel` 移除（logLevel 走请求 `_meta`）；错误码分区 `-32020~-32099` 归规范、`-32000~-32019` 遗留；`CacheableResult`（`ttlMs/cacheScope`）；MRTR 取代服务端发起请求；Tasks 转为扩展 `io.modelcontextprotocol/tasks` | changelog 9 条 major |
-| zjson 数字模型 | **Int64/Uint64/Double 三态 NumberData**，`from_chars` 快路径，arena 零拷贝（StringView 借用解析文档内存），流式写出 `toString/dumpTo`；整数解析体积收回满足**协议 int64 保真**要求且无精度丢失；`Json(text)`/`add(key,text)` 有 `{`/`[` 开头嗅探约定（文本值需 `Json::str()` 包裹，历史 bug 类） | `thirds/zjson/zjson.hpp` L73~121、项目 CLAUDE.md |
-| httplib | yhirose/cpp-httplib **v0.52.0**（MIT），单头 `thirds/httplib/httplib.h` + 现成 INTERFACE 目标（线程池定义/keepalive 调参已配好） | `thirds/httplib/CMakeLists.txt` |
-| 工具链 | 主力：clang 22.1.8（MSYS2 clang64，libc++）；对照：MSVC（VS2026）、GCC 15（libstdc++）；CMake≥3.18 | 本机实测 |
-| conformance 测试 | `modelcontextprotocol/conformance` 仓库（2026-01 开放）；Tier-1 = 对"适用必测项"100% 通过（可标注 pending/skip） | sdk-tiers.md |
+| Protocol version | **2026-07-28** is the current stable spec; all protocol descriptions in this document take it as authoritative | spec changelog |
+| Protocol surface | `server/discover`, `initialize` (legacy compat), `tools/list|call`, `resources/*`, `prompts/*`, `completion/complete`, `elicitation/create` (client), `sampling/create` (deprecated), `roots/list` (deprecated), `notifications/*` (cancelled/progress/message/list_changed), `subscriptions/listen` (new in 2026), results must carry `resultType` | schema.ts enum (all method names already extracted from the local schema.md) |
+| Major changes in 2026 | **Stateless-ization**: `initialize` handshake removed, `Mcp-Session-Id` removed on the HTTP side; client per-request `_meta` carries `protocolVersion/clientCapabilities/clientInfo`; `subscriptions/resource subscribe` → `subscriptions/listen`; `ping`/`logging/setLevel` removed (logLevel goes through request `_meta`); error-code partition `-32020~-32099` assigned to the spec, `-32000~-32019` legacy; `CacheableResult` (`ttlMs/cacheScope`); MRTR replaces server-initiated requests; Tasks turned into extension `io.modelcontextprotocol/tasks` | changelog, 9 major items |
+| zjson number model | **Three-state NumberData: Int64/Uint64/Double**, `from_chars` fast path, arena zero-copy (StringView borrows the parsing document's memory), streaming output `toString/dumpTo`; the integer parsing size recovered satisfies the protocol's **int64 fidelity** requirement with no precision loss; `Json(text)`/`add(key,text)` has a `{`/`[` leading-char sniffing convention (text values must be wrapped in `Json::str()`, a historical bug class) | `thirds/zjson/zjson.hpp` L73~121, project CLAUDE.md |
+| httplib | yhirose/cpp-httplib **v0.52.0** (MIT), single header `thirds/httplib/httplib.h` + a ready-made INTERFACE target (thread-pool definition/keepalive tuning already configured) | `thirds/httplib/CMakeLists.txt` |
+| Toolchain | Primary: clang 22.1.8 (MSYS2 clang64, libc++); reference: MSVC (VS2026), GCC 15 (libstdc++); CMake≥3.18 | measured locally |
+| conformance tests | `modelcontextprotocol/conformance` repo (opened 2026-01); Tier-1 = 100% pass on "applicable must-test items" (pending/skip may be annotated) | sdk-tiers.md |
 
-### 1.1 C++ 标准成熟度实测（本机 clang 22 / libc++，逐头文件编译验证）
+### 1.1 C++ standard maturity measurement (local clang 22 / libc++, verified header-by-header compilation)
 
-| 特性 | clang22(libc++) 本机 | GCC 15(libstdc++) | MSVC(VS2026) | 备注 |
+| Feature | clang22(libc++) local | GCC 15(libstdc++) | MSVC(VS2026) | Notes |
 | --- | --- | --- | --- | --- |
-| `std::expected` | ✅ | ✅ 12.1+ | ✅ | 错误处理主力 |
-| `std::format/print` | ✅ | ✅ 13/14+ | ✅ | 日志、schema 构造 |
+| `std::expected` | ✅ | ✅ 12.1+ | ✅ | primary error handling |
+| `std::format/print` | ✅ | ✅ 13/14+ | ✅ | logging, schema construction |
 | `std::flat_map` | ✅ | ✅ 15.1+ | ✅ | |
-| `std::span` | ✅ | ✅ | ✅ | 传输层缓冲区 |
-| `<generator>` | ❌ 头缺失 | ✅ 14.1+* | ✅ | *libstdc++ 为 TS/实验性 |
+| `std::span` | ✅ | ✅ | ✅ | transport-layer buffers |
+| `<generator>` | ❌ header missing | ✅ 14.1+* | ✅ | *libstdc++ is TS/experimental |
 | `<inplace_vector>` | ❌ | ❌ | ✅ (`/std:c++latest`) | |
-| `<contracts>` / `<meta>` | ❌ | ❌ | ❌ | 三家均缺，C++26 不实际 |
+| `<contracts>` / `<meta>` | ❌ | ❌ | ❌ | missing in all three; C++26 not practical |
 | `std::chrono tz` | ✅ | ✅ 14.1+ | ✅ | |
 
-结论：**C++23 是"MSVC+GCC 均成熟、本机可验证"的最高甜点档**（clang22 的 libc++ 缺 generator/inplace_vector 可用 `std::function`/自写 trivially-copyable vector 规避，不碰虚表复杂度）。C++26 语言层（contracts/reflection）三家都未落地，纳入只会造成平台随机性。**推荐 C++23**，同时用 feature-test 宏防回退（见 §6.1）。
-> **2026-09-21 Update（v1.1，结论已修订）**：用户提出“对 zorm（C++17 工程）而言，升 17→23 的进步是否值得放弃向下兼容”。逐子系统复核后把选型改判为 **C++17**，完整依据与替代方案见 §9 Update 2。本表保留为“特性可用性实测”原始记录，不再承担选型结论。
-## 2. 产品定位与边界
+Conclusion: **C++23 is the highest sweet spot that is "mature in both MSVC+GCC and locally verifiable"** (clang22's libc++ lacks generator/inplace_vector, which can be worked around with `std::function`/a hand-written trivially-copyable vector, without touching vtable complexity). The C++26 language layer (contracts/reflection) is not landed in any of the three, so including it would only introduce platform randomness. **C++23 recommended**, while using feature-test macros to guard against fallback (see §6.1).
+> **2026-09-21 Update (v1.1, conclusion revised)**: the user raised "for zorm (a C++17 project), is the progress from 17→23 worth giving up backward compatibility". After re-reviewing subsystem by subsystem, the choice was overturned to **C++17**; the full rationale and alternatives are in §9 Update 2. This table is retained as the raw record of "feature-availability measurement" and no longer carries the selection conclusion.
+## 2. Product positioning and boundaries
 
-### 2.1 定位（把范围写死，防止膨胀）
+### 2.1 Positioning (fix the scope to prevent bloat)
 
-1. **协议核心库**（无任何 zorm 依赖）：JSON-RPC 2.0 编解码、五版规范（2024-11-05 → 2026-07-28）消息模型与版本协商、stdio + Streamable HTTP 传输、server/client 双侧能力调度、MRTR、取消、进度、订阅。
-2. **类型系统与 Schema**：完整的 TS/Python 对等类型层（Request/Result/Error 三态 + `resultType` 多态判别）、JSON Schema 2020-12 校验器（tools inputSchema/outputSchema/elicitation schema 共用）。
-3. **运行时**：服务器运行时（工具调度、能力协商、错误码、并发模型）、可选“server-builder” 便携 API（对标 Rust `Server::builder().add_tool(...)`、TS `McpServer.registerTool`）。
-4. **C++17 为基、条件性现代化**：错误传播用内置 `McpResult`（检测到 `__cpp_lib_expected` 时直接别名 `std::expected`）——见 §9 Update 2 逐项对照表。
+1. **Protocol core library** (no zorm dependency whatsoever): JSON-RPC 2.0 codec, message model and version negotiation for five spec versions (2024-11-05 → 2026-07-28), stdio + Streamable HTTP transport, server/client dual-side capability dispatch, MRTR, cancellation, progress, subscriptions.
+2. **Type system and Schema**: a complete TS/Python-parity type layer (Request/Result/Error tri-state + `resultType` polymorphic discrimination), a JSON Schema 2020-12 validator (shared by tools inputSchema/outputSchema/elicitation schema).
+3. **Runtime**: server runtime (tool dispatch, capability negotiation, error codes, concurrency model), an optional "server-builder" portable API (benchmarked against Rust `Server::builder().add_tool(...)`, TS `McpServer.registerTool`).
+4. **C++17 as the base, conditional modernization**: error propagation uses the built-in `McpResult` (aliased directly to `std::expected` when `__cpp_lib_expected` is detected) — see the item-by-item comparison table in §9 Update 2.
 
-### 2.2 超出范围的（第一版不做，写入 ROADMAP）
+### 2.2 Out of scope (not done in v1, written into ROADMAP)
 
-- OAuth 2.1 / Client ID Metadata Documents（HTTP 鉴权）—— 依赖 WebSocket/TLS 生态选型，后补；
-- Tasks 扩展（`io.modelcontextprotocol/tasks`）—— 2026 版降级为官方扩展，需异步调度器，放 v2；
-- MCP Apps（UI 扩展）—— 超库职责；
-- HTTP+SSD 旧传输（2025-03 已弃用）—— 仅保留兼容性探测（发 `GET` 409/405 判别旧服务器）,不完整实现。
+- OAuth 2.1 / Client ID Metadata Documents (HTTP auth) — depends on WebSocket/TLS ecosystem selection, deferred;
+- Tasks extension (`io.modelcontextprotocol/tasks`) — downgraded to an official extension in 2026, requires an async scheduler, put in v2;
+- MCP Apps (UI extension) — beyond library responsibility;
+- HTTP+SSE old transport (deprecated 2025-03) — only retain compatibility probing (send `GET` 409/405 to distinguish old servers), not a full implementation.
 
-## 3. 目录与 CMake 结构
+## 3. Directory and CMake structure
 
 ```
 thirds/mcp-cpp/
-  include/mcp/                 # public, 3~5 个头
-    mcp.hpp                    # 全功能单头入口（聚合若干分头）
-    types.hpp                  # Json 类型 + Message 类型（Version/Capabilities/Tool/...）
+  include/mcp/                 # public, 3~5 headers
+    mcp.hpp                    # all-in-one single-header entry (aggregates several sub-headers)
+    types.hpp                  # Json types + Message types (Version/Capabilities/Tool/...)
     error.hpp                  # Error codes + expected<T,McpError>
     server.hpp                 # Server / builder API
     client.hpp                 # Client (stdio + http)
     transport.hpp              # ITransport / StdioTransport / HttpTransport
-    schema.hpp                 # JSON Schema 2020-12 校验
+    schema.hpp                 # JSON Schema 2020-12 validation
     version.hpp                # MCP protocol version enum/strings
   src/
     types.cpp  error.cpp  schema.cpp  schema_check.cpp
     server.cpp  client.cpp
     transport_stdio.cpp  transport_http.cpp
-    executor.cpp               # 单线程胃/多线程、task queue、 cancellation
+    executor.cpp               # single-threaded core/multi-thread, task queue, cancellation
   tests/
-    test_jsonrpc.cpp           # RFC 全覆盖(无效 id/批量/严格解析)
-    test_types_roundtrip.cpp   # schema.ts 全类型 ↔ Json 互转
-    test_version.cpp           # 版本对齐矩阵测试(6 版规范)
-    test_schema.cpp            # JSON Schema 2020-12 校验测试集
-    test_stdio_e2e.cpp         # stdio 传输端到端（进程）
-    test_http_e2e.cpp          # httplib 端到端
+    test_jsonrpc.cpp           # full RFC coverage (invalid id/batch/strict parsing)
+    test_types_roundtrip.cpp   # schema.ts all types ↔ Json round-trip
+    test_version.cpp           # version alignment matrix tests (6 spec versions)
+    test_schema.cpp            # JSON Schema 2020-12 validation test set
+    test_stdio_e2e.cpp         # stdio transport end-to-end (process)
+    test_http_e2e.cpp          # httplib end-to-end
     test_mrtr.cpp test_cancel.cpp test_progress.cpp
   bench/
-    bench_parse.cpp bench_dispatch.cpp    # vs "Rust 基线" 性能对比（见 §8）
+    bench_parse.cpp bench_dispatch.cpp    # performance comparison vs "Rust baseline" (see §8)
   examples/
     zorm_server.cpp  minimal_server.cpp  client_probe.cpp
   CMakeLists.txt  README.md  LICENSE
 ```
 
-- CMake 目标：`mcp`（静态库，**C++17**，与宿主工程一致，WIN32/ZORM 解耦）、`mcp::mcp` 做 alias、`mcp_tests`、`mcp_bench`。
-- 集成到根工程：根 CMake `add_subdirectory(thirds/mcp-cpp)`，仅追加 `mcp` / `mcp_tests` 两个 target，👍 同时独立可 build（目录内自给自足，拷走即用）。
-- 与 zjson 的关系：**协议核心库自带薄 JSON 抽象**（默认实现直接用 zjson 单头包 `thirds/zjson`，对外仅暴露 `mcp::Json` 前向声明+概念约束，使用方亦可注入 rapidjson 等适配器）。原因：独立发布不可能强绑 zorm 仓库路径。
+- CMake targets: `mcp` (static library, **C++17**, consistent with the host project, WIN32/ZORM decoupled), `mcp::mcp` as an alias, `mcp_tests`, `mcp_bench`.
+- Integration into the root project: root CMake `add_subdirectory(thirds/mcp-cpp)`, appending only the two targets `mcp` / `mcp_tests`, 👍 while also independently buildable (self-contained within the directory, copy-and-use).
+- Relationship with zjson: **the protocol core library carries a thin JSON abstraction** (the default implementation directly uses the zjson single-header package `thirds/zjson`, exposing only a `mcp::Json` forward declaration + concept constraints to the outside; users may also inject adapters such as rapidjson). Reason: an independent release cannot hard-bind the zorm repo path.
 
-## 4. 模块设计
+## 4. Module design
 
-### 4.1 类型层（对标 TS `types.ts`，~1500 行的 C++ 对应物）
+### 4.1 Type layer (benchmarked against TS `types.ts`, the ~1500-line C++ counterpart)
 
 ```cpp
 namespace mcp {
-  // 协议版本（对应 TS LATEST_PROTOCOL_VERSION 与 6 个版本常量）
+  // Protocol version (corresponds to TS LATEST_PROTOCOL_VERSION and 6 version constants)
   enum class ProtocolVersion : uint8_t {
     V2024_11_05, V2025_03_26, V2025_06_18,
     V2025_11_25, V2026_07_28, Latest = V2026_07_28
@@ -106,13 +108,13 @@ namespace mcp {
   std::string_view toString(ProtocolVersion);
   std::optional<ProtocolVersion> fromString(std::string_view);
 
-  // 能力结构（2016 版用 variant，2026 版查 _meta）
+  // Capability structures (the 2016 version uses variant, the 2026 version queries _meta)
   struct ClientCapabilities { /* fs/roots/experimental + extensions dict */ };
   struct ServerCapabilities { /* tools/resources/prompts/... + extensions */ };
 
-  // 三态结果模型（2026 新）：complete / 输入需要 / 传输级错误
+  // Tri-state result model (new in 2026): complete / input required / transport-level error
   using RpcResult = std::variant<CompleteResult, InputRequiredResult>;
-  // Error：强类型错误码 + JSON-RPC code
+  // Error: strongly-typed error codes + JSON-RPC code
   enum class McpErrorCode : int32_t { ... };  // ParseError=-32700, InvalidRequest=-32600,
                                               // MethodNotFound=-32601, InvalidParams=-32602, InternalError=-32603,
                                               // -32020 HeaderMismatch, -32021 MissingRequiredClientCapability,
@@ -122,37 +124,37 @@ namespace mcp {
 }
 ```
 
-- 决策：**不用继承多态**表达 Result（Rust 用 enum 的 C++ 对应物是 `std::variant` + visitor；C# 的 `record` 对应物是 `struct` 聚合），消息层全部 value 语义 + `[[nodiscard]]`。
-- schema 校验：**JSON Schema 2020-12** 校验器（支持 `$ref` 局部、`const/enum/type/minimum/...` 18 个强语义关键字 + 递归深度上限 + composition 分支上限——照 SEP-2106 的"resource bounds"）。第一版为**协议自保**（校验自家生成 schema 的一致性），完整 `$ref` 远程解析、自定义词表放 v2。
+- Decision: **do not use inheritance polymorphism** to express Result (the C++ counterpart of Rust's enum is `std::variant` + visitor; the counterpart of C#'s `record` is a `struct` aggregate); the message layer is entirely value semantics + `[[nodiscard]]`.
+- schema validation: **JSON Schema 2020-12** validator (supports local `$ref`, `const/enum/type/minimum/...` 18 strong-semantic keywords + recursion depth cap + composition branch cap — following SEP-2106's "resource bounds"). v1 is for **protocol self-protection** (validating the consistency of self-generated schemas); full `$ref` remote resolution and custom vocabularies go to v2.
 
-### 4.2 传输层
+### 4.2 Transport layer
 
 ```cpp
 class ITransport {
 public:
   virtual ~ITransport() = default;
-  // 读写闭环：读到一条 JSON-RPC 消息，写出一条或流式
+  // Read/write loop: read one JSON-RPC message, write one out or stream
   virtual McpResult<Message> readMessage() = 0;
   virtual McpResult<void>   writeMessage(const Message&) = 0;
 };
 ```
 
-- **stdio**：`_setmode`/unistd 双平台二进制模式；行分帧（`\n`）；**严格 UTF-8**（协议要求，校验非法序列 → `ParseError`）；`notifications/cancelled` 由调度器解释。
-- **Streamable HTTP**：基于 `thirds/httplib`（v0.52）。单端点 POST；响应可为单 JSON 或 `text/event-stream`；按 changelog 第 4/9 条实现 `subscriptions/listen`（长连接 POST 流 + `io.modelcontextprotocol/subscriptionId`）；**无会话头**（2026 移除了 `Mcp-Session-Id`，防误设计）。httplib 自带 SSE 支持（v0.52 `set_chunked_content_provider`），线程池 64 并发由 thirds/httplib/CMakeLists.txt 现成参数控制。
-- 传输与调度解耦：`ITransport` 完全非虚（模板参数或 std::function 回调注入），测试可用内存 mock 传输。
+- **stdio**: `_setmode`/unistd dual-platform binary mode; line framing (`\n`); **strict UTF-8** (required by the spec, invalid sequences → `ParseError`); `notifications/cancelled` interpreted by the scheduler.
+- **Streamable HTTP**: based on `thirds/httplib` (v0.52). Single-endpoint POST; the response may be a single JSON or `text/event-stream`; implement `subscriptions/listen` per changelog items 4/9 (long-lived POST stream + `io.modelcontextprotocol/subscriptionId`); **no session header** (2026 removed `Mcp-Session-Id`, guarding against mis-design). httplib has built-in SSE support (v0.52 `set_chunked_content_provider`), a thread pool of 64 concurrent controlled by the ready-made parameters in thirds/httplib/CMakeLists.txt.
+- Transport and scheduling decoupled: `ITransport` is completely non-virtual (injected via a template parameter or std::function callback); tests can use an in-memory mock transport.
 
-### 4.3 调度器/运行时（性能敏感区）
+### 4.3 Scheduler/runtime (performance-sensitive area)
 
-- **无锁派发设计**：单线程 event loop（`epoll/kqueue/IOCP` 抽象 → 先用 `std::this_thread` 阻塞读 + task ring 做零依赖版），入站消息 → (校验schema → dispatch → handler) 全程 arena JSON，**零 `std::string` 拷贝**（zjson 的 StringView 借用文档内存，生命周期由 arena 池管）。对齐 rust-sdk 的 `Arc<Mutex<>>` 路径，但免锁。
-- 可选 TL-threads 模式：多 worker（每 worker 独立 arena），入站按 hash 分流，handler 声明线程亲和性。
-- Handler 签名（概念约束，编译期拒绝非值语义 handler）：
+- **Lock-free dispatch design**: single-threaded event loop (`epoll/kqueue/IOCP` abstraction → first use `std::this_thread` blocking read + task ring as a zero-dependency version), inbound message → (validate schema → dispatch → handler) all with arena JSON, **zero `std::string` copies** (zjson's StringView borrows document memory, lifetime managed by the arena pool). Aligns with rust-sdk's `Arc<Mutex<>>` path, but lock-free.
+- Optional TL-threads mode: multiple workers (each with its own arena), inbound sharded by hash, handlers declare thread affinity.
+- Handler signature (concept-constrained, rejects non-value-semantics handlers at compile time):
 
 ```cpp
 using ToolHandler = std::function<McpResult<CallToolResult>(const CallToolRequest&)>;
-// 高性能路径：注册时提供 `context`（arena*out）给用户预留 buffer，避免二次分配
+// high-performance path: provide `context` (arena*out) at registration time for the user to reserve a buffer, avoiding a second allocation
 ```
 
-### 4.4 Server/Client 便携 API（对标五个 Tier-1 SDK 最佳实践）
+### 4.4 Server/Client portable API (benchmarked against the best practices of five Tier-1 SDKs)
 
 ```cpp
 mcp::server::Builder b(ProtocolVersion::Latest);
@@ -160,294 +162,317 @@ b.with_name("zorm").with_version("0.1.0")
  .options({.pageSize=50, .requireConfirmationOnWrite=true})
  .add_tool(Tool{ .name="db_select", .description="...", .inputSchema=schema })
      .handle([](Ctx& c, const Json& args) -> McpResult<Json> {
-        auto db = c.get<zorm::Idb>();  // zorm 在例子里，库本身不依赖
+        auto db = c.get<zorm::Idb>();  // zorm is in the example; the library itself does not depend on it
         return ...;
      });
 auto server = b.build();
-server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
+server.run(StdioTransport{});     // or server.serve_http("0.0.0.0", 8080)
 ```
 
-- Client API 对标 python-sdk `ClientSession`：`connect(transport)` / `list_tools()` / `call_tool()` / `read_resource()` / `list_resource_templates()` / `subscribe(...)`，全部 `McpResult<T>`。
-- C++17 惯用法补强：builder 链式返回用引用限定 `T&& set_x(...)&&`（C++17 即可精确控制 `&&` 生命周期）；编译期 schema 注册用 `constexpr` 聚合 + `consteval` 前身（若检测到 C++20 编译器则启用 `consteval`，否则 `constexpr`）。
+- Client API benchmarked against python-sdk `ClientSession`: `connect(transport)` / `list_tools()` / `call_tool()` / `read_resource()` / `list_resource_templates()` / `subscribe(...)`, all `McpResult<T>`.
+- C++17 idiom reinforcement: builder chaining returns use ref-qualified `T&& set_x(...)&&` (C++17 can already precisely control `&&` lifetimes); compile-time schema registration uses `constexpr` aggregates + a `consteval` precursor (enable `consteval` if a C++20 compiler is detected, otherwise `constexpr`).
 
-## 5. 与官方 Tier-1 SDK 的功能对齐矩阵（设计验收）
+## 5. Feature alignment matrix with the official Tier-1 SDKs (design acceptance)
 
-| 功能 | TS/src | Python | C# | Go | Rust | **mcp-cpp 覆盖阶段** |
+| Feature | TS/src | Python | C# | Go | Rust | **mcp-cpp coverage stage** |
 | --- | --- | --- | --- | --- | --- | --- |
-| JSON-RPC 2.0 严格编解码 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| 6 版协议版本协商（schema 见 V 版常量） | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| stdio 传输 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| JSON-RPC 2.0 strict codec | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| 6-version protocol negotiation (schema see the V-version constants) | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| stdio transport | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
 | Streamable HTTP + SSE | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| tools/resources/prompts 完整类型 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| resource URI templates（`resources/templates/list` + read 模板回退） | ✅ | ✅ | ✅ | ✅ | ✅ | M5 后补 |
-| 错误码 + `resultType` 三态 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| MRTR（input_required → inputResponses 重试） | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| 取消 notifications/cancelled | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| 进度 notifications/progress | ✅ | ✅ | ✅ | ✅ | ✅ | P1 |
-| `server/discover`（2026 新 RPC） | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
-| `subscriptions/listen`（2026 新） | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| tools/resources/prompts full types | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| resource URI templates (`resources/templates/list` + read template fallback) | ✅ | ✅ | ✅ | ✅ | ✅ | M5 follow-up |
+| error codes + `resultType` tri-state | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| MRTR (input_required → inputResponses retry) | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| cancellation notifications/cancelled | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| progress notifications/progress | ✅ | ✅ | ✅ | ✅ | ✅ | P1 |
+| `server/discover` (new 2026 RPC) | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
+| `subscriptions/listen` (new 2026) | ✅ | ✅ | ✅ | ✅ | ✅ | P0 |
 | CacheableResult(ttlMs/cacheScope) | ✅ | ✅ | ✅ | ✅ | ✅ | P1 |
 | completion/complete | ✅ | ✅ | ✅ | ✅ | ✅ | P1 |
-| 客户端能力：elicitation(MRTR) | ✅ | ✅ | ✅ | ✅ | ✅ | P1 |
-| Roots/Sampling（已弃用） | ✅ | ✅ | ✅ | ✅ | ✅ | **不实现**（SEP-2577；保留弃用握手兼容层） |
-| Tasks 扩展 | E | E | E | E | E | v2 |
+| client capability: elicitation(MRTR) | ✅ | ✅ | ✅ | ✅ | ✅ | P1 |
+| Roots/Sampling (deprecated) | ✅ | ✅ | ✅ | ✅ | ✅ | **not implemented** (SEP-2577; keep a deprecated-handshake compatibility layer) |
+| Tasks extension | E | E | E | E | E | v2 |
 | OAuth/auth | ✅ | ✅ | ✅ | ✅ | ✅ | v2 |
-| JSON Schema 校验 | TS 用 ajv | pydantic | data-annotation | gojsonschema | jsonschema | **自研轻量校验器** |
-| **C++ 特色：arena 零拷贝 / 无锁派发** | — | — | — | — | — | **P0（差异化）** |
+| JSON Schema validation | TS uses ajv | pydantic | data-annotation | gojsonschema | jsonschema | **self-built lightweight validator** |
+| **C++ feature: arena zero-copy / lock-free dispatch** | — | — | — | — | — | **P0 (differentiation)** |
 
-> 对被弃用的 Roots/Sampling：库**不实现**但保证消息不崩（透传 unknown method → MethodNotFound/忽略弃用通知）， HLS 兼容禁用层单测。
+> For the deprecated Roots/Sampling: the library **does not implement** them but guarantees messages don't crash (pass through unknown methods → MethodNotFound / ignore deprecated notifications), with HLS compatibility-disable-layer unit tests.
 
-## 6. 工程约束（C++ 最佳实践 / 可发布性）
+## 6. Engineering constraints (C++ best practices / publishability)
 
-### 6.1 标准与编译器矩阵（v1.1 按 §9 Update 2 修订）
+### 6.1 Standard and compiler matrix (v1.1 revised per §9 Update 2)
 
-- **语言标准 = C++17**（与 zorm 主工程一致；`std=c++17` / `/std:c++17`）。
-- 条件性 C++20/23 特性（可选加速，不构成门槛）：`__cpp_lib_expected >= 202202L` 则 `McpResult` 直接别名 `std::expected`，否则用内置 `Result` fallback；`__cpp_lib_three_way_comparison` 则启用 `<=>`；未被 C++17 允许的一切写成单一实现（不做双实现洪流）。
-- 编译器矩阵 `(clang22, gcc≥11, msvc v19.3x) × (RelWithDebInfo, Debug)`；GCC 下限降为 11（Ubuntu 22.04 默认版本，最大化受众）。
-- **依赖透明**：`thirds/zjson`（JSON）、`thirds/httplib`（HTTP，可选宏 `MCP_DISABLE_HTTP`）、无其他第三库；gtest 用根工程已有 `googletest-1.18.0`（tests 仅内部用，不随库发布）。
+- **Language standard = C++17** (consistent with the zorm main project; `std=c++17` / `/std:c++17`).
+- Conditional C++20/23 features (optional acceleration, not a threshold): if `__cpp_lib_expected >= 202202L` then `McpResult` aliases `std::expected` directly, otherwise use the built-in `Result` fallback; if `__cpp_lib_three_way_comparison` then enable `<=>`; everything not permitted by C++17 is written as a single implementation (no flood of dual implementations).
+- Compiler matrix `(clang22, gcc≥11, msvc v19.3x) × (RelWithDebInfo, Debug)`; GCC lower bound lowered to 11 (Ubuntu 22.04's default version, maximizing audience).
+- **Dependency transparency**: `thirds/zjson` (JSON), `thirds/httplib` (HTTP, optional macro `MCP_DISABLE_HTTP`), no other third-party libraries; gtest uses the root project's existing `googletest-1.18.0` (tests are internal only, not shipped with the library).
 
-### 6.2 可('&')=独立发布检查单
+### 6.2 Publishability / standalone-release checklist
 
-- [ ] `thirds/mcp-cpp` 可 `git subtree split` 独立成仓（自给 CMake、无 zorm 路径/头依赖）
-- [ ] 构建零警告 + `clang-tidy`（`modernize-*`、`bugprone-*`、`readability-identifier-naming`=MCP 前）
-- [ ] `MCP_DISABLE_HTTP` 独立于 HTTP 构建（纯 stdio 闲置的低配设备）
-- [ ] `include/` 防泄漏：CI grep 校验 public 头不出现 `zorm/`、`db_`、mysql/pg 符号
-- [ ] ABI：PIMPL 隔离 `std::` 类型跨边界（`server.hpp` 用 `pimpl`，导出前向声明唯一）
-- [ ] 版本文件 `version.txt` + semver + `MCP_SDK_VERSION` 宏；License：MIT + NOTICE 列 zjson/httplib
-- [ ] README 含：功能矩阵、对标 TS/Go/Rust 的差异章节、zorm 集成示例
+- [ ] `thirds/mcp-cpp` can be `git subtree split` into a standalone repo (self-contained CMake, no zorm path/header dependency)
+- [ ] Build zero warnings + `clang-tidy` (`modernize-*`, `bugprone-*`, `readability-identifier-naming`=MCP-prefixed)
+- [ ] `MCP_DISABLE_HTTP` builds independently of HTTP (pure stdio for idle low-spec devices)
+- [ ] `include/` leak prevention: CI grep verifies public headers contain no `zorm/`, `db_`, mysql/pg symbols
+- [ ] ABI: PIMPL isolates `std::` types across the boundary (`server.hpp` uses `pimpl`, a single exported forward declaration)
+- [ ] Version file `version.txt` + semver + `MCP_SDK_VERSION` macro; License: MIT + NOTICE listing zjson/httplib
+- [ ] README contains: feature matrix, a differences section vs TS/Go/Rust, zorm integration example
 
-### 6.3 测试与（超越官方）质量项
+### 6.3 Testing and (beyond-official) quality items
 
-1. **单元**：JSON-RPC 严析（无效 UTF-8、id 冲突、大整数 ±2^63、浮点精度、Deep nesting 限深）、schema 校验、版本兼容矩阵。
-2. **协议一致性自测**：以 `docs/mcp/specification-2026-07-28/schema.md` 为 source-of-truth 写**生成器**：脚本扫 schema.ts 所在的 md，emit C++ 失败用例表 → 保证类型封包不可能漂移。（官方 conformance repo 开放后对齐）
-3. **传输端到端**：stdio 起子进程真读写；HTTP 用 httplib 起 server/client 对跑 6 版协议。
-4. **压力/并发**：1000 并发 tool calls、cancellation 风暴、流背压、arena 峰值内存回归。
-5. **Mutation testing**（zorm 项目惯例）：关键分支（版本协商、错误码映射、MRTR 状态机）手工变异验证测试有效性。
-6. **性能门禁**：bench 输出进 CI，防性能回退。
+1. **Unit**: JSON-RPC strict parsing (invalid UTF-8, id conflicts, large integers ±2^63, floating-point precision, deep-nesting depth cap), schema validation, version compatibility matrix.
+2. **Protocol conformance self-test**: using `docs/mcp/specification-2026-07-28/schema.md` as source-of-truth, write a **generator**: a script scans the md where schema.ts lives, emits a C++ failure-case table → guaranteeing type packing cannot drift. (Align once the official conformance repo opens)
+3. **Transport end-to-end**: stdio spawns a child process for real read/write; HTTP uses httplib to run server/client against each other across the 6 spec versions.
+4. **Stress/concurrency**: 1000 concurrent tool calls, cancellation storm, stream backpressure, arena peak-memory regression.
+5. **Mutation testing** (a zorm project convention): manual mutation of critical branches (version negotiation, error-code mapping, MRTR state machine) to verify test effectiveness.
+6. **Performance gate**: bench output goes into CI to prevent performance regression.
 
-## 7. 里程碑（3 周粒度）
+## 7. Milestones (3-week granularity)
 
-| 里程碑 | 内容 | 验收 |
+| Milestone | Content | Acceptance |
 | --- | --- | --- |
-| **M0 骨架**（2d） | 目录/CMake/include 骨架、zjson 接入、CI 灰 | 三编译器全绿 |
-| **M1 协议核心**（1w） | types/error/version、JSON-RPC 读写、stdio 传输 | test_jsonrpc 全绿，Inspector 可跑通 |
-| **M2 server builder**（1w） | server 调度、tools/resources/prompts、MRTR、取消 | examples/minimal_server 过 Inspector；test_stdio_e2e |
-| **M3 client + HTTP**（1w） | client API、Streamable HTTP、subscriptions/listen | test_http_e2e；setup `zorm_server.cpp` 连真库 |
-| **M4 schema + 完备化**（1w） | JSON Schema 校验器、completion、Cacheable、版本矩阵 | 全部功能对齐 §5 |
-| **M5 性能与发布**（1w） | bench 三项（解析/派发/端到端）vs rust 基线、文档、独立发布检查单 | 性能超 rust-sdk 同场景；三方检查单全勾 |
+| **M0 Skeleton** (2d) | directory/CMake/include skeleton, zjson integration, CI gray | all three compilers green |
+| **M1 Protocol core** (1w) | types/error/version, JSON-RPC read/write, stdio transport | test_jsonrpc all green, Inspector runs through |
+| **M2 server builder** (1w) | server dispatch, tools/resources/prompts, MRTR, cancellation | examples/minimal_server passes Inspector; test_stdio_e2e |
+| **M3 client + HTTP** (1w) | client API, Streamable HTTP, subscriptions/listen | test_http_e2e; set up `zorm_server.cpp` connecting to a real DB |
+| **M4 schema + completeness** (1w) | JSON Schema validator, completion, Cacheable, version matrix | all features aligned with §5 |
+| **M5 performance & release** (1w) | three bench items (parse/dispatch/e2e) vs rust baseline, docs, standalone-release checklist | performance exceeds rust-sdk in the same scenario; all three-party checklist boxes ticked |
 
-## 8. 性能目标（"超越 rust-sdk"的可验证化）
+## 8. Performance goals ("exceeding rust-sdk" made verifiable)
 
-定义三个可复现基准（bench/）：
+Define three reproducible benchmarks (bench/):
 
-| 基准 | 内容 | rust-sdk 基线口径 | mcp-cpp 目标 |
+| Benchmark | Content | rust-sdk baseline caliber | mcp-cpp goal |
 | --- | --- | --- | --- |
-| B1 parse | 1KB / 64KB JSON-RPC 消息吞吐 | serde_json + sdk 类型反序列化 | ≥1.5×（arena + from_chars 路径） |
-| B2 dispatch | tools/call 派发+handler stub 回包 QPS | tokio 单任务 | ≥2×（免锁/免 future 开销） |
-| B3 e2e | stdio 子进程 10k 消息往返时延 | 官方 stdio 传输 | ≥1.2×（避免 UTF-8 二次校验） |
+| B1 parse | 1KB / 64KB JSON-RPC message throughput | serde_json + sdk type deserialization | ≥1.5× (arena + from_chars path) |
+| B2 dispatch | tools/call dispatch + handler stub reply QPS | tokio single task | ≥2× (lock-free / no future overhead) |
+| B3 e2e | stdio child process 10k message round-trip latency | official stdio transport | ≥1.2× (avoid double UTF-8 validation) |
 
-- rust 基线用 `cargo bench` 于同机跑（M5 落实）；不达标则 profile（`perf`/VTune）后优化或调低承诺（文档如实记录）。
-- 手段清单优先级：arena 复用（zjson 已有）→ 无锁 ring 入队 → 消息预解析指纹（先 peek method → 快路径 schema 校验）→ iovec writev 聚包。
+- The rust baseline is run on the same machine with `cargo bench` (executed in M5); if it falls short, profile (`perf`/VTune) then optimize or lower the promise (recorded honestly in the docs).
+- Means list by priority: arena reuse (zjson already has it) → lock-free ring enqueue → message pre-parse fingerprint (peek method first → fast-path schema validation) → iovec writev batching.
 
-## 9. 决策记录（本轮确认后开工）
+## 9. Decision records (start work after this round's confirmation)
 
-### 2026-09-21 Update 2（v1.1）— 选型改判：**语言标准 = C++17**
+### 2026-09-21 Update 2 (v1.1) — Choice overturned: **language standard = C++17**
 
-**用户质询**：17→23 在本项目里到底有多大的进步？是否值得为它放弃向下兼容（zorm 主工程是 C++17）？
-**回答**：逐子系统把 C++20/23 的候选特性按“真实贡献”过了一遍，结论是**收益集中在语法糖，无一项心动的结构性进步**。逐项如下：
+**User's challenge**: how much progress does 17→23 actually make in this project? Is it worth giving up backward compatibility (the zorm main project is C++17) for it?
+**Answer**: reviewed the C++20/23 candidate features subsystem by subsystem for "real contribution"; the conclusion is **the gains are concentrated in syntactic sugar, with not a single exciting structural advance**. Item by item:
 
-| C++20/23 特性 | 在 mcp-cpp 的用途 | 若留在 C++17 的替代 | 真实代价 |
+| C++20/23 feature | Use in mcp-cpp | Alternative if kept in C++17 | Real cost |
 | --- | --- | --- | --- |
-| `std::expected<T,E>` | 错误传播(Return type 惯例) | `McpResult` 手写(一个仅此用途的 60~80 行 `Result/Ok/Err` 模板，值语义、`[[nodiscard]]`) | +0.5d 一次性 |
-| `std::variant`+visitor | 消息模型 | **C++17 就有**，无变化 | 0 |
-| `std::format/print` | 日志/schema 构造 | zjson 已有流式/append 能力 + snappy 手写格式化；协议文本只有 `%s/%d/%llx` 级需求 | ~0 |
-| `deducing this` | builder 链式 `&&` 生命周期 | 拷贝限定的链式（Rust builder 惯例同款）或显式 `move` | ~0 |
-| concepts (20) | handler 概念约束 | C++17 `if constexpr`+ trait，真不规范时 `static_assert` | 易读性略降 |
-| `constexpr string/vector`(20) | 编译期 schema 注册 | `consteval` 用不上时以运行时注册表起步 | v2 再说 |
-| `<flat_map>` | 小型 method→handler 表 | `std::unordered_map`（方法名量级 <40，差异 ns 级） | ~0 |
-| `std::span`(20) | 缓冲区视图 | **C++17 已有**（`<span>` 是 C++20 但 zjson 内部早已用 `string_view`，等价场景） | 0 |
-| ranges/views(20/23) | 数据流水线 | 本库数据流是“一条消息一跳”，无长链流水线 | ~0 |
-| coroutines/generator | 流式响应 | M1~M3 无流式需求；将来 SSE 处理器直接在传输层回调，不需要协程 | 0 |
-| `std::format` fmt 风格日志 | 结构化日志 | MISSION: 与 zjson 共用 stderr 简单 logger | ~0 |
+| `std::expected<T,E>` | error propagation (return-type convention) | hand-written `McpResult` (a 60~80-line `Result/Ok/Err` template for this purpose only, value semantics, `[[nodiscard]]`) | +0.5d one-time |
+| `std::variant`+visitor | message model | **already in C++17**, no change | 0 |
+| `std::format/print` | logging/schema construction | zjson already has streaming/append capability + snappy hand-written formatting; protocol text only needs `%s/%d/%llx`-level requirements | ~0 |
+| `deducing this` | builder chaining `&&` lifetimes | copy-qualified chaining (the same as the Rust builder convention) or explicit `move` | ~0 |
+| concepts (20) | handler concept constraints | C++17 `if constexpr`+ trait, `static_assert` when truly non-conforming | slightly reduced readability |
+| `constexpr string/vector`(20) | compile-time schema registration | start with a runtime registry when `consteval` is unusable | revisit in v2 |
+| `<flat_map>` | small method→handler table | `std::unordered_map` (method-name magnitude <40, difference is ns-level) | ~0 |
+| `std::span`(20) | buffer views | **already in C++17** (`<span>` is C++20 but zjson internally already uses `string_view` for equivalent scenarios) | 0 |
+| ranges/views(20/23) | data pipelines | this library's data flow is "one message, one hop", no long chained pipeline | ~0 |
+| coroutines/generator | streaming responses | M1~M3 have no streaming requirement; future SSE handlers callback directly at the transport layer, no coroutines needed | 0 |
+| `std::format` fmt-style logging | structured logging | MISSION: share a simple stderr logger with zjson | ~0 |
 
-要点核实：**改动最大的三类兴趣点（性能、内存、并发）在 C++17→23 之间厂商零增量** ——性能来自 zjson arena（17 就有）、无锁/单线程调度（C 语义层，与版本无关）、`from_chars`（C++17 已收进 `<charconv>`）。
-反过来，升 23 的**确定性成本**是：
+Key verification: **the three biggest areas of interest (performance, memory, concurrency) have zero vendor increment between C++17→23** — performance comes from the zjson arena (already in 17), lock-free/single-threaded scheduling (C semantics layer, version-independent), `from_chars` (already in `<charconv>` as of C++17).
+Conversely, the **certain costs** of going to 23 are:
 
-1. **受众收窄**：GCC≥13/Clang≥17/MSVC v19.3x 起 —— 老发行版(Ubuntu 20.04/22.04 默认 GCC 9/11、CentOS/麒麟系、旧 MSVC)、以及“想把库直接拖进自家 C++17 工程”的用户全部出局。对一个以“官方没有 C++ SDK、你来补位”为卖点的库，受众是最核心资产。
-2. **与宿主工程断裂**：mcp-cpp 既要在 zorm(C++17) 里集成，又要独立发布，双标准将使“一处修复两处 CI”成为常态（ABI/头兼容矩阵翻倍）。
-3. **C++26 部分(备选C)** 原本就只做实验，不构成决策因素。
+1. **Narrower audience**: GCC≥13/Clang≥17/MSVC v19.3x and up — old distros (Ubuntu 20.04/22.04 default GCC 9/11, CentOS/Kylin family, old MSVC), and users who "want to drag the library directly into their own C++17 project" are all excluded. For a library whose selling point is "there's no official C++ SDK, you fill the gap", audience is the most core asset.
+2. **Break from the host project**: mcp-cpp must both integrate into zorm (C++17) and be independently released; dual standards would make "one fix, two CIs" the norm (ABI/header compatibility matrix doubles).
+3. **The C++26 part (alternative C)** was only ever experimental, not a decision factor.
 
-**改判结论**：库本体 **C++17**（与 zorm 同标准，`-fsigned-char`/构建体系照旧）；同时善用编译器无关的 C++20*语言*仅作为**条件性特性**（`__has_include`/`__cpp_lib_expected` 检测，检测到则用标准库实现，否则用内置 fallback —— 一个 `#if` 两行，交付“好心 C++20 加速”零负担）。
+**Overturned conclusion**: the library body is **C++17** (same standard as zorm, `-fsigned-char`/build system as before); at the same time make good use of compiler-independent C++20 *language* only as **conditional features** (`__has_include`/`__cpp_lib_expected` detection; use the standard-library implementation if detected, otherwise the built-in fallback — a two-line `#if`, delivering "nice C++20 acceleration" at zero burden).
 
-**性能/功能承诺不变**（§8 三基准 §5 全覆盖矩阵），且新增一条正向承诺：`mcp-cpp` 是"任意 C++17 工程里 copy 即用"的库 —— 这本身就是对抗"boost 貌似只有我们维护"这一现实的一个产品级卖点。
+**Performance/feature promises unchanged** (§8 three benchmarks, §5 full coverage matrix), plus one new positive promise: `mcp-cpp` is a library that is "copy-and-use in any C++17 project" — this itself is a product-level selling point against the reality that "boost seems to be maintained only by us".
 
-### 2026-09-21 Update 1（v1 初稿）— 自主决策（采用推荐方案，供用户事后复审）
+### 2026-09-21 Update 1 (v1 first draft) — autonomous decision (adopt the recommended options, for the user's later review)
 
-用户当时不在线，按“自主决策、事后可推翻”处理，采用三项推荐值开工所需的准备已就绪：
+The user was offline at the time; handled as "autonomous decision, overturnable afterwards"; the preparations needed to start work with three recommended values adopted are ready:
 
-1. ~~C++ 标准 = C++23~~（**v1.1 修订为 C++17**，见 Update 2）；缓解措施：CI 矩阵附带 GCC13 兼容检查（多数发行版 GCC 13 起有 expected/format）；
-2. **并发模型 = 单线程 event loop 起步，多 worker 作为编译期开关（MCP_WORKERS=N）在 M4 性能门禁不达 B2 目标时启用**。避免"一步到位双模式"带来的 +3 天并发测试量前置。
-3. **JSON 层 = 默认 zjson + `IJsonAdapter` 注入点**。arena 零拷贝收益全拿；注入点保证独立发布后第三方可替换 rapidjson/nlohmann。zjson 经 `thirds/mcp-cpp/thirds/zjson` 副本（或 CMake cache 路径）随库发布。
+1. ~~C++ standard = C++23~~ (**revised to C++17 in v1.1**, see Update 2); mitigation: the CI matrix includes a GCC13 compatibility check (most distros have expected/format from GCC 13);
+2. **Concurrency model = start with a single-threaded event loop, with multiple workers as a compile-time switch (MCP_WORKERS=N) enabled when the M4 performance gate misses the B2 target**. Avoids the +3 days of concurrency testing brought forward by an "all-at-once dual-mode" approach.
+3. **JSON layer = zjson by default + an `IJsonAdapter` injection point**. Takes all the arena zero-copy benefit; the injection point ensures third parties can replace it with rapidjson/nlohmann after standalone release. zjson ships with the library via a copy at `thirds/mcp-cpp/thirds/zjson` (or a CMake cache path).
 
-若您推翻任一项，修改本节并同步 §1.1/§4.3/§6.1 的相关设计，成本估算不变。
+If you overturn any item, modify this section and synchronize the related designs in §1.1/§4.3/§6.1; the cost estimate is unchanged.
 
-> 按此前约定：M0 动工前，请对 §9 三项表态；后续每个里程碑完成时，本文件随 debug/实测记录滚动更新（每节末尾附加"更新日志"小节）。
+> As previously agreed: before M0 starts, please state your position on the three items in §9; as each subsequent milestone completes, this file rolls forward with debug/measured records (a "update log" subsection appended at the end of each section).
 
-### 2026-09-21 Update 3 — M0 完成（骨架落地记录）
+### 2026-09-21 Update 3 — M0 complete (skeleton landing record)
 
-**验收口径修订（用户指示）**：测试/验收只在本机 clang 22.1.8（MSYS2 clang64, windows-gnu）完成；GCC/MSVC 矩阵降级为"编码时保持兼容"（平台差异一律走 feature-test 宏，不写死编译器分支），后期再验。
+**Acceptance caliber revision (user instruction)**: testing/acceptance is done only locally on clang 22.1.8 (MSYS2 clang64, windows-gnu); the GCC/MSVC matrix is downgraded to "maintain compatibility while coding" (all platform differences go through feature-test macros, no hard-coded compiler branches), to be verified later.
 
-**对计划的三处修正（以核实为准）**：
+**Three corrections to the plan (verified facts take precedence)**:
 
-1. **协议版本是 5 个，不是"6 版"**（§3 测试清单笔误；§4.1 enum 的 5 个枚举值为准），与规范版本史一致。
-2. **错误码逐一对过本地规范**（`docs/mcp/specification-2026-07-28/basic/index.md` "Error codes"）：JSON-RPC 标准五码 + MCP 保留区 `-32020..-32099`，具名仅三个：`HeaderMismatch=-32020`、`MissingRequiredClientCapability=-32021`（其 `data.requiredCapabilities` 指向 `ClientCapabilities`）、`UnsupportedProtocolVersion=-32022`。另注意 2026 版把 resource-not-found 从 `-32002` 改为 `-32602`（InvalidParams），**没有**专用的 resource-not-found 码。`McpError.data`（JSON 载荷）推迟到 M1 与消息模型一起加——需先定 zjson arena 语义下 `data` 的所有权写法。
-3. **头文件按里程碑落地**，不做全空占位骨架（避免"先占名字后填肉"的无效 diff）。M0 实际交付：`mcp.hpp`（聚合）、`version.hpp/.cpp`、`error.hpp`、`json.hpp`。
+1. **There are 5 protocol versions, not "6 versions"** (a typo in the §3 test list; the 5 enum values in §4.1 are authoritative), consistent with the spec version history.
+2. **Error codes checked one by one against the local spec** (`docs/mcp/specification-2026-07-28/basic/index.md` "Error codes"): the five JSON-RPC standard codes + the MCP reserved region `-32020..-32099`, with only three named: `HeaderMismatch=-32020`, `MissingRequiredClientCapability=-32021` (whose `data.requiredCapabilities` points to `ClientCapabilities`), `UnsupportedProtocolVersion=-32022`. Also note that the 2026 version changed resource-not-found from `-32002` to `-32602` (InvalidParams); there is **no** dedicated resource-not-found code. `McpError.data` (JSON payload) is deferred to M1 to be added together with the message model — the ownership writing of `data` under zjson arena semantics must be settled first.
+3. **Headers land by milestone**, no all-empty placeholder skeleton (avoiding ineffective diffs of "reserve the name first, fill the flesh later"). M0 actually delivers: `mcp.hpp` (aggregation), `version.hpp/.cpp`, `error.hpp`, `json.hpp`.
 
-**设计记录**：
+**Design records**:
 
-- `McpError.code` 用强类型 `enum class McpErrorCode : int32_t`（计划原文是裸 int32_t——强类型可防调用点传任意整数；上线到 wire 时 `static_cast`）。
-- **错误返回双模式统一**：`McpResult<T>` 在 `__cpp_lib_expected >= 202202L` 时别名 `std::expected`，否则内置 `Result<T>`（variant 实现，`Result<void>` 特化用 monostate；成员面与 expected 一致：`has_value/value/error`）。`Ok(v)/Ok()/Err(code,msg)/Err(McpError)` 工厂返回 `ErrCarrier`，隐式转换为函数返回类型的 `McpResult<T>`——调用点 `return Err(...)` 无需写模板参数，且在两种模式下逐字相同。
-- **踩坑**：`detail::makeErr` 必须放在 `McpResult` 别名声明之后（模板别名先声明后使用）——clang 直接指出实例化点，一次修复。
-- **zjson 接入**：`mcp::Json = ZJSON::Json` 别名先行；`IJsonAdapter` 注入点按原计划推迟到 M1（等适配面最小集明确）。CMake 的 `MCP_ZJSON_DIR` 探测顺序：`./thirds/zjson`（独立发布布局）→ `../zjson`（仓库内布局）→ 报错。
-- **gtest 发现顺序**：父工程已注册 → 仓库 `thirds/googletest-1.18.0` → 系统 GTest 包 → 警告并跳过测试。库本体零测试依赖。
-- 首次配置时 `../../zjson` 路径算错过一次（`thirds/mcp-cpp` 的仓库兄弟是 `../zjson`），CMake 探测的 EXISTS 检查当即拦下——探测设计起了作用。
+- `McpError.code` uses the strongly-typed `enum class McpErrorCode : int32_t` (the plan's original text was bare int32_t — strong typing prevents call sites from passing arbitrary integers; `static_cast` when going onto the wire).
+- **Error-return dual-mode unification**: `McpResult<T>` aliases `std::expected` when `__cpp_lib_expected >= 202202L`, otherwise the built-in `Result<T>` (variant implementation, with a `Result<void>` specialization using monostate; member surface identical to expected: `has_value/value/error`). The `Ok(v)/Ok()/Err(code,msg)/Err(McpError)` factories return an `ErrCarrier`, implicitly convertible to the function's return type `McpResult<T>` — the call site's `return Err(...)` needs no template arguments and is character-for-character identical in both modes.
+- **Pitfall**: `detail::makeErr` must be placed after the `McpResult` alias declaration (template aliases must be declared before use) — clang pointed directly at the instantiation point, fixed in one pass.
+- **zjson integration**: the `mcp::Json = ZJSON::Json` alias comes first; the `IJsonAdapter` injection point is deferred to M1 per the original plan (waiting for the minimal adapter surface to be clear). CMake's `MCP_ZJSON_DIR` probe order: `./thirds/zjson` (standalone-release layout) → `../zjson` (in-repo layout) → error.
+- **gtest discovery order**: already registered by the parent project → repo `thirds/googletest-1.18.0` → system GTest package → warn and skip tests. The library body has zero test dependency.
+- During the first configuration the `../../zjson` path was miscalculated once (`thirds/mcp-cpp`'s repo sibling is `../zjson`); CMake's EXISTS check caught it immediately — the probe design worked.
 
-**M0 验收（本机 clang 22.1.8 / ninja）**：
+**M0 acceptance (local clang 22.1.8 / ninja)**:
 
-- 根工程集成构建全绿（zormlib + 全部既有测试目标不受影响）。
-- `ctest -R mcp_test`：`mcp_test_version`、`mcp_test_error` 全过（版本往返/未知串/错误码 static_assert 钉死 wire 值/Result 三态与 void/非默认构造 T）。
-- **独立构建路径实测通过**：`cmake -S thirds/mcp-cpp -B <tmp> -DMCP_ZJSON_DIR=...` 独立配置、构建、测试全绿——"拷走即用"承诺成立。
+- Root project integrated build all green (zormlib + all existing test targets unaffected).
+- `ctest -R mcp_test`: `mcp_test_version`, `mcp_test_error` all pass (version round-trip/unknown string/error-code static_assert pinning the wire values/Result tri-state and void/non-default-constructible T).
+- **Standalone build path verified in practice**: `cmake -S thirds/mcp-cpp -B <tmp> -DMCP_ZJSON_DIR=...` standalone configure, build, test all green — the "copy-and-use" promise holds.
 
-### 2026-09-21 Update 4 — M1 完成（协议核心：类型/JSON-RPC/stdio 传输）
+### 2026-09-21 Update 4 — M1 complete (protocol core: types/JSON-RPC/stdio transport)
 
-**开工前从规范核实的增量事实**（均以 `docs/mcp/specification-2026-07-28/` 为准）：
+**Incremental facts verified from the spec before starting work** (all per `docs/mcp/specification-2026-07-28/`):
 
-- **消息四型**：Request（id 为 string|integer，**禁 null**）、Notification（**禁 id**，含 null）、Result Response（`resultType` 必带；缺失按 legacy 读作 `complete`）、Error Response（schema 为 `id?: RequestId`——**无 null id**，读不出 id 时省略）。JSON-RPC 2.0 的"id null 即通知"读法被显式拒绝：id 成员存在但为 null → InvalidRequest， mismatch 要响亮地失败。
-- **无状态**：`initialize` 握手在 2026 版已移除，每请求 `params._meta` 携带 `io.modelcontextprotocol/protocolVersion`（必填）+ `clientCapabilities`（必填）+ `clientInfo`（可选）；缺失 → `-32602`。双 era 服务器靠"请求带现代 `_meta` 还是带 `initialize`"分流——这是 M2 服务端的关键设计输入。
-- **`server/discover`**：`DiscoverResult{resultType:"complete", supportedVersions[], capabilities, instructions?, ttlMs, cacheScope}`；stdio 客户端用"discover 探针 + 识别现代错误（-32022 等）"判定服务器 era，**fallback 不得绑定单一错误码**（legacy 服务器对未知方法报 -32601/-32602 或不响应）。
-- **stdio 传输**：行分帧、禁嵌入换行、stdout 只准出消息、stderr 随意、EOF 是首要优雅关停信号；wire 格式与传输通道无关（socket/pipe 通吃）→ `StreamTransport` 注入 iostream 对，stdio 只是特例。
-- **能力对象保持 Json 背托**（结构化类型，跟随规范演进），只对运行时会分支的字段提供 `capabilitiesInclude`/`capabilitiesIncludeExtension` 探针。全量类型化结构体会冻结一个规范还在活跃扩展的字段集——刻意偏离计划 §4.1 的"全字段结构体"路线。
+- **Four message types**: Request (id is string|integer, **null forbidden**), Notification (**id forbidden**, including null), Result Response (`resultType` mandatory; if missing, read as `complete` per legacy), Error Response (schema is `id?: RequestId` — **no null id**, omit when id can't be read). JSON-RPC 2.0's "id null means notification" reading is explicitly rejected: an id member present but null → InvalidRequest; mismatches must fail loudly.
+- **Stateless**: the `initialize` handshake is removed in 2026; each request's `params._meta` carries `io.modelcontextprotocol/protocolVersion` (required) + `clientCapabilities` (required) + `clientInfo` (optional); missing → `-32602`. Dual-era servers split by "does the request carry modern `_meta` or carry `initialize`" — this is the key design input for the M2 server side.
+- **`server/discover`**: `DiscoverResult{resultType:"complete", supportedVersions[], capabilities, instructions?, ttlMs, cacheScope}`; stdio clients use "a discover probe + recognizing modern errors (-32022 etc.)" to determine the server era; **the fallback must not bind to a single error code** (legacy servers report -32601/-32602 or do not respond to unknown methods).
+- **stdio transport**: line framing, no embedded newlines, stdout only emits messages, stderr free, EOF is the primary graceful-shutdown signal; the wire format is independent of the transport channel (works for both socket/pipe) → `StreamTransport` injects an iostream pair, stdio is just a special case.
+- **Capability objects stay Json-backed** (structured types, following spec evolution), providing `capabilitiesInclude`/`capabilitiesIncludeExtension` probes only for fields the runtime branches on. A fully-typed struct would freeze a field set that the spec is still actively extending — a deliberate deviation from the plan §4.1's "all-fields struct" route.
 
-**实现要点**：
+**Implementation points**:
 
-- `parseMessage` 永不失败：任何输入产出 `variant<Request, Notification, Result, ErrorResponse, InvalidMessage>`，`InvalidMessage` 携带足以构造错误响应的全部信息（code + 可恢复的 id）。params 必须是 object（MCP 所有方法 params 皆对象）；数组（JSON-RPC 批量）显式拒绝；小数 id/错误码拒绝；±2^63 id 保真。
-- 编码侧全部走 `Json::str()` 包文本（zjson 喂探约定），测试含"形如 JSON 的字符串值不被嗅探"用例。
-- `Result<T>` 补齐 `operator->`/`operator*`，与 `std::expected` 成员面完全对齐。
+- `parseMessage` never fails: any input produces `variant<Request, Notification, Result, ErrorResponse, InvalidMessage>`, and `InvalidMessage` carries everything needed to construct an error response (code + recoverable id). params must be an object (all MCP method params are objects); arrays (JSON-RPC batch) are explicitly rejected; fractional ids/error codes rejected; ±2^63 ids preserved.
+- The encoding side wraps all text through `Json::str()` (the zjson feeding convention); tests include a "string value shaped like JSON is not sniffed" case.
+- `Result<T>` gains `operator->`/`operator*`, fully aligned with the `std::expected` member surface.
 
-**踩坑记录（两次，都值得留档）**：
+**Pitfall records (two, both worth archiving)**:
 
-1. **zjson API 误用**：`Json::str()` 是静态工厂（造字符串值），读字符串值的成员方法是 `toString()`；`Json::parse` 是 private，公开入口是 `Json::ParseJson(input, err)`。照 zorm 主工程既有惯用法（`params["id"].toString()`）校正。
-2. **测试里的悬垂 UB（最有价值的一课）**：`asRequest(parseMessage(text))` 把指针指进**临时 variant**，全表达式结束即悬垂，后续读出垃圾——5 个测试报"bad_variant_access"看似库 bug，实为测试 UB；而同一个库用命名局部变量探针全过。教训：**对返回 variant 的函数，先落局部变量再 `get_if`**。已把全部 20 处调用点改为两步模式。另：ctest 前先确认没跑陈旧 exe（项目 CLAUDE.md 已有此坑记录，这次 cwd 漂移又踩了一次变体）。
+1. **zjson API misuse**: `Json::str()` is a static factory (creates a string value); the member method for reading a string value is `toString()`; `Json::parse` is private, and the public entry is `Json::ParseJson(input, err)`. Corrected per the zorm main project's existing idiom (`params["id"].toString()`).
+2. **Dangling UB in tests (the most valuable lesson)**: `asRequest(parseMessage(text))` pointed a pointer into a **temporary variant**, dangling the moment the full expression ended, then reading out garbage — 5 tests reported "bad_variant_access" that looked like a library bug but were actually test UB; the same library with a named local variable probe passed all. Lesson: **for functions returning a variant, land it in a local variable first, then `get_if`**. All 20 call sites were changed to the two-step pattern. Also: before ctest, confirm no stale exe is running (the project CLAUDE.md already has this pitfall recorded; the cwd drift hit this variant once more).
 
-**M1 验收（本机 clang 22.1.8 / ninja）**：5 个 CTest 注册全绿（version/error/jsonrpc/types/transport，约 60 用例）。计划里"Inspector 可跑通"一项推迟到 M2（需要真 server 进程才有可接对象）。计划中的 `test_stdio_e2e`（子进程往返）挪到 M2 与 minimal_server 一起做——没有 handler 循环的 stdio e2e 只能测回声，意义有限。
+**M1 acceptance (local clang 22.1.8 / ninja)**: all 5 CTest registrations green (version/error/jsonrpc/types/transport, ~60 cases). The plan's "Inspector runs through" item is deferred to M2 (a real server process is needed to have something to connect to). The plan's `test_stdio_e2e` (child-process round-trip) is moved to M2 along with minimal_server — a stdio e2e without a handler loop can only test echo, of limited value.
 
-### 2026-09-21 Update 5 — M2 完成（server builder + stdio e2e）
+### 2026-09-21 Update 5 — M2 complete (server builder + stdio e2e)
 
-**设计定案**：
+**Design decisions**:
 
-- **无状态调度**：`Server::processLine` 是纯消息处理——解析 → meta 校验 → 版本门 → 能力门 → 路由 → handler → 编码回包。无任何会话状态，符合 2026 版"每个请求自携带元数据"。
-- **三层门的错误码映射**（逐条对过 schema.md）：缺 `_meta`/必填字段 → `-32602`；版本不支持 → `-32022`（data 带 `supported`/`requested`，数组按 enum 序输出）；方法未路由 → `-32601`；能力未广播 → `-32601`（MethodNotFoundError 文档明文）；未知 tool/resource/prompt → `-32602`（同文档：未知 tool 属 InvalidParams）。
-- **能力广播与注册联动**：`Builder::tool/resource/prompt` 注册即广播对应 capability。能力对象 `capabilities_` 必须初始化为**空 Object** 而非 Null——往 Null 节点 `add` 无效且静默（这次踩了：9 个测试一起红，根因一行）。Json 的 Null/Object 区分要当作类型系统来尊重。
-- **取消**：`requestId → shared_ptr<atomic_bool>` 槽位表；`notifications/cancelled` 置位；请求到达时**复用已有槽**（乱序投递下取消不能被新标志覆盖）；请求完成即清槽。单线程下这是完备语义；M4 多 worker 时同一槽位设计天然线程安全。
-- **resultType 注入**：server 对 handler 返回的缺省 resultType 补 `"complete"`（规范：2026 实现必须带；handler 只在自己关心多态时写）。`input_required`（MRTR）原样透传——handler 自己构造 InputRequiredResult 即可，M3 client 配合闭环。
-- **分页**：`*\/list` 用不透明 cursor（本实现编码为 offset 数字串），pageSize 0 = 不分页；非法 cursor → `-32602`。`resources/templates/list` 已注册路由但模板注册表 v1 未做（记录为缺口）（已由 Update 9 补齐）。
+- **Stateless dispatch**: `Server::processLine` is pure message processing — parse → meta validation → version gate → capability gate → routing → handler → encode reply. No session state whatsoever, conforming to 2026's "each request self-carries metadata".
+- **Error-code mapping of the three-layer gate** (checked item by item against schema.md): missing `_meta`/required fields → `-32602`; unsupported version → `-32022` (data carries `supported`/`requested`, the array output in enum order); method not routed → `-32601`; capability not advertised → `-32601` (MethodNotFoundError documented explicitly); unknown tool/resource/prompt → `-32602` (same doc: unknown tool is InvalidParams).
+- **Capability advertisement linked to registration**: `Builder::tool/resource/prompt` registration advertises the corresponding capability. The capability object `capabilities_` must be initialized to an **empty Object** rather than Null — `add` to a Null node is ineffective and silent (hit this time: 9 tests red together, root cause one line). The Null/Object distinction in Json must be respected as a type system.
+- **Cancellation**: a `requestId → shared_ptr<atomic_bool>` slot table; `notifications/cancelled` sets the flag; on request arrival **reuse the existing slot** (under out-of-order delivery a cancellation must not be overwritten by a new flag); the slot is cleared on request completion. Under single-thread this is complete semantics; with M4's multiple workers the same slot design is naturally thread-safe.
+- **resultType injection**: the server fills in `"complete"` for a handler-returned default resultType (spec: 2026 implementations must carry it; handlers only write it when they themselves care about polymorphism). `input_required` (MRTR) is passed through as-is — the handler just constructs an InputRequiredResult itself, and the M3 client closes the loop.
+- **Pagination**: `*\/list` uses an opaque cursor (this implementation encodes it as an offset digit string), pageSize 0 = no pagination; an invalid cursor → `-32602`. `resources/templates/list` had a route registered but the template registry was not done in v1 (recorded as a gap) (since filled by Update 9).
 
-**踩坑**：
+**Pitfalls**:
 
-1. `ASSERT_*` 只能用于 void 测试函数——`spawnSelf()` 返回 Child，用了 ASSERT 直接编译错（gtest 静态断言拦住），换 EXPECT + 显式有效性检查。
-2. Windows 管道 e2e：`CreateProcessA` 的 lpCommandLine 要**可写** LPSTR——`const std::string` 的 `data()` 是 const char*，clang 直接指出 const 丢失。
-3. zjson 迭代 keys 的惯用法是 `obj.getAllKeys().toVector()`（元素是 Json，`toString()` 取 key），不能直接 range-for（给的是 JsonEntry）。
+1. `ASSERT_*` can only be used in void test functions — `spawnSelf()` returns a Child, and using ASSERT directly is a compile error (caught by gtest's static assertion); switched to EXPECT + an explicit validity check.
+2. Windows pipe e2e: `CreateProcessA`'s lpCommandLine needs a **writable** LPSTR — `const std::string`'s `data()` is const char*, and clang pointed directly at the const loss.
+3. zjson's idiom for iterating keys is `obj.getAllKeys().toVector()` (elements are Json, `toString()` gets the key), not range-for directly (that gives JsonEntry).
 
-**M2 验收**：7/7 CTest 全绿（新增 test_server 30+ 用例、test_stdio_e2e）。**test_stdio_e2e 是真子进程端到端**：测试二进制以 `--mcp-serve-child` 参数自启为 MCP server（Windows CreateProcess + 匿名管道 / POSIX fork+execv），走真实 OS 管道验证 discover/tools/list/tools/call 三连 + stdin EOF 优雅关停。`minimal_server` 手工冒烟通过（管道喂数据→正确回包），Inspector 对接留待用户在交互终端验证（`npx @modelcontextprotocol/inspector build/thirds/mcp-cpp/minimal_server.exe`）。
+**M2 acceptance**: 7/7 CTest green (new test_server 30+ cases, test_stdio_e2e). **test_stdio_e2e is a real child-process end-to-end**: the test binary self-starts as an MCP server with the `--mcp-serve-child` argument (Windows CreateProcess + anonymous pipes / POSIX fork+execv), going through a real OS pipe to verify the discover/tools/list/tools/call triple + stdin EOF graceful shutdown. `minimal_server` passes a manual smoke test (feeding data through a pipe → correct reply); Inspector hookup is left for the user to verify in an interactive terminal (`npx @modelcontextprotocol/inspector build/thirds/mcp-cpp/minimal_server.exe`).
 
-### 2026-09-21 Update 6 — M3 完成（client + Streamable HTTP + subscriptions）
+### 2026-09-21 Update 6 — M3 complete (client + Streamable HTTP + subscriptions)
 
-**规范输入**（streamable-http.md + subscriptions.md 全文精读）：
+**Spec inputs** (full close reading of streamable-http.md + subscriptions.md):
 
-- 2026 版 HTTP 是 **POST-only 单端点**：GET 流与 Mcp-Session-Id 已删（GET/DELETE 回 405）；未知方法 **404 + -32601**（与 legacy HTTP+SSE 服务器空体 404 相区分）；通知 POST → **202 无体**；请求 → application/json 单对象或 SSE 流。
-- **头镜像**：`MCP-Protocol-Version`（必须与 body `_meta` 一致）、`Mcp-Method`（全请求）、`Mcp-Name`（tools/call、resources/read、prompts/get，取 params.name/uri）缺失/不匹配 → **400 + -32020 HeaderMismatch**。不安全字符走 `=?base64?...?=` 哨兵编码。
-- **subscriptions/listen**：响应即长命 SSE 流；acknowledged 通知必须第一条且带 `io.modelcontextprotocol/subscriptionId`（值=请求 id）；后续通知按 filter 匹配（toolsListChanged/promptsListChanged/resourcesListChanged/resourceSubscriptions）；优雅关闭 = 对原请求回一个带 subscriptionId 的 result。
+- The 2026 HTTP is **POST-only single endpoint**: the GET stream and Mcp-Session-Id are deleted (GET/DELETE return 405); unknown method **404 + -32601** (distinguishing from legacy HTTP+SSE servers' empty-body 404); notification POST → **202 with no body**; request → application/json single object or an SSE stream.
+- **Header mirroring**: `MCP-Protocol-Version` (must match the body `_meta`), `Mcp-Method` (all requests), `Mcp-Name` (tools/call, resources/read, prompts/get, taking params.name/uri); missing/mismatched → **400 + -32020 HeaderMismatch**. Unsafe characters go through `=?base64?...?=` sentinel encoding.
+- **subscriptions/listen**: the response is a long-lived SSE stream; the acknowledged notification must be the first and carries `io.modelcontextprotocol/subscriptionId` (value = the request id); subsequent notifications match per filter (toolsListChanged/promptsListChanged/resourcesListChanged/resourceSubscriptions); graceful close = reply to the original request with a result carrying subscriptionId.
 
-**实现**：
+**Implementation**:
 
-- **Client**（传输无关）：id 关联、通知穿插回调、JSON-RPC 错误 → McpError（data 保留，-32022 的 supported 列表可读）、MRTR：`input_required` 结果原样上浮 + `callTool(..., inputResponses)` 重试自动带新 id、subscribe 在 ack 通知处返回（结果响应永远不来）、`onSubscriptionClosed` 收优雅关闭、`cancel` 发 notifications/cancelled。每次请求自动带 `_meta`（版本/能力/clientInfo）——无状态协议的客户端义务。
-- **HttpServerTransport**：Origin 校验钩子（默认拒非 localhost）、全头校验链、202/404/405/400 分流、application/json 响应；subscriptions/listen 升级为 SSE（`X-Accel-Buffering: no`、15s 注释 keep-alive、Pump 队列 + condvar），`Server::notifyListChanged/notifyResourceUpdated/closeSubscription` 从任意线程 fan-out。
-- **HttpClientTransport**：每消息一个 POST；派生头自动算（含 base64 哨兵）；SSE 响应在**后台线程 + 独立连接**流式接收（避免长命 POST 阻塞客户端循环），事件行入队供 read() 消费；read() 阻塞等待（瞬时队空 ≠ EOF）；**x-mcp-header 镜像**：listTools 缓存 tool schema，callTool 时沿 properties 静态链收集注解参数值并编码进 `Mcp-Param-*` 头（ITransport 加默认空 setHeader 虚方法，stdio 传输天然 no-op）。
-- **Server 变更**：`build()` 返回 `shared_ptr<Server>`（mutex 成员禁拷贝/移动）；新增 Server move 构造（mutex 默认构造）；订阅注册表 + 线程安全 fan-out。
+- **Client** (transport-agnostic): id correlation, notification interleaved callbacks, JSON-RPC errors → McpError (data preserved, -32022's supported list readable), MRTR: the `input_required` result surfaces as-is + `callTool(..., inputResponses)` retry automatically carries a new id, subscribe returns at the ack notification (a result response never comes), `onSubscriptionClosed` receives graceful closes, `cancel` sends notifications/cancelled. Each request automatically carries `_meta` (version/capability/clientInfo) — a stateless protocol's client obligation.
+- **HttpServerTransport**: an Origin validation hook (rejects non-localhost by default), a full header validation chain, 202/404/405/400 splitting, application/json responses; subscriptions/listen upgrades to SSE (`X-Accel-Buffering: no`, 15s comment keep-alive, a Pump queue + condvar), `Server::notifyListChanged/notifyResourceUpdated/closeSubscription` fan-out from any thread.
+- **HttpClientTransport**: one POST per message; derived headers computed automatically (including the base64 sentinel); SSE responses are streamed on a **background thread + a separate connection** (avoiding a long-lived POST blocking the client loop), event lines queued for read() to consume; read() blocks waiting (an instantaneous empty queue ≠ EOF); **x-mcp-header mirroring**: listTools caches tool schemas, and callTool collects annotated parameter values along the static chain of properties and encodes them into `Mcp-Param-*` headers (ITransport gains a default-empty setHeader virtual method, and the stdio transport is naturally a no-op).
+- **Server changes**: `build()` returns `shared_ptr<Server>` (mutex members forbid copy/move); a new Server move constructor (mutex default-constructed); a subscription registry + thread-safe fan-out.
 
-**踩坑（3 个都记进测试）**：
+**Pitfalls (all 3 recorded into tests)**:
 
-1. **httplib stop() 死锁**：`svr.stop()` 先 join 工作线程、`is_running()` 在 join 后才清位——SSE provider 若以 `is_running()` 为循环条件就互相等待。解法：provider 用**自己的** atomic 停止位，stop() 先置位再 svr.stop()；Pump 注册表让 stop 即时 close 每个订阅流。
-2. **detach 的服务线程**生命周期：Fixture 析构后线程仍引用成员 → 悬垂挂起。改为保存线程 + stop 后 join。
-3. Python 批量替换把 `\n` 写成真实换行进了 C++ 字符串字面量（两处），靠编译错误当场暴露——以后这类替换要用 Edit 工具核对。
+1. **httplib stop() deadlock**: `svr.stop()` first joins the worker threads, and `is_running()` clears its flag only after the join — if the SSE provider uses `is_running()` as its loop condition, they wait on each other. Solution: the provider uses **its own** atomic stop flag; stop() sets the flag first, then calls svr.stop(); the Pump registry lets stop immediately close every subscription stream.
+2. **Lifetime of the detached server thread**: after the Fixture destructs, the thread still references members → dangling hang. Changed to saving the thread + joining after stop.
+3. A Python batch replace wrote `\n` as a real newline into C++ string literals (two places), exposed on the spot by compile errors — in the future, verify such replacements with the Edit tool.
 
-**已知缺口（记录，M4 补）**：服务端对 `Mcp-Param-*` 头与 body 的 MUST 校验未实现（需按注册表的 tool schema 反查注解路径）；客户端镜像已实现。
+**Known gap (recorded, filled in M4)**: the server-side MUST validation of `Mcp-Param-*` headers against the body is not implemented (needs to reverse-look-up the annotation path from the registry's tool schema); the client-side mirroring is implemented.
 
-**M3 验收**：9/9 CTest 全绿（新增 test_client 8 用例、test_http_e2e 7 用例——真 httplib 服务器/客户端 loopback 对跑：discover/callTool/readResource/404/405/403/-32020/SSE 订阅流 ack+通知+过滤）。零警告。
+**M3 acceptance**: 9/9 CTest green (new test_client 8 cases, test_http_e2e 7 cases — real httplib server/client running against each other on loopback: discover/callTool/readResource/404/405/403/-32020/SSE subscription stream ack+notification+filtering). Zero warnings.
 
-### 2026-09-21 Update 7 — M4 完成（schema 校验器 + completions + Cacheable）＋ zjson 深搜隐患的系统性清除
+### 2026-09-21 Update 7 — M4 complete (schema validator + completions + Cacheable) + systematic elimination of the zjson deep-search hazard
 
-**交付**：
+**Deliveries**:
 
-- **JSON Schema 2020-12 校验器**（`mcp/schema.hpp`）：type/enum/const、数值边界（minimum/maximum/exclusive*/multipleOf）、字符串（minLength/maxLength/pattern）、对象（required/properties/additionalProperties/patternProperties/min-maxProperties）、数组（items 单值与 tuple/uniqueItems/min-maxItems）、组合（allOf/anyOf/oneOf/not）、本地 `$ref`（JSON Pointer + `~0/~1` 转义，远程 ref 一律拒绝）、布尔 schema。**资源边界**：深度 64、检查次数 10000 封顶（规范防 schema DoS 的 SHOULD 落实），超限即失败而非宽松放行。
-- **server 集成**：tools/call 按 tool 的 inputSchema 校验 arguments（违规 → -32602）；`completion/complete` 路由 + completions 能力 + `Builder::completions(handler)`；`Builder::listCache(ttlMs, scope)` 给 `*\/list` 加 CacheableResult 的 ttlMs/cacheScope。
-- **M3 缺口补齐**：服务端对 `Mcp-Param-*` 镜像头做 MUST 校验（按注册表的 tool schema 反查注解路径，缺失/不匹配/多余头 → 400 + -32020）；`x-mcp-header` 注解遍历抽成 client/server 共用的 `header_params.h`。
-- `member()` 进公共 API（见下）。
+- **JSON Schema 2020-12 validator** (`mcp/schema.hpp`): type/enum/const, numeric bounds (minimum/maximum/exclusive*/multipleOf), strings (minLength/maxLength/pattern), objects (required/properties/additionalProperties/patternProperties/min-maxProperties), arrays (items single-value and tuple/uniqueItems/min-maxItems), composition (allOf/anyOf/oneOf/not), local `$ref` (JSON Pointer + `~0/~1` escaping, remote refs rejected outright), boolean schemas. **Resource bounds**: depth 64, check count capped at 10000 (implementing the spec's SHOULD against schema DoS); exceeding the limit fails rather than passing leniently.
+- **server integration**: tools/call validates arguments per the tool's inputSchema (violation → -32602); `completion/complete` route + completions capability + `Builder::completions(handler)`; `Builder::listCache(ttlMs, scope)` adds CacheableResult's ttlMs/cacheScope to `*\/list`.
+- **M3 gap filled**: the server does MUST validation of `Mcp-Param-*` mirror headers (reverse-look-up the annotation path from the registry's tool schema; missing/mismatched/extra headers → 400 + -32020); `x-mcp-header` annotation traversal is extracted into `header_params.h`, shared by client/server.
+- `member()` enters the public API (see below).
 
-**★ zjson operator[] 深搜回退——系统性隐患（用户要求重点记录，已入持久记忆库）**：
+**★ zjson operator[] deep-search fallback — a systematic hazard (the user asked for key emphasis; now in the persistent memory store)**:
 
-- **现象**：schema 校验器在 `{"anyOf":[...]}` 对象上取 `schema["type"]`，竟拿到嵌套在数组内的 `"type":"string"`——anyOf 被跳过、直接拿子 schema 校验，顺序相关、深浅难排查。
-- **根因**：zjson 的 `operator[]` 是**故意设计**为"直接成员优先，否则 `findPtrDeep` 全树深搜"（源码注释明示）。这对 zorm 的扁平用法无害，但协议层探测"可能缺失"的成员时会误读嵌套数据。同类的系统性暴露点：`doc["id"]` 会拿到 `params.id`、`params["name"]` 会拿到 `_meta.clientInfo.name`。
-- **修复**：新公共 helper **`mcp::member(obj, key)`**（直接成员或 Null，绝不深搜，基于 `directMemberPtr`），并**全库清扫**了 jsonrpc/types/server/transport_http/client/header_params 六处的所有"可能缺失"的成员读取。`contains()` 本身就是直接语义，保持不变。
-- **配套坑**：absent 哨兵不能用 `Json("null")`——嗅探约定把它变成字符串 "null"（`{`/`[` 开头才解析）——必须 `Json(nullptr)`（真正的 Null 节点）。
-- **经验**：引入第三方库时，"多做的语义"（deep-search fallback）和"少做的语义"一样危险；探测型读取必须显式选择直接/深度语义。此条已写入 `~/.claude/projects/D--codes-zorm/memory/zjson-operator-deep-search-trap.md`。
+- **Symptom**: the schema validator took `schema["type"]` on a `{"anyOf":[...]}` object and actually got the `"type":"string"` nested inside the array — anyOf was skipped and the sub-schema validated directly, order-dependent and hard to diagnose.
+- **Root cause**: zjson's `operator[]` is **deliberately designed** as "direct member first, otherwise `findPtrDeep` deep-searches the whole tree" (the source comment states this explicitly). This is harmless for zorm's flat usage, but at the protocol layer, probing "possibly absent" members misreads nested data. Similar systematic exposure points: `doc["id"]` would get `params.id`, `params["name"]` would get `_meta.clientInfo.name`.
+- **Fix**: a new public helper **`mcp::member(obj, key)`** (direct member or Null, never deep-searches, based on `directMemberPtr`), and a **whole-library sweep** of all "possibly absent" member reads in six places: jsonrpc/types/server/transport_http/client/header_params. `contains()` is itself direct semantics, unchanged.
+- **Supporting pitfall**: the absent sentinel must not use `Json("null")` — the sniffing convention turns it into the string "null" (only `{`/`[` leading chars are parsed) — must be `Json(nullptr)` (a true Null node).
+- **Lesson**: when introducing a third-party library, "extra semantics" (deep-search fallback) are as dangerous as "missing semantics"; probe-type reads must explicitly choose direct/deep semantics. This item has been written into `~/.claude/projects/D--codes-zorm/memory/zjson-operator-deep-search-trap.md`.
 
-**M4 验收**：10/10 CTest 全绿零警告（新增 test_schema 12 用例；server 扩展 inputSchema 强制/completion/缓存提示用例）。
+**M4 acceptance**: 10/10 CTest green zero warnings (new test_schema 12 cases; server extended with inputSchema enforcement/completion/cache-hint cases).
 
-### 2026-09-21 Update 8 — M5 完成（基准 + 发布检查单）＋ 项目收官
+### 2026-09-21 Update 8 — M5 complete (benchmarks + release checklist) + project wrap-up
 
-**基准实测**（RelWithDebInfo 独立构建，clang 22.1.8 / MSYS2 clang64 / windows-gnu；rust 基线 = serde_json 1.x，rust-sdk 的实际解析层，同机同消息形状）：
+**Measured benchmarks** (RelWithDebInfo standalone build, clang 22.1.8 / MSYS2 clang64 / windows-gnu; rust baseline = serde_json 1.x, rust-sdk's actual parsing layer, same machine same message shape):
 
-| 基准 | mcp-cpp | serde_json 基线 | 目标（§8） | 结论 |
+| Benchmark | mcp-cpp | serde_json baseline | Goal (§8) | Conclusion |
 | --- | --- | --- | --- | --- |
-| B1 parse ~1KB | 714,000 msg/s（1.40µs） | 907,000 msg/s（1.10µs） | ≥1.5× | **未达**（0.79×） |
-| B1 parse ~64KB | 35,900 msg/s（27.8µs） | 136,800 msg/s（7.31µs） | ≥1.5× | **未达**（0.38×） |
-| B2 dispatch | 298,500 msg/s（3.35µs，含 meta/版本/能力门 + inputSchema 校验 + 编码） | 需完整 tokio 栈，无单机等价基准 | ≥2× | 无法直接对比，如实记录 |
-| B3 stdio e2e | 24,700 round trips/s（40.4µs，真管道子进程） | 同上 | ≥1.2× | 无法直接对比，如实记录 |
+| B1 parse ~1KB | 714,000 msg/s (1.40µs) | 907,000 msg/s (1.10µs) | ≥1.5× | **missed** (0.79×) |
+| B1 parse ~64KB | 35,900 msg/s (27.8µs) | 136,800 msg/s (7.31µs) | ≥1.5× | **missed** (0.38×) |
+| B2 dispatch | 298,500 msg/s (3.35µs, incl. meta/version/capability gate + inputSchema validation + encoding) | needs a full tokio stack, no single-machine equivalent benchmark | ≥2× | no direct comparison; recorded honestly |
+| B3 stdio e2e | 24,700 round trips/s (40.4µs, real pipe child process) | same as above | ≥1.2× | no direct comparison; recorded honestly |
 
-**对 §8 承诺的如实修订**：raw JSON 解析未超 serde_json——serde 的零拷贝借用解析是业界最快的模型之一，而 zjson 是 parse-into-owned-tree + 我们 parseMessage 上叠加严格语义验证（M1 的设计取舍：正确性优先）。§8 预设的优化路径已明确并记录：① `parseJsonText` 目前对 string_view 拷贝一次，zjson arena 的借用视图可做零拷贝解析；② envelope 预扫描快路径（先 peek method/id 再全量解析）；③ 大消息场景 zjson 树深拷贝是热点。达标与否留待实施后复测——当前版本以"功能完备 + 协议一致性"为交付重心。
+**Honest revision of the §8 promises**: raw JSON parsing did not beat serde_json — serde's zero-copy borrowing parse is one of the industry's fastest models, while zjson is parse-into-owned-tree + our parseMessage layering strict semantic validation on top (M1's design tradeoff: correctness first). The §8 predefined optimization paths are now identified and recorded: ① `parseJsonText` currently copies a string_view once; zjson's arena borrowed view can do zero-copy parsing; ② the envelope pre-scan fast path (peek method/id first, then full parse); ③ in the large-message scenario zjson's tree deep copy is the hotspot. Whether it meets the target is left to re-measurement after implementation — the current version centers its delivery on "feature completeness + protocol conformance".
 
-**发布检查单（§6.2）勾选**：
+**Release checklist (§6.2) ticked**:
 
-- [x] 独立可构建：standalone 路径全程多次实测（M0 首验，M5 以 RelWithDebInfo + Release 复验）
-- [x] 构建零警告（clang -Wall -Wextra -Wpedantic）
-- [x] `MCP_DISABLE_HTTP=ON` 纯 stdio 构建：独立配置构建 + 9/9 测试通过
-- [x] include/ 泄漏 grep：无 zorm/db_/驱动符号（zjson 通过 mcp::Json 别名属预期）
+- [x] Standalone-buildable: the standalone path verified in practice multiple times throughout (first verified at M0, re-verified at M5 with RelWithDebInfo + Release)
+- [x] Build zero warnings (clang -Wall -Wextra -Wpedantic)
+- [x] `MCP_DISABLE_HTTP=ON` pure stdio build: standalone configure/build + 9/9 tests pass
+- [x] include/ leak grep: no zorm/db_/driver symbols (zjson via the mcp::Json alias is expected)
 - [x] version.txt + semver + `mcp::kSdkVersion`
-- [x] MIT LICENSE + NOTICE（zjson/httplib/googletest）
-- [x] README：功能矩阵（对标 Tier-1）、诚实基准对比、用法、zorm 集成
-- [x] examples/zorm_server.cpp：仅仓库内构建（TARGET zormlib 守卫），四工具 MCP 化 + inputSchema + 真库冒烟通过；库本体保持 zorm-free
+- [x] MIT LICENSE + NOTICE (zjson/httplib/googletest)
+- [x] README: feature matrix (vs Tier-1), honest benchmark comparison, usage, zorm integration
+- [x] examples/zorm_server.cpp: built only in-repo (guarded by TARGET zormlib), four tools MCP-ized + inputSchema + real-DB smoke test passing; the library body stays zorm-free
 
-**变异验证（§6.3 惯例）**：版本协商错误码 -32022→-32601 的突变被 `ServerGates.UnsupportedVersionListsSupported` 立即抓住，还原后通过。
+**Mutation verification (§6.3 convention)**: the mutation of the version-negotiation error code -32022→-32601 was immediately caught by `ServerGates.UnsupportedVersionListsSupported`, and passed after restoration.
 
-**M5 验收**：10/10 CTest 全绿 + 3 个基准可运行（mcp_bench_parse/dispatch/e2e，附带 --bench-child 自spawn 模式）。
+**M5 acceptance**: 10/10 CTest green + 3 runnable benchmarks (mcp_bench_parse/dispatch/e2e, with a `--bench-child` self-spawn mode).
 
-**项目收官状态**：M0–M5 全部完成。PLAN §5 功能矩阵中除有意不实现的 Roots/Sampling（SEP-2577 弃用）与 v2 项（Tasks/OAuth）外全部落地。后续候选（按价值排序）：零拷贝解析优化（B1 差距）、Tasks 扩展、~~resources/templates/list 注册表~~（已完成，见 Update 9）、conformance 仓库对齐。
+**Project wrap-up status**: M0–M5 all complete. In the PLAN §5 feature matrix, everything has landed except the intentionally unimplemented Roots/Sampling (deprecated by SEP-2577) and the v2 items (Tasks/OAuth). Follow-up candidates (ordered by value): zero-copy parse optimization (the B1 gap), Tasks extension, ~~resources/templates/list registry~~ (completed, see Update 9), conformance repo alignment.
 
-### 2026-10-09 Update 9 — resource URI templates（M5 后补）
+### 2026-10-09 Update 9 — resource URI templates (post-M5 follow-up)
 
-**动机**：参数化 resource（典型如运行期才建出的数据库表）在 v1 下必须启动时逐条静态注册——表在启动后新增就得重启或重注册，客户端拿到的还是启动快照。URI 模板让"一类 URI"一次注册、任意实例可读，正好补上 M2 Update 5 记下的"`resources/templates/list` 已注册路由但模板注册表 v1 未做"这一缺口。
+**Motivation**: parameterized resources (typically database tables created only at runtime) under v1 must be registered statically one by one at startup — a table added after startup requires a restart or re-registration, and the client still gets a startup snapshot. URI templates let "a class of URIs" be registered once and any instance be readable, exactly filling the gap noted in M2 Update 5: "`resources/templates/list` had a route registered but the template registry was not done in v1".
 
-**交付**：
+**Deliveries**:
 
-- **`Builder::resourceTemplate(Json definition, Handler readHandler)`**（`src/server.cpp`、声明于 `include/mcp/server.hpp`）：按定义对象的 `uriTemplate` 字段建键注册，与 `resource()` 一样按需广播 `resources` capability；缺 `uriTemplate` 的定义忽略并告警。
-- **RFC 6570 子集匹配**：字面量段 + `{var}`（非空、不含 `/`）+ `{+var}`（非空、可含 `/`）；不支持 `{?query}`/`{#fragment}`/多变量表达式。单遍贪婪匹配，变量由下一个字面量定界。
-- **`resources/templates/list`**：现返回 `resourceTemplates` 数组（分页/缓存与 `resources/list` 同路，`handlePaginatedList`）；此前该路由存在但回 MethodNotFound。
-- **`resources/read` 模板回退**：精确注册优先；无精确命中时按最具体模板解析——变量数最少者优先，并列时字面量前缀最长者优先。
-- **公共 helper `mcp::server::matchUriTemplate(tmpl, uri, vars)`**（`include/mcp/server.hpp`）：server 内部路由即用它，也开放给需要同款匹配的 server 作者。
-- **客户端 `Client::listResourceTemplates(cursor)`**（`include/mcp/client.hpp`、`src/client.cpp`）：带分页游标的 `resources/templates/list` 封装。
+- **`Builder::resourceTemplate(Json definition, Handler readHandler)`** (`src/server.cpp`, declared in `include/mcp/server.hpp`): registers by the definition object's `uriTemplate` field as key, advertising the `resources` capability on demand just like `resource()`; a definition missing `uriTemplate` is ignored with a warning.
+- **RFC 6570 subset matching**: literal segments + `{var}` (non-empty, no `/`) + `{+var}` (non-empty, may contain `/`); `{?query}`/`{#fragment}`/multi-variable expressions unsupported. Single-pass greedy matching, with variables delimited by the next literal.
+- **`resources/templates/list`**: now returns a `resourceTemplates` array (pagination/caching on the same path as `resources/list`, `handlePaginatedList`); previously this route existed but returned MethodNotFound.
+- **`resources/read` template fallback**: exact registration takes priority; when there's no exact hit, resolve by the most specific template — fewest variables first, and on a tie the longest literal prefix first.
+- **Public helper `mcp::server::matchUriTemplate(tmpl, uri, vars)`** (`include/mcp/server.hpp`): the server's internal routing uses it, and it's also exposed to server authors needing the same matching.
+- **Client `Client::listResourceTemplates(cursor)`** (`include/mcp/client.hpp`, `src/client.cpp`): a paginated-cursor wrapper over `resources/templates/list`.
 
-**验收**：新增 `ServerRegistrys.ResourceTemplates`（模板与具体 resource 分列、未注册 URI 经模板可读、精确命中胜过模板、无匹配仍 `-32602`、模板继承 CacheableResult 提示）与 `ServerRegistrys.UriTemplateMatching`（`{var}` 不跨 `/`/不匹配空串、`{+var}` 跨 `/`、尾随字面量精确消费）两用例；`ctest` 10/10 全绿。
+**Acceptance**: new cases `ServerRegistrys.ResourceTemplates` (templates and concrete resources listed separately, an unregistered URI readable via a template, an exact hit beating a template, no match still `-32602`, templates inheriting the CacheableResult hint) and `ServerRegistrys.UriTemplateMatching` (`{var}` doesn't cross `/`/doesn't match an empty string, `{+var}` crosses `/`, a trailing literal is consumed exactly); `ctest` 10/10 green.
+
+### 2026-10-09 Update 10 — Toward official adoption (gap analysis + protocol completeness)
+
+**Motivation**: the goal is to propose mcp-cpp as the *official* C++ MCP SDK. Research on 2026-10-09 (modelcontextprotocol.io/docs/sdk, the SDK Working Group charter, the conformance repo) confirmed the opening: the official roster is TS/Python/C#/Go/Rust/Ruby (Tier 1), Java (Tier 2), Swift/PHP/Kotlin (Tier 3) — **there is no C++ SDK, and no community-SDK list to join**. Admission is a Working Group decision ("Official SDK Roster", WG consensus → Core Maintainer approval), not a SEP. See `docs/ADOPTION-PLAN.md`.
+
+**Deliverables this round**:
+
+- **Gap analysis** (`docs/OPTIMIZATION-PLAN.md`): feature-by-feature comparison against the Tier-1 SDKs and the conformance suite, with a prioritized work list (P0 packaging/CI/governance, P1 protocol completeness, P2 performance).
+- **Adoption plan** (`docs/ADOPTION-PLAN.md`) and **conformance how-to** (`docs/CONFORMANCE.md`). The conformance suite has **not been run yet** — no score is claimed until `conformance/report.json` exists.
+- **Bilingual documentation** (English default): `README.md`/`README.zh-CN.md`, `PLAN.md`/`PLAN.zh-CN.md`, plus `ROADMAP`, `CONTRIBUTING`, and the three docs above.
+- **Governance files** required by the Tiering System: `ROADMAP.md`, `CONTRIBUTING.md` (with dependency policy), `SECURITY.md`, `CODE_OF_CONDUCT.md`, `MAINTAINERS.md`, `CHANGELOG.md`, `.github/` issue + PR templates, and a CI workflow.
+
+**Protocol completeness** (the gaps the comparison surfaced):
+
+- **Progress notifications** (`basic/patterns/progress.md`): `Ctx::progress(progress, total, message)` emits `notifications/progress` for requests carrying `params._meta.progressToken`; `Ctx::notify(method, params)` emits arbitrary notifications. `RequestMeta` now decodes `progressToken`; `encodeRequestMeta` and `Client::request`/`callTool` accept one. Progress is a no-op without a token, per the spec's "MUST only reference tokens from an active request".
+- **`outputSchema` enforcement** (`server/tools.md` "Output Schema"): a tool result's `structuredContent` is validated against the declared `outputSchema`; non-conforming content fails with `InternalError`. Text-only results skip validation (nothing structured to check).
+- **Result builders**: `textResult()` / `structuredResult()` — the latter also emits the spec-recommended serialized-JSON text block for backward compatibility.
+- **Client wrappers**: `listResources()`, `listPrompts()`, `complete()`.
+- **CMake package**: `install()` + exported `mcp::mcp` + `find_package(mcp CONFIG)`, verified with an out-of-tree consumer. httplib became a build-interface-only dependency (`$<BUILD_INTERFACE:httplib>`) so the installed target needs nothing but `mcp::mcp`.
+
+**Deliberately not done** (recorded, not forgotten): OAuth 2.1, typed elicitation helpers, Tasks extension, zero-copy parse — all listed with priorities in the optimization plan. Roots/Sampling remain intentionally unimplemented (SEP-2577).
+
+**Verification** (clang 22.1.8 / MSYS2 clang64 / windows-gnu): 10/10 CTest green with 8 new cases (`ServerProgress.*` ×3, `ServerOutputSchema.*` ×3, `ClientProgress.*` ×2); build is zero-warning; the `find_package(mcp CONFIG)` consumer builds and runs out of tree.
 
 ---
-*文档维护规则：每个里程碑完成后，把遇到的偏差、性能实测数字、被否决的设计记录到对应用节下新增「Update YYYY-MM-DD」条目，原文不删。*
+*Document maintenance rule: after each milestone completes, record the deviations encountered, the measured performance numbers, and rejected designs as newly added "Update YYYY-MM-DD" entries under the corresponding section; the original text is never deleted.*

@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest an enhancement
+title: "[enhancement] "
+labels: ["enhancement", "needs confirmation"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case, not just the API you want.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API / behaviour
+      render: cpp
+    validations:
+      required: false
+  - type: input
+    id: spec
+    attributes:
+      label: Related MCP spec section or SEP
+      placeholder: "e.g. server/tools.md, SEP-2577"
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This is a required (non-experimental) protocol feature
+        - label: This is a protocol extension (Tasks, MCP Apps, ...)
+        - label: This is a C++ ergonomics / DX improvement

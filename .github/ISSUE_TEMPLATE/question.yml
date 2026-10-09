@@ -1,0 +1,17 @@
+name: Question
+description: Ask how to do something with mcp-cpp
+title: "[question] "
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+    validations:
+      required: false
