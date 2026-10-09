@@ -137,6 +137,12 @@ McpResult<Json> Client::listTools(const std::string& cursor) {
   return result;
 }
 
+McpResult<Json> Client::listResourceTemplates(const std::string& cursor) {
+  Json extra;
+  if (!cursor.empty()) extra.add("cursor", Json::str(cursor));
+  return request("resources/templates/list", extra);
+}
+
 McpResult<Json> Client::callTool(const std::string& name, const Json& arguments,
                                  const Json& inputResponses) {
   mirrorHeaderParams(name, arguments);

@@ -56,6 +56,48 @@ const MethodRoute* findRoute(std::string_view method) {
 
 }  // namespace
 
+// ---- URI templates (RFC 6570 subset) ------------------------------------------
+// Supports literal runs plus {var} (a non-empty run without '/') and {+var}
+// (a non-empty run that may contain '/'). No {?query}/{#fragment}/multi-var
+// expressions - enough for path-shaped resources such as
+// db://schema/{db}/{table}. Matching is single-pass and greedy: a variable is
+// bounded by the next literal, taking its first occurrence.
+bool matchUriTemplate(const std::string& tmpl, const std::string& uri,
+                      std::vector<std::pair<std::string, std::string>>* vars) {
+  size_t ti = 0, ui = 0;
+  while (ti < tmpl.size()) {
+    const size_t open = tmpl.find('{', ti);
+    const std::string literal =
+        tmpl.substr(ti, open == std::string::npos ? std::string::npos : open - ti);
+    if (uri.compare(ui, literal.size(), literal) != 0) return false;
+    ui += literal.size();
+    if (open == std::string::npos) break;
+
+    const size_t close = tmpl.find('}', open);
+    if (close == std::string::npos) return false;  // malformed template
+    std::string expr = tmpl.substr(open + 1, close - open - 1);
+    const bool allowSlash = !expr.empty() && expr[0] == '+';
+    if (allowSlash) expr.erase(0, 1);
+    if (expr.empty()) return false;  // malformed template
+
+    ti = close + 1;
+    const size_t nextOpen = tmpl.find('{', ti);
+    const std::string nextLiteral =
+        tmpl.substr(ti, nextOpen == std::string::npos ? std::string::npos : nextOpen - ti);
+    size_t valueEnd = uri.size();
+    if (!nextLiteral.empty()) {
+      valueEnd = uri.find(nextLiteral, ui);
+      if (valueEnd == std::string::npos) return false;
+    }
+    const std::string value = uri.substr(ui, valueEnd - ui);
+    if (value.empty()) return false;  // a variable never matches an empty run
+    if (!allowSlash && value.find('/') != std::string::npos) return false;
+    if (vars) vars->emplace_back(expr, value);
+    ui = valueEnd;
+  }
+  return ui == uri.size();
+}
+
 SubscriptionFilter parseSubscriptionFilter(const Json& obj) {
   SubscriptionFilter f;
   if (!obj.isObject()) return f;
@@ -89,6 +131,7 @@ Json subscriptionFilterToJson(const SubscriptionFilter& f) {
 Server::Server(Server&& other) noexcept
     : tools_(std::move(other.tools_)),
       resources_(std::move(other.resources_)),
+      resourceTemplates_(std::move(other.resourceTemplates_)),
       prompts_(std::move(other.prompts_)),
       capabilities_(std::move(other.capabilities_)),
       supported_(std::move(other.supported_)),
@@ -271,15 +314,43 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
   if (req.method == "resources/list") return handlePaginatedList(resources_, req.params, "resources");
   if (req.method == "prompts/list") return handlePaginatedList(prompts_, req.params, "prompts");
 
+  if (req.method == "resources/templates/list") {
+    return handlePaginatedList(resourceTemplates_, req.params, "resourceTemplates");
+  }
+
   if (req.method == "resources/read") {
     const Json uri = member(req.params, "uri");
     if (!uri.isString()) return Err(McpErrorCode::InvalidParams, "resources/read requires a string uri");
-    auto it = resources_.handlers.find(std::string(uri.toString()));
-    if (it == resources_.handlers.end()) {
-      return Err(McpErrorCode::InvalidParams, "Unknown resource: " + std::string(uri.toString()));
+    const std::string uriText(uri.toString());
+
+    // Exact registration wins; otherwise the most specific matching URI
+    // template serves the read (templates cover URIs that did not exist when
+    // the server started - a table created at runtime, a file that appeared
+    // later - without needing a restart).
+    const Handler* handler = nullptr;
+    auto it = resources_.handlers.find(uriText);
+    if (it != resources_.handlers.end()) {
+      handler = &it->second;
+    } else {
+      size_t bestVars = 0, bestPrefix = 0;
+      for (const auto& entry : resourceTemplates_.handlers) {
+        std::vector<std::pair<std::string, std::string>> vars;
+        if (!matchUriTemplate(entry.first, uriText, &vars)) continue;
+        const size_t open = entry.first.find('{');
+        const size_t prefix = open == std::string::npos ? entry.first.size() : open;
+        if (handler == nullptr || vars.size() < bestVars ||
+            (vars.size() == bestVars && prefix > bestPrefix)) {
+          handler = &entry.second;
+          bestVars = vars.size();
+          bestPrefix = prefix;
+        }
+      }
+    }
+    if (handler == nullptr) {
+      return Err(McpErrorCode::InvalidParams, "Unknown resource: " + uriText);
     }
     Ctx ctx{req.params, meta, cancelled};
-    McpResult<Json> read = it->second(ctx);
+    McpResult<Json> read = (*handler)(ctx);
     // 2026-07-28 requires CacheableResult (ttlMs + cacheScope) on resources/read
     // too: a strict modern client rejects the result without them, so a handler
     // that omitted the hints inherits the builder's cache settings. Opt-out
@@ -582,6 +653,22 @@ Builder& Builder::resource(Json definition, Handler readHandler) {
   const std::string key(uri.toString());
   server_.resources_.definitions.push_back(std::move(definition));
   server_.resources_.handlers.emplace(key, std::move(readHandler));
+  if (!capabilitiesInclude(server_.capabilities_, "resources")) {
+    Json empty;
+    server_.capabilities_.add("resources", std::move(empty));
+  }
+  return *this;
+}
+
+Builder& Builder::resourceTemplate(Json definition, Handler readHandler) {
+  const Json tmpl = member(definition, "uriTemplate");
+  if (!tmpl.isString()) {
+    std::cerr << "[mcp-cpp] builder: resource template without uriTemplate ignored\n";
+    return *this;
+  }
+  const std::string key(tmpl.toString());
+  server_.resourceTemplates_.definitions.push_back(std::move(definition));
+  server_.resourceTemplates_.handlers.emplace(key, std::move(readHandler));
   if (!capabilitiesInclude(server_.capabilities_, "resources")) {
     Json empty;
     server_.capabilities_.add("resources", std::move(empty));

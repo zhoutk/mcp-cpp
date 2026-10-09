@@ -75,6 +75,14 @@ Json subscriptionFilterToJson(const SubscriptionFilter& filter);
 // the 404-vs-405 distinction required by the spec).
 bool isKnownMethod(std::string_view method);
 
+// Matches `uri` against an RFC 6570 template (subset: literal runs, {var} for a
+// non-empty run without '/', {+var} for one that may contain '/'). On a match,
+// `vars` (when non-null) receives the extracted variable name/value pairs in
+// template order. Used by the server for resources/read template routing and
+// exposed for server authors who need the same matching.
+bool matchUriTemplate(const std::string& tmpl, const std::string& uri,
+                      std::vector<std::pair<std::string, std::string>>* vars);
+
 // A handler returns the full result object (including resultType when it
 // matters; the server injects "complete" when absent), or an error that
 // becomes the JSON-RPC error response verbatim.
@@ -146,6 +154,9 @@ class Server {
 
   Registry tools_;
   Registry resources_;
+  // URI templates (RFC 6570 subset: {var} / {+var}), served by
+  // resources/templates/list and matched by resources/read as a fallback.
+  Registry resourceTemplates_;
   Registry prompts_;
   Json capabilities_;  // starts as an empty object; keys added per feature
   std::vector<std::string> supported_;   // wire strings, used for -32022 data
@@ -192,6 +203,14 @@ class Builder {
   Builder& tool(Json definition, Handler handler);
   // Registers a resource (uri-keyed) and advertises the resources capability.
   Builder& resource(Json definition, Handler readHandler);
+  // Registers a resource TEMPLATE (uriTemplate-keyed, RFC 6570 subset) and
+  // advertises the resources capability. Templates are listed by
+  // resources/templates/list and serve resources/read for every URI they
+  // match - including URIs the server did not know at startup (tables created
+  // at runtime, files that appeared later, ...). An exact resource() match
+  // always wins over a template; among templates the most specific one (fewest
+  // variables, then longest literal prefix) is chosen.
+  Builder& resourceTemplate(Json definition, Handler readHandler);
   // Registers a prompt and advertises the prompts capability.
   Builder& prompt(Json definition, Handler handler);
 

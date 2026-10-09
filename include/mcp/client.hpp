@@ -58,6 +58,9 @@ class Client {
                            const Json& inputResponses = Json(nullptr));
 
   McpResult<Json> readResource(const std::string& uri);
+  // resources/templates/list with optional pagination cursor: the URI
+  // templates the server serves parametric reads from.
+  McpResult<Json> listResourceTemplates(const std::string& cursor = "");
   McpResult<Json> getPrompt(const std::string& name, const Json& arguments = Json(nullptr));
 
   // subscriptions/listen: opens a long-lived notification stream. Returns

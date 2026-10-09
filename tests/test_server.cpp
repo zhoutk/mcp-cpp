@@ -268,6 +268,82 @@ TEST(ServerRegistrys, ResourcesAndPrompts) {
   EXPECT_EQ(bad.error->error.code, -32602);
 }
 
+TEST(ServerRegistrys, ResourceTemplates) {
+  Builder b;
+  auto echo = [](Ctx& c) -> McpResult<Json> {
+    Json result;
+    Json contents = Json("[]");
+    Json item;
+    item.add("uri", member(c.params, "uri"));
+    item.add("text", Json::str("served"));
+    contents.push_back(std::move(item));
+    result.add("contents", std::move(contents));
+    return Ok(std::move(result));
+  };
+  // Exact registration + two templates of different specificity.
+  b.resource(Json(R"({"uri":"db://schema","name":"overview"})"), echo);
+  b.resourceTemplate(
+      Json(R"({"uriTemplate":"db://schema/{db}","name":"tables of a db"})"), echo);
+  b.resourceTemplate(
+      Json(R"({"uriTemplate":"db://schema/{db}/{table}","name":"table schema"})"),
+      echo);
+  auto server = b.build();
+
+  // Templates are listed separately from concrete resources.
+  Out tl = serveOnce(server, makeRequest("t1", "resources/templates/list", Json(nullptr)));
+  ASSERT_NE(tl.result, nullptr);
+  ASSERT_EQ(tl.result->result["resourceTemplates"].size(), 2);
+  Out rl = serveOnce(server, makeRequest("t2", "resources/list", Json(nullptr)));
+  ASSERT_NE(rl.result, nullptr);
+  EXPECT_EQ(rl.result->result["resources"].size(), 1);  // only the exact one
+
+  // A URI that matches a template is served even though it was never
+  // registered - the point of templates (runtime-created tables, etc.).
+  Out two = serveOnce(server, makeRequest("t3", "resources/read",
+                                          Json(R"({"uri":"db://schema/sqlite3/t_new"})")));
+  ASSERT_NE(two.result, nullptr) << (two.error ? two.error->error.message : "");
+  EXPECT_EQ(two.result->result["contents"][0]["text"].toString(), "served");
+
+  Out one = serveOnce(server, makeRequest("t4", "resources/read",
+                                          Json(R"({"uri":"db://schema/jsonfile"})")));
+  ASSERT_NE(one.result, nullptr);
+
+  // Exact match beats the template that would also match.
+  Out exact = serveOnce(server, makeRequest("t5", "resources/read",
+                                            Json(R"({"uri":"db://schema"})")));
+  ASSERT_NE(exact.result, nullptr);
+
+  // A URI no template matches stays InvalidParams.
+  Out bad = serveOnce(server, makeRequest("t6", "resources/read",
+                                          Json(R"({"uri":"db://other/x/y"})")));
+  ASSERT_NE(bad.error, nullptr);
+  EXPECT_EQ(bad.error->error.code, -32602);
+
+  // Templates inherit the CacheableResult hints like concrete resources.
+  EXPECT_EQ(two.result->result["ttlMs"].toInt64(), 0);
+  EXPECT_EQ(two.result->result["cacheScope"].toString(), "public");
+}
+
+TEST(ServerRegistrys, UriTemplateMatching) {
+  std::vector<std::pair<std::string, std::string>> vars;
+  EXPECT_TRUE(matchUriTemplate("db://schema/{db}/{table}", "db://schema/sqlite3/t1", &vars));
+  ASSERT_EQ(vars.size(), 2u);
+  EXPECT_EQ(vars[0].first, "db");
+  EXPECT_EQ(vars[0].second, "sqlite3");
+  EXPECT_EQ(vars[1].second, "t1");
+
+  // {var} never spans '/' or matches empty; {+var} may span '/'.
+  EXPECT_FALSE(matchUriTemplate("db://schema/{db}", "db://schema/a/b", nullptr));
+  EXPECT_FALSE(matchUriTemplate("db://schema/{db}", "db://schema/", nullptr));
+  EXPECT_TRUE(matchUriTemplate("db://schema/{db}", "db://schema/a", nullptr));
+  EXPECT_TRUE(matchUriTemplate("file:///{+path}", "file:///a/b/c.txt", nullptr));
+  EXPECT_FALSE(matchUriTemplate("db://schema/{db}", "db://other/a", nullptr));
+  EXPECT_FALSE(matchUriTemplate("db://schema/{db}", "db://schema/a/b", nullptr));
+  // Trailing literal must be consumed exactly.
+  EXPECT_FALSE(matchUriTemplate("db://x/{a}.json", "db://x/y.txt", nullptr));
+  EXPECT_TRUE(matchUriTemplate("db://x/{a}.json", "db://x/y.json", nullptr));
+}
+
 // ---- cancellation ----------------------------------------------------------------------
 
 TEST(ServerCancellation, CancelledBeforeRequestIsObserved) {
