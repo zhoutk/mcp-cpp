@@ -60,6 +60,9 @@ class HttpServerTransport {
   // Binds without accepting; returns the bound port (use port 0 for an
   // ephemeral port). run() then accepts on that socket.
   McpResult<int> bind(const std::string& host = "127.0.0.1");
+  // Binds a specific port (0 = ephemeral, same as the overload above) without
+  // accepting; run() then serves. Use this for a fixed deployment port.
+  McpResult<int> bind(const std::string& host, int port);
   // Accepts until stop(); blocking (after bind()).
   McpResult<void> run();
   // Convenience for tests/tools: binds (port 0 allowed) and serves on a

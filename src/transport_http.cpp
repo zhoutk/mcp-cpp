@@ -124,12 +124,21 @@ struct HttpServerTransport::Impl {
     const Json& params = request ? request->params : notification->params;
     const std::optional<RequestId> id = idOf(parsed);
 
+    // 2026-07-28 header mirroring (streamable-http.md "Protocol Version
+    // Header" / "Server Validation"). The mirrored headers did not exist
+    // before 2025-06-18, and the spec says a server that supports such old
+    // clients MAY treat a request that OMITS them as protocol version
+    // 2025-03-26. We apply that relaxation only in legacy mode; a strict
+    // 2026-07-28 server MUST reject a request without the headers.
+    const bool legacy = server.acceptsLegacyClients();
+
     const std::string headerVersion = req.get_header_value(kHeaderProtocolVersion);
     if (headerVersion.empty()) {
-      return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
-                             "Header mismatch: MCP-Protocol-Version header is missing")};
-    }
-    if (request) {
+      if (!legacy) {
+        return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
+                               "Header mismatch: MCP-Protocol-Version header is missing")};
+      }
+    } else if (request) {
       const Json meta = member(params, "_meta");
       const Json bodyVersion = member(meta, kMetaProtocolVersion);
       if (bodyVersion.isString() && bodyVersion.toString() != headerVersion) {
@@ -140,10 +149,11 @@ struct HttpServerTransport::Impl {
 
     const std::string headerMethod = req.get_header_value(kHeaderMethod);
     if (headerMethod.empty()) {
-      return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
-                             "Header mismatch: Mcp-Method header is missing")};
-    }
-    if (headerMethod != method) {
+      if (!legacy) {
+        return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
+                               "Header mismatch: Mcp-Method header is missing")};
+      }
+    } else if (headerMethod != method) {
       return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
                              "Header mismatch: Mcp-Method header does not match body method")};
     }
@@ -152,14 +162,16 @@ struct HttpServerTransport::Impl {
       const std::string headerName = req.get_header_value(kHeaderName);
       const char* sourceKey = (method == "tools/call" || method == "prompts/get") ? "name" : "uri";
       const Json name = member(params, sourceKey);
-      if (!name.isString() || headerName.empty()) {
+      if (!name.isString() || (headerName.empty() && !legacy)) {
         return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
                                "Header mismatch: Mcp-Name header is missing or malformed")};
       }
-      std::string decoded;
-      if (!detail::decodeHeaderValue(headerName, decoded) || decoded != name.toString()) {
-        return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
-                               "Header mismatch: Mcp-Name header does not match body value")};
+      if (!headerName.empty()) {
+        std::string decoded;
+        if (!detail::decodeHeaderValue(headerName, decoded) || decoded != name.toString()) {
+          return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
+                                 "Header mismatch: Mcp-Name header does not match body value")};
+        }
       }
     }
 
@@ -268,40 +280,59 @@ struct HttpServerTransport::Impl {
 
     // 6. Everything else: dispatch through the shared server logic into a
     // capture sink, then answer.
-    std::string responseLine;
-    LineCapture sink(responseLine);
+    std::vector<std::string> lines;
+    LineCapture sink(lines);
     server.processLine(req.body, sink);
 
     if (isNotification) {
       // Accepted notification: 202 with no body (any server error response to
       // a notification - malformed params - still flows through the capture).
-      if (responseLine.empty()) {
+      if (lines.empty()) {
         res.status = 202;
       } else {
         res.status = 400;  // server rejected the notification (invalid params)
-        res.set_content(responseLine, "application/json");
+        res.set_content(lines.back(), "application/json");
       }
       return;
     }
 
-    res.status = 200;
-    res.set_content(responseLine, "application/json");
+    if (lines.empty()) {
+      res.status = 202;  // no response produced (defensive)
+      return;
+    }
+    if (lines.size() == 1) {
+      res.status = 200;
+      res.set_content(lines[0], "application/json");
+      return;
+    }
+    // The handler emitted notifications (progress, logging) before its result:
+    // stream them back as SSE, result last (streamable-http.md "SSE").
+    std::string sseBody;
+    for (const auto& line : lines) {
+      sseBody += "data: ";
+      sseBody += line;
+      sseBody += "\n\n";
+    }
+    res.set_header("X-Accel-Buffering", "no");
+    res.set_content(sseBody, "text/event-stream");
   }
 
-  // Collects the single line the server writes for one request.
+  // Collects the line(s) the server writes for one request. A handler that
+  // emits notifications (progress, logging) before its result produces more
+  // than one line; handlePost streams those back as SSE.
   struct LineCapture final : ITransport {
-    explicit LineCapture(std::string& out) : out_(out) {}
+    explicit LineCapture(std::vector<std::string>& out) : out_(out) {}
     McpResult<std::optional<std::string>> read() override {
       return Ok(std::optional<std::string>(std::nullopt));
     }
     McpResult<void> write(std::string_view message) override {
-      out_.assign(message);
+      out_.emplace_back(message);
       return Ok();
     }
     McpResult<void> flush() override { return Ok(); }
 
    private:
-    std::string& out_;
+    std::vector<std::string>& out_;
   };
 
   void startSubscriptionStream(const JsonRpcRequest& request, httplib::Response& res) {
@@ -375,6 +406,14 @@ HttpServerTransport::~HttpServerTransport() { stop(); }
 McpResult<int> HttpServerTransport::bind(const std::string& host) {
   const int port = impl_->svr.bind_to_any_port(host);
   if (port <= 0) return Err(McpErrorCode::InternalError, "http bind failed");
+  return Ok(port);
+}
+
+McpResult<int> HttpServerTransport::bind(const std::string& host, int port) {
+  if (port == 0) return bind(host);
+  if (!impl_->svr.bind_to_port(host, port)) {
+    return Err(McpErrorCode::InternalError, "http bind failed on port " + std::to_string(port));
+  }
   return Ok(port);
 }
 
