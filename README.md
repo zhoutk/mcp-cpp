@@ -205,6 +205,7 @@ domain.
 | [docs/ADOPTION-PLAN.md](docs/ADOPTION-PLAN.md) | How C++ becomes an official SDK |
 | [docs/CONFORMANCE.md](docs/CONFORMANCE.md) | Running the official conformance suite |
 | [docs/LAUNCH.md](docs/LAUNCH.md) | Announcement kit and channel plan |
+| [docs/WG-PROPOSAL.md](docs/WG-PROPOSAL.md) | Draft proposal to the MCP SDK Working Group |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, and dependency policy |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 

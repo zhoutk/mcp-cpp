@@ -139,7 +139,8 @@ Adoption is easier to argue when there are already users. Concrete channels:
       and the WG's recent meeting notes for the exact proposal format.
 - [ ] Open a GitHub Discussion in `modelcontextprotocol/modelcontextprotocol`
       proposing C++ as an official SDK, linking: the repo, the conformance
-      report, the tier self-assessment, and the flagship consumers.
+      report, the tier self-assessment, and the flagship consumers. Draft text:
+      [WG-PROPOSAL.md](WG-PROPOSAL.md).
 - [ ] Ask for a slot in a biweekly WG session to present.
 - [ ] Expect the maintainership question. Be ready to:
   - transfer the repo to the `modelcontextprotocol` org, and
