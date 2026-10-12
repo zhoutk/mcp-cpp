@@ -82,9 +82,13 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
       - name: Start fixture server
         run: |
-          ./build/bin/conformance_server --port 8099 &
-          for i in $(seq 1 20); do
-            curl -sf -o /dev/null http://127.0.0.1:8099/mcp || sleep 0.5
+          ./bin/conformance_server --port 8099 &
+          # The endpoint answers GET with 405 (POST-only transport), so probe
+          # with curl -f off and accept 405 as "ready".
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/mcp || true)
+            if [ "$code" = "405" ] || [ "$code" = "200" ]; then break; fi
+            sleep 1
           done
       - name: Run conformance suite
         run: |

@@ -175,16 +175,16 @@ McpResult<T> makeErr(McpError e) {
 namespace detail {
 
 // Carrier for an error value awaiting conversion to a concrete McpResult<T>.
+// A single const-qualified conversion operator: a const member function is
+// callable on rvalues, so `return Err(...)` works everywhere. Overloading it
+// with an &&-qualified twin is legal in clang but rejected by GCC
+// ("cannot be overloaded") for conversion function templates.
 struct ErrCarrier {
   McpError e;
 
   template <class T>
   operator McpResult<T>() const {
     return makeErr<T>(e);
-  }
-  template <class T>
-  operator McpResult<T>() && {
-    return makeErr<T>(std::move(e));
   }
 };
 

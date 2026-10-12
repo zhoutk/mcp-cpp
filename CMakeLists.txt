@@ -21,6 +21,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(MCP_BUILD_TESTS "Build mcp-cpp unit tests" ON)
+
+# Windows: pin the target to Windows 10. MinGW-w64 headers default to an ancient
+# _WIN32_WINNT when it is not set, which makes cpp-httplib refuse to compile
+# ("doesn't support Windows 8 or lower") and hides Win8+ APIs like CreateFile2.
+if(WIN32)
+  add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
+endif()
 # Examples/benchmarks are dev-facing; a host project embedding mcp-cpp as a
 # third-party dependency normally turns them off.
 option(MCP_BUILD_EXAMPLES "Build mcp-cpp examples and benchmarks" ON)
