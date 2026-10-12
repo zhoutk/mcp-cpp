@@ -1,6 +1,9 @@
 > 语言 / Language: **中文** | [English](PLAN.md)
 
 # mcp-cpp 独立库实施计划
+> 注（2026-10-12）：这是在 zorm 工作区开发期间留下的历史决策日志；文中 `docs/mcp/...`、
+> `thirds/` 等路径指向原始布局，在本仓库中不再解析。按其自身维护规则原文保留；当前架构
+> 概览见 [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md)。
 
 > 状态：**草稿 v1**（先想好再做；本文档随实施过程滚动更新，记录思路历程）
 > 日期：2026-09-21 · 分支：`mcp`

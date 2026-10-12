@@ -69,7 +69,7 @@ npx @modelcontextprotocol/conformance client \
 ```
 
 > 尚不存在一个专门的 `mcp_client_probe` 示例——参见
-> OPTIMIZATION-PLAN.md 里程碑 B。在那之前只能运行服务端模式。
+> 路线图。在那之前只能运行服务端模式。
 
 ### 层级自我评估
 
@@ -137,9 +137,8 @@ ctest --test-dir build -R mcp_test_conformance_2026 -V
 - 通过率和套件版本发布在 `README.md` 和 `ROADMAP.md` 中。
 - `conformance/report.json` 是随每次发布提交的机器可读摘要；`CHANGELOG.md`
   记录得分。
-- 将其附到 WG 提案中（参见 [ADOPTION-PLAN.md](ADOPTION-PLAN.md) 阶段 2）。
+- 提交 SDK 工作组提案时将其一并附上。
 
 ---
 
-*相关：[OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md)（里程碑 B），
-[ADOPTION-PLAN.md](ADOPTION-PLAN.md)（阶段 2）。*
+*相关：[ROADMAP.md](../ROADMAP.md)、[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md)。*

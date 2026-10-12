@@ -3,10 +3,10 @@
 # Roadmap
 
 This is the public roadmap required by the [MCP SDK Tiering System](https://modelcontextprotocol.io/community/sdk-tiers).
-It tracks the concrete work needed to reach **Tier 1** (100% conformance). The
-detailed technical analysis lives in
-[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md); the process for becoming
-an official SDK is in [docs/ADOPTION-PLAN.md](docs/ADOPTION-PLAN.md).
+It tracks the concrete work needed to reach **Tier 1** (100% conformance).
+How to run the conformance suites is in [docs/CONFORMANCE.md](docs/CONFORMANCE.md);
+the architecture this roadmap evolves is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Legend: ✅ done · 🔄 in progress · ⏳ planned · ❌ not planned
 

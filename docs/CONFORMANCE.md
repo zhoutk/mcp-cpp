@@ -72,7 +72,7 @@ npx @modelcontextprotocol/conformance client \
 ```
 
 > A dedicated `mcp_client_probe` example does not exist yet — see
-> OPTIMIZATION-PLAN.md Milestone B. Until then only server mode is runnable.
+> the roadmap. Until then only server mode is runnable.
 
 ### Tier self-assessment
 
@@ -143,9 +143,8 @@ ctest --test-dir build -R mcp_test_conformance_2026 -V
   `ROADMAP.md`.
 - `conformance/report.json` is the machine-readable summary committed with each
   release; `CHANGELOG.md` records the score.
-- Attach it to the WG proposal (see [ADOPTION-PLAN.md](ADOPTION-PLAN.md) Phase 2).
+- Attach it to the SDK Working Group proposal when one is submitted.
 
 ---
 
-*Related: [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md) (Milestone B),
-[ADOPTION-PLAN.md](ADOPTION-PLAN.md) (Phase 2).*
+*Related: [ROADMAP.md](../ROADMAP.md), [ARCHITECTURE.md](ARCHITECTURE.md).*

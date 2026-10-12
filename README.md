@@ -15,8 +15,7 @@ mcp-cpp implements the MCP **2026-07-28** specification with Tier-1 SDK feature
 coverage, a value-semantic message model, and no async runtime required. Its only
 dependencies are a bundled single-header JSON library (zjson) and — optionally —
 cpp-httplib for the Streamable HTTP transport. There is currently **no official
-C++ SDK**; this project is offered as one. See
-[docs/ADOPTION-PLAN.md](docs/ADOPTION-PLAN.md).
+C++ SDK**; this project is offered as one (see [ROADMAP.md](ROADMAP.md)).
 
 ```
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
@@ -95,7 +94,7 @@ machine and message shapes for both:
 **Honest reading** (PLAN.md Update 8): raw JSON parse does **not** beat serde_json —
 zjson's copy-on-parse model plus strict semantic validation costs more than serde's
 zero-copy borrow parse, especially at 64 KB. The optimization paths are tracked in
-[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md) §2.4. The B2/B3 numbers are
+[ROADMAP.md](ROADMAP.md). The B2/B3 numbers are
 full-stack (validation included) and are the ones applications actually experience.
 
 ## Install
@@ -199,14 +198,13 @@ domain.
 
 | Document | What it covers |
 | --- | --- |
-| [PLAN.md](PLAN.md) | Design + decision log (M0–M9, with the honest benchmark record) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layering, threading model, and the invariants that must hold |
+| [PLAN.md](PLAN.md) | Design + decision log (the "why" behind every deviation) |
 | [ROADMAP.md](ROADMAP.md) | Public roadmap toward Tier 1 |
-| [docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md) | Gap analysis vs the official SDKs, prioritized |
-| [docs/ADOPTION-PLAN.md](docs/ADOPTION-PLAN.md) | How C++ becomes an official SDK |
-| [docs/CONFORMANCE.md](docs/CONFORMANCE.md) | Running the official conformance suite |
-| [docs/LAUNCH.md](docs/LAUNCH.md) | Announcement kit and channel plan |
-| [docs/WG-PROPOSAL.md](docs/WG-PROPOSAL.md) | Draft proposal to the MCP SDK Working Group |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, and dependency policy |
+| [docs/CONFORMANCE.md](docs/CONFORMANCE.md) | Running the official conformance suite, both spec versions |
+| [VERSIONING.md](VERSIONING.md) | SemVer policy and what counts as breaking |
+| [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) | The dependency surface and update rules |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, and contribution workflow |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ## Layout

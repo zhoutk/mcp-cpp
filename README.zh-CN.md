@@ -14,8 +14,7 @@
 mcp-cpp 实现了 MCP **2026-07-28** 规范，具备 Tier-1 SDK 的功能覆盖、值语义的
 消息模型，且无需异步运行时。它仅有的依赖是一个随附的单头文件 JSON 库（zjson），
 以及——可选的——用于 Streamable HTTP 传输的 cpp-httplib。目前**没有官方 C++
-SDK**；本项目即是作为其中之一而提供的。参见
-[docs/ADOPTION-PLAN.md](docs/ADOPTION-PLAN.md)。
+SDK**；本项目即是作为其中之一而提供的（见 [ROADMAP.md](ROADMAP.md)）。
 
 ```
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
@@ -93,7 +92,7 @@ CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 **诚实的解读**（PLAN.md 更新 8）：原始 JSON 解析**并未**胜过 serde_json——
 zjson 的解析即拷贝模型加上严格的语义校验，其开销高于 serde 的零拷贝借用式解析，
 在 64 KB 时尤为明显。优化路径记录在
-[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md) §2.4。B2/B3 的数字是全栈的
+[ROADMAP.md](ROADMAP.md)。B2/B3 的数字是全栈的
 （包含校验）并反映了应用实际体验到的性能。
 
 ## 安装
@@ -198,8 +197,8 @@ auto r = client.callTool("add", mcp::Json(R"({"a":2,"b":3})"), mcp::Json(nullptr
 | --- | --- |
 | [PLAN.md](PLAN.md) | 设计与决策日志（M0–M9，含诚实的基准记录） |
 | [ROADMAP.md](ROADMAP.md) | 迈向 Tier 1 的公开路线图 |
-| [docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md) | 与官方 SDK 的差距分析（已排定优先级） |
-| [docs/ADOPTION-PLAN.md](docs/ADOPTION-PLAN.md) | C++ 如何成为官方 SDK |
+| [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md) | 分层、线程模型与必须守住的不变量 |
+| [docs/CONFORMANCE.zh-CN.md](docs/CONFORMANCE.zh-CN.md) | 运行官方 conformance 套件（双规范版本） |
 | [docs/CONFORMANCE.md](docs/CONFORMANCE.md) | 运行官方一致性测试套件 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 构建、测试与依赖策略 |
 | [CHANGELOG.md](CHANGELOG.md) | 发布历史 |

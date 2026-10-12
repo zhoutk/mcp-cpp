@@ -1,6 +1,11 @@
 > Language: **English** | [中文](PLAN.zh-CN.md)
 
 # mcp-cpp — Standalone Library Implementation Plan
+> Note (2026-10-12): this is the historical decision log from development inside the
+> zorm workspace; paths such as `docs/mcp/...` and `thirds/` refer to that original
+> layout and no longer resolve in this repository. This document is preserved verbatim
+> per its own maintenance rule; the current architecture summary lives in
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 > Status: **Draft v1** (think before doing; this document rolls forward with the implementation process, recording the train of thought)
 > Date: 2026-09-21 · Branch: `mcp`

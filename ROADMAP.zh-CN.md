@@ -4,8 +4,8 @@
 
 这是 [MCP SDK Tiering System](https://modelcontextprotocol.io/community/sdk-tiers)
 所要求的公开路线图。它记录了达成 **Tier 1**（100% 一致性）所需的具体工作。
-详细的技术分析见 [docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md)；成为官方 SDK
-的流程见 [docs/ADOPTION-PLAN.md](docs/ADOPTION-PLAN.md)。
+如何运行各一致性套件见 [docs/CONFORMANCE.zh-CN.md](docs/CONFORMANCE.zh-CN.md)；
+本路线图所演进的架构见 [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md)。
 
 图例：✅ 已完成 · 🔄 进行中 · ⏳ 计划中 · ❌ 不计划
 

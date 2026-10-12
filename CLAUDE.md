@@ -15,14 +15,16 @@ This is a real git repo with its own remote (`origin` → internal GitLab). Comm
 the parent `zorm-mcp` repo records the new revision via its `sync-thirds.sh`.
 
 `README.md` holds the feature-parity matrix, benchmark numbers, and usage snippets. **`PLAN.md` is the
-design/decision log** — every milestone deviation is recorded there (Updates 1–10); read the relevant
-Update before changing protocol behaviour. Docs are **bilingual, English default**: each has a
-`.zh-CN.md` sibling (README, PLAN, ROADMAP, CONTRIBUTING, and the docs below). `docs/` contains a copy
-of the 2026-07-28 spec, the upstream SDK docs, `mcp-cpp-review.md` (an independent audit), and the
-adoption set: `OPTIMIZATION-PLAN.md` (gap analysis vs the official SDKs), `ADOPTION-PLAN.md` (path to
-becoming the official C++ SDK) and `CONFORMANCE.md` (running the official conformance suite). Project
-governance files live at the repo root (`ROADMAP.md`, `CONTRIBUTING.md`, `SECURITY.md`,
-`CODE_OF_CONDUCT.md`, `MAINTAINERS.md`, `CHANGELOG.md`) plus `.github/` templates and CI.
+historical design/decision log** — every milestone deviation is recorded there (Updates 1–10); read the
+relevant Update before changing protocol behaviour. Its `docs/mcp/...` paths refer to the original zorm
+workspace layout and no longer resolve here. Docs are **bilingual, English default**: each has a
+`.zh-CN.md` sibling (README, PLAN, ROADMAP, CONTRIBUTING, ARCHITECTURE, CONFORMANCE). `docs/` holds
+`ARCHITECTURE.md` (layering/threading/invariants — read before changing protocol behaviour) and
+`CONFORMANCE.md` (running the official conformance suite, both spec versions). Project governance files
+live at the repo root (`ROADMAP.md`, `VERSIONING.md`, `DEPENDENCY_POLICY.md`, `CONTRIBUTING.md`,
+`SECURITY.md`, `CODE_OF_CONDUCT.md`, `MAINTAINERS.md`, `CHANGELOG.md`) plus `.github/` templates and
+CI. Strategy/process documents (adoption, promotion, session reviews) live in `docs/internal-docs/`
+(gitignored — never commit them or link to them from tracked files).
 
 **Packaging:** `CMakeLists.txt` has `install()`/export rules behind `MCP_INSTALL` (ON); `cmake/mcpConfig.cmake.in`
 produces `find_package(mcp CONFIG)` with the `mcp::mcp` target. httplib is linked via
