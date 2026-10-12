@@ -14,6 +14,10 @@
 using namespace mcp;
 using namespace mcp::server;
 
+// argv[0] captured in main(): the self-spawn e2e re-executes this binary, and
+// program_invocation_name is a glibc extension that does not exist on macOS.
+std::string g_argv0;
+
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -139,8 +143,8 @@ struct Child {
 };
 
 Child spawnSelf() {
-  std::vector<char*> argv = {program_invocation_name, const_cast<char*>("--mcp-serve-child"),
-                             nullptr};
+  std::vector<char*> argv = {const_cast<char*>(g_argv0.c_str()),
+                             const_cast<char*>("--mcp-serve-child"), nullptr};
   int inPipe[2], outPipe[2];
   EXPECT_EQ(pipe(inPipe), 0);
   EXPECT_EQ(pipe(outPipe), 0);
@@ -239,6 +243,7 @@ TEST(StdioE2E, RoundtripAndGracefulShutdown) {
 }
 
 int main(int argc, char** argv) {
+  g_argv0 = argv[0];
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]) == "--mcp-serve-child") {
       return runChildServer();
