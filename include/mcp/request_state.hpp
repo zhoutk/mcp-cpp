@@ -16,6 +16,14 @@
 //
 // The key must be a server secret of at least 32 bytes. Rotate by running
 // two codecs in turn, or by reissuing states after a short TTL.
+//
+// Scope of the protection: the MAC binds the state to the request context
+// (method + tool/prompt/resource identifier) and to an expiry, so a state
+// cannot be replayed against a DIFFERENT tool and cannot outlive its TTL.
+// It does NOT make a state single-use: within one TTL, the same state can be
+// echoed more than once. Callers that need at-most-once semantics (e.g. a
+// one-time redemption) must enforce it themselves - typically by embedding a
+// nonce in the payload and recording consumed nonces server-side.
 // ---------------------------------------------------------------------------
 
 #include <mcp/error.hpp>

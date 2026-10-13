@@ -58,6 +58,25 @@ TEST(RequestStateHmac, Rfc4231Case2) {
             "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
 }
 
+// RFC 4231 cases 6/7: a key LONGER than the 64-byte block. These are the only
+// tests exercising the "hash the key first" branch of hmacSha256 - without them
+// a regression there would go unnoticed (the codec requires >=32-byte keys, so
+// application code never sends one this large).
+TEST(RequestStateHmac, Rfc4231Case6LongerThanBlockKey) {
+  const std::string key(131, '\xaa');
+  EXPECT_EQ(toHex(detail::hmacSha256(key, "Test Using Larger Than Block-Size Key - Hash Key First")),
+            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54");
+}
+
+TEST(RequestStateHmac, Rfc4231Case7LongerKeyAndData) {
+  const std::string key(131, '\xaa');
+  EXPECT_EQ(toHex(detail::hmacSha256(
+                key, "This is a test using a larger than block-size key and a larger "
+                     "than block-size data. The key needs to be hashed before being "
+                     "used by the HMAC algorithm.")),
+            "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2");
+}
+
 // ---- codec ------------------------------------------------------------------------
 
 TEST(RequestStateCodecTest, ShortKeyRejected) {

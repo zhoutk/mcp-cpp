@@ -9,7 +9,7 @@ mcp-cpp 的分层方式、线程模型，以及贡献者不可破坏的不变量
 每层只依赖它之前的层：
 
 ```
-error → version → json → jsonrpc → types → transport → server / client → schema / transport_http
+error → version → json → jsonrpc → types → transport → server / client → schema / request_state / transport_http
 ```
 
 `include/mcp/mcp.hpp` 是唯一的聚合入口；应用只包含这一个头。

@@ -195,8 +195,14 @@ McpResult<Json> Client::callToolWithInput(const std::string& name, const Json& a
   int rounds = 0;
   while (current.has_value() && isInputRequiredResult(current.value())) {
     if (rounds >= maxRounds) {
-      return Err(McpErrorCode::InternalError,
-                 "MRTR: exceeded " + std::to_string(maxRounds) + " input rounds");
+      // Structured data so a caller can resume manually: the last input_required
+      // result and the round count (mirrors the official SDKs' error payloads).
+      McpError e;
+      e.code = McpErrorCode::InternalError;
+      e.message = "MRTR: exceeded " + std::to_string(maxRounds) + " input rounds";
+      e.data.add("rounds", Json(static_cast<int64_t>(rounds)));
+      e.data.add("lastResult", current.value());
+      return Err(std::move(e));
     }
     ++rounds;
     McpResult<Json> responses = handle(inputRequestsOf(current.value()));

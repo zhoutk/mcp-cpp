@@ -11,7 +11,7 @@ contributor must not break. For the history of *why*, see [PLAN.md](../PLAN.md)
 Each layer depends only on the ones before it:
 
 ```
-error → version → json → jsonrpc → types → transport → server / client → schema / transport_http
+error → version → json → jsonrpc → types → transport → server / client → schema / request_state / transport_http
 ```
 
 `include/mcp/mcp.hpp` is the single aggregate include; applications include only
