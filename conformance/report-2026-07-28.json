@@ -1,0 +1,117 @@
+{
+  "tool": "@modelcontextprotocol/conformance",
+  "toolVersion": "0.2.0-alpha.12",
+  "mode": "server",
+  "specVersion": "2026-07-28",
+  "suite": "active (required scenarios)",
+  "server": "examples/conformance_server.cpp",
+  "date": "2026-10-13",
+  "scenariosScored": 20,
+  "checksPassed": 42,
+  "checksFailed": 0,
+  "result": "42/42 checks passed across 20/20 scenarios (100%)",
+  "scenarios": [
+    {
+      "scenario": "completion-complete",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "dns-rebinding-protection",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-embedded-resource",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-simple",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-with-args",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-with-image",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-list",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-list",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-read-binary",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-read-text",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-templates-read",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-audio",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-embedded-resource",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-error",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-image",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-mixed-content",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-simple-text",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-with-progress",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-list",
+      "checks": 4,
+      "failed": 0
+    }
+  ],
+  "pendingSuiteNote": "With --suite all, the unscored pending 2026 scenarios additionally run. sep-2164-resource-not-found passes (3/3). server-stateless needs a strict fixture (--strict): 15/28, the failures are requests with invalid _meta that legacy mode accepts. The input-required-* pending scenarios need the fixture to expose MRTR tools (elicitation/sampling/roots) - tracked as follow-up work.",
+  "reproduce": "./bin/conformance_server.exe --port 8099 & npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server --url http://127.0.0.1:8099/mcp --spec-version 2026-07-28 -o conformance/out2026"
+}

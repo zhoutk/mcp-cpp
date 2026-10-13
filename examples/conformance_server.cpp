@@ -90,28 +90,35 @@ Json toolDef(const char* name, const char* description, const char* schemaJson) 
 int main(int argc, char** argv) {
   int port = 8099;
   bool http = true;
+  bool strict = false;
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--port" && i + 1 < argc) {
       port = std::atoi(argv[++i]);
     } else if (arg == "--stdio") {
       http = false;
+    } else if (arg == "--strict") {
+      strict = true;
     }
   }
 
   Builder b;
-  b.name("conformance-test-server")
-      .version("1.0.0")
-      // The suite drives the server with the 2025-era handshake and without the
-      // 2026-07-28 mirrored headers; legacy mode serves both. Declaring the
-      // older revisions is what makes the handshake negotiate successfully.
-      .acceptLegacyClients(true)
-      // The first supports() call replaces the Latest-only default, so Latest
-      // must be listed explicitly to keep serving 2026-07-28 too.
-      .supports(ProtocolVersion::Latest)
-      .supports(ProtocolVersion::V2025_03_26)
-      .supports(ProtocolVersion::V2025_06_18)
-      .supports(ProtocolVersion::V2025_11_25);
+  b.name("conformance-test-server").version("1.0.0");
+  if (strict) {
+    // Strict 2026-07-28 mode: stateless _meta is REQUIRED and invalid metadata
+    // is rejected (-32602). This is what the server-stateless scenario probes.
+  } else {
+    // The 2025-era suite drives the server with the old handshake and without
+    // the mirrored headers; legacy mode serves both. Declaring the older
+    // revisions is what makes the handshake negotiate successfully.
+    b.acceptLegacyClients(true);
+    // The first supports() call replaces the Latest-only default, so Latest
+    // must be listed explicitly to keep serving 2026-07-28 too.
+    b.supports(ProtocolVersion::Latest)
+        .supports(ProtocolVersion::V2025_03_26)
+        .supports(ProtocolVersion::V2025_06_18)
+        .supports(ProtocolVersion::V2025_11_25);
+  }
 
   // ---- tools ---------------------------------------------------------------
   b.tool(toolDef("test_simple_text", "Returns simple text content",

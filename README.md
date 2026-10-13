@@ -22,12 +22,13 @@ CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
 **Status:** v0.1.0, feature-complete per [PLAN.md](PLAN.md) §5. Against the
-official conformance suite (v0.1.16) it passes **26/30 scored server scenarios
-(86.7%)**; the four remaining need the server to *request* something from the
-client mid-call, which 2026-07-28 replaced with MRTR — see
-[docs/CONFORMANCE.md](docs/CONFORMANCE.md) and
-[`conformance/report.json`](conformance/report.json). Note the suite has no
-2026-07-28 scenarios yet. The public roadmap is [ROADMAP.md](ROADMAP.md).
+official conformance suite (v0.2.0-alpha.12) it passes **100% of the scored
+2026-07-28 server scenarios (42/42 checks)** — see
+[`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) and
+[docs/CONFORMANCE.md](docs/CONFORMANCE.md). On the 2025-11-25 suite it scores
+26/30; the four remaining need the server to *request* something from the client
+mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
+[ROADMAP.md](ROADMAP.md).
 
 ---
 

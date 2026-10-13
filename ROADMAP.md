@@ -29,8 +29,8 @@ Everything a consumer or reviewer needs to take the project seriously.
 
 | Item | Status |
 | --- | --- |
-| Run the official `modelcontextprotocol/conformance` server suite | ✅ 26/30 |
-| Reach 100% of applicable required scenarios | 🔄 4 blocked (server-initiated requests; see below) |
+| Run the official `modelcontextprotocol/conformance` server suite | ✅ 2026-07-28: **42/42 (100%)** · 2025-11-25: 26/30 |
+| Reach 100% of applicable required scenarios | ✅ on 2026-07-28 · 🔄 on 2025-11-25 (4 blocked, see below) |
 | Publish `conformance/report.json` + an `--expected-failures` baseline | ✅ |
 | Client-mode conformance run (needs a `client_probe` example) | ⏳ |
 | In-repo **2026-07-28** conformance suite (`mcp_test_conformance_2026`, 12 scenarios incl. the full MRTR round trip) | ✅ |
