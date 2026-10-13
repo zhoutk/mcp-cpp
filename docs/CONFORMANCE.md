@@ -71,11 +71,11 @@ Useful flags: `--scenario <name>` (one scenario), `--suite active|all|pending`,
 
 ```bash
 npx @modelcontextprotocol/conformance client \
-  --command "bin/mcp_client_probe.exe" \
+  --command "bin/conformance_client" \
   --scenario initialize --output json
 ```
 
-> A dedicated `mcp_client_probe` example does not exist yet — see
+> The `conformance_client` fixture does not exist yet — see
 > the roadmap. Until then only server mode is runnable.
 
 ### Tier self-assessment
