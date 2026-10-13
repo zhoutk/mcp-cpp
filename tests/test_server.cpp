@@ -439,6 +439,140 @@ TEST(ServerM4, ToolInputSchemaValidatesArguments) {
   EXPECT_EQ(negative.error->error.code, -32602);
 }
 
+// Regression: protocol reads must be direct-member lookups. With the top-level
+// `arguments` absent, a nested `arguments` key (here inside inputResponses)
+// must NOT be picked up as the tool's arguments.
+TEST(ServerM4, ArgumentsAreDirectMemberOnly) {
+  Builder b;
+  Json def = Json(R"({"name":"strict","description":"requires text",
+      "inputSchema":{"type":"object","required":["text"],
+                     "properties":{"text":{"type":"string"}}}})");
+  b.tool(std::move(def), [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server = b.build();
+
+  Out nested = serveOnce(server, makeRequest("n1", "tools/call",
+      Json(R"({"name":"strict","inputResponses":{"x":{"arguments":{"text":"nested"}}}})")));
+  ASSERT_NE(nested.error, nullptr);
+  EXPECT_EQ(nested.error->error.code, -32602);
+}
+
+// ---- MRTR requestState -----------------------------------------------------------
+
+namespace {
+
+Json statefulDef(const std::string& name) {
+  Json def;
+  def.add("name", Json::str(name));
+  def.add("description", Json::str("two-round MRTR"));
+  Json schema(R"({"type":"object"})");
+  def.add("inputSchema", std::move(schema));
+  return def;
+}
+
+// Round one (no echoed state) seals "step1" and asks for a state-only retry;
+// round two verifies the echoed state and returns the payload it carries.
+McpResult<Json> statefulRound(Ctx& c) {
+  auto opened = c.openRequestState();
+  if (!opened.has_value()) return Err(opened.error());
+  if (!opened.value().has_value()) {
+    auto state = c.sealRequestState("step1");
+    if (!state.has_value()) return Err(state.error());
+    return c.inputRequired(Json(), state.value());
+  }
+  Json r;
+  r.add("payload", Json::str(*opened.value()));
+  return Ok(std::move(r));
+}
+
+// Reports whether openRequestState succeeded and, if not, the error code.
+McpResult<Json> probeRound(Ctx& c) {
+  auto opened = c.openRequestState();
+  Json r;
+  r.add("opened", Json::str(opened.has_value() ? "yes" : "no"));
+  if (!opened.has_value()) {
+    r.add("code", Json::str(std::to_string(static_cast<int>(opened.error().code))));
+  }
+  return Ok(std::move(r));
+}
+
+std::shared_ptr<Server> makeStatefulServer(bool withCodec) {
+  Builder b;
+  b.name("state").version("1.0");
+  if (withCodec) {
+    auto codec = RequestStateCodec::create(std::string(32, 'k'));
+    EXPECT_TRUE(codec.has_value());
+    b.requestStateCodec(std::move(codec).value());
+  }
+  b.tool(statefulDef("stateful"), statefulRound);
+  b.tool(statefulDef("other"), statefulRound);
+  b.tool(statefulDef("probe"), probeRound);
+  return b.build();
+}
+
+Out callTool(const std::shared_ptr<Server>& server, const std::string& id,
+             const std::string& tool, const std::string& state = {}) {
+  Json extra;
+  extra.add("name", Json::str(tool));
+  extra.add("arguments", Json(R"({})"));
+  if (!state.empty()) extra.add("requestState", Json::str(state));
+  return serveOnce(server, makeRequest(id, "tools/call", extra));
+}
+
+}  // namespace
+
+TEST(ServerRequestState, RoundTripAcrossRounds) {
+  auto server = makeStatefulServer(true);
+  Out round1 = callTool(server, "q1", "stateful");
+  ASSERT_NE(round1.result, nullptr);
+  const std::string state = requestStateOf(round1.result->result);
+  ASSERT_FALSE(state.empty());
+
+  Out round2 = callTool(server, "q2", "stateful", state);
+  ASSERT_NE(round2.result, nullptr);
+  EXPECT_EQ(std::string(member(round2.result->result, "payload").toString()), "step1");
+}
+
+TEST(ServerRequestState, TamperedStateRejectedWithGenericError) {
+  auto server = makeStatefulServer(true);
+  Out round1 = callTool(server, "q1", "stateful");
+  ASSERT_NE(round1.result, nullptr);
+  std::string tampered = requestStateOf(round1.result->result);
+  ASSERT_GT(tampered.size(), 10u);
+  tampered[10] = tampered[10] == 'A' ? 'B' : 'A';
+
+  Out bad = callTool(server, "q2", "stateful", tampered);
+  ASSERT_NE(bad.error, nullptr);
+  EXPECT_EQ(bad.error->error.code, -32602);
+  // The cause (MAC mismatch, expiry, context) must not leak to the client.
+  EXPECT_EQ(bad.error->error.message.find("rejected"), std::string::npos);
+}
+
+TEST(ServerRequestState, StateBoundToToolNameCannotBeReplayed) {
+  auto server = makeStatefulServer(true);
+  Out round1 = callTool(server, "q1", "stateful");
+  ASSERT_NE(round1.result, nullptr);
+  const std::string state = requestStateOf(round1.result->result);
+
+  Out cross = callTool(server, "q2", "other", state);
+  ASSERT_NE(cross.error, nullptr);
+  EXPECT_EQ(cross.error->error.code, -32602);
+}
+
+TEST(ServerRequestState, ProbeSeesNoEchoAsNullopt) {
+  auto server = makeStatefulServer(true);
+  Out probe = callTool(server, "p1", "probe");
+  ASSERT_NE(probe.result, nullptr);
+  EXPECT_EQ(std::string(member(probe.result->result, "opened").toString()), "yes");
+}
+
+TEST(ServerRequestState, NoCodecConfiguredIsInternalError) {
+  auto server = makeStatefulServer(false);
+  Out probe = callTool(server, "p1", "probe");
+  ASSERT_NE(probe.result, nullptr);
+  EXPECT_EQ(std::string(member(probe.result->result, "opened").toString()), "no");
+  EXPECT_EQ(std::string(member(probe.result->result, "code").toString()), "-32603");
+}
+
 TEST(ServerM4, CompletionRoute) {
   Builder b;
   b.completions([](Ctx&) -> McpResult<Json> {

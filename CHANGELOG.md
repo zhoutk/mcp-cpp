@@ -28,6 +28,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   convenience, an `input_required` result is rejected on methods that do not
   support it, and `Client::retry()`/`retryToolCall()` echo `requestState`
   verbatim on a fresh request id.
+- **Signed `requestState` codec.** `mcp::RequestStateCodec` seals and opens an
+  opaque, tamper-evident `requestState` (HMAC-SHA256 over a domain label, the request
+  context, and the body, with an expiry timestamp). The key must be at least 32 bytes.
+  Verification failures return `InvalidParams` without echoing the reason to the peer.
+  SHA-256 and HMAC are implemented in-tree with no new dependency.
+- **Server `requestState` binding.** `Builder::requestStateCodec()` enables
+  `Ctx::sealRequestState()` / `Ctx::openRequestState()` for `tools/call`,
+  `prompts/get` and `resources/read`. A state is bound to the method and target name,
+  so it cannot be replayed against another tool.
+- **Client MRTR auto-fulfil.** `Client::callToolWithInput(name, args, handler, maxRounds = 10)`
+  answers each `input_required` round through a handler and retries with the echoed
+  `requestState` and the `inputResponses`. It stops with `InternalError` after
+  `maxRounds`, and a handler error ends the loop without a retry.
 - **2026-07-28 conformance suite.** `mcp_test_conformance_2026` — 12 named
   scenarios covering discover, stateless `_meta`, version negotiation, capability
   gating, resultType, progress, outputSchema, and a full MRTR round trip over a

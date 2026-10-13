@@ -182,10 +182,28 @@ McpResult<Json> Client::retry(std::string_view method, const Json& extraParams,
 
 McpResult<Json> Client::retryToolCall(const std::string& name, const Json& arguments,
                                       const Json& previous, const Json& inputResponses) {
+  mirrorHeaderParams(name, arguments);  // same header mirroring as the first attempt
   Json extra;
   extra.add("name", Json::str(name));
   if (!arguments.isNull()) extra.add("arguments", arguments);
   return retry("tools/call", extra, previous, inputResponses);
+}
+
+McpResult<Json> Client::callToolWithInput(const std::string& name, const Json& arguments,
+                                          const InputHandler& handle, int maxRounds) {
+  McpResult<Json> current = callTool(name, arguments);
+  int rounds = 0;
+  while (current.has_value() && isInputRequiredResult(current.value())) {
+    if (rounds >= maxRounds) {
+      return Err(McpErrorCode::InternalError,
+                 "MRTR: exceeded " + std::to_string(maxRounds) + " input rounds");
+    }
+    ++rounds;
+    McpResult<Json> responses = handle(inputRequestsOf(current.value()));
+    if (!responses.has_value()) return Err(responses.error());
+    current = retryToolCall(name, arguments, current.value(), responses.value());
+  }
+  return current;
 }
 
 McpResult<Json> Client::callTool(const std::string& name, const Json& arguments,

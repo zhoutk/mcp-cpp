@@ -64,6 +64,8 @@ add_library(mcp STATIC
   src/client.cpp
   src/schema.cpp
   src/base64.cpp
+  src/sha256.cpp
+  src/request_state.cpp
   src/transport_http.cpp)
 add_library(mcp::mcp ALIAS mcp)
 
@@ -171,12 +173,13 @@ if(MCP_BUILD_TESTS)
   add_executable(mcp_test_server tests/test_server.cpp)
   add_executable(mcp_test_client tests/test_client.cpp)
   add_executable(mcp_test_schema tests/test_schema.cpp)
+  add_executable(mcp_test_request_state tests/test_request_state.cpp)
   # Owns its main(): doubles as the stdio e2e child server.
   add_executable(mcp_test_stdio_e2e tests/test_stdio_e2e.cpp)
   # 2026-07-28 conformance scenarios (the official suite has no 2026 scenarios yet).
   add_executable(mcp_test_conformance_2026 tests/test_conformance_2026.cpp)
   foreach(t mcp_test_version mcp_test_error mcp_test_jsonrpc mcp_test_types mcp_test_transport
-           mcp_test_server mcp_test_client mcp_test_schema)
+           mcp_test_server mcp_test_client mcp_test_schema mcp_test_request_state)
     target_link_libraries(${t} PRIVATE mcp gtest gtest_main)
     target_compile_options(${t} PRIVATE ${MCP_CXX_WARNINGS})
     add_test(NAME ${t} COMMAND ${t})

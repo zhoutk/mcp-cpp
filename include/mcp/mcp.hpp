@@ -9,6 +9,7 @@
 #include <mcp/error.hpp>
 #include <mcp/json.hpp>
 #include <mcp/jsonrpc.hpp>
+#include <mcp/request_state.hpp>
 #include <mcp/client.hpp>
 #include <mcp/server.hpp>
 #include <mcp/transport.hpp>

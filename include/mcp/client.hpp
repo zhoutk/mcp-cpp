@@ -87,6 +87,17 @@ class Client {
   McpResult<Json> retryToolCall(const std::string& name, const Json& arguments,
                                 const Json& previous, const Json& inputResponses);
 
+  // Answers an InputRequiredResult: receives the server's inputRequests object
+  // and returns the inputResponses object keyed the same way.
+  using InputHandler = std::function<McpResult<Json>(const Json& inputRequests)>;
+
+  // tools/call that fulfils MRTR automatically: each input_required result is
+  // passed to `handle`, and the retry echoes requestState and inputResponses.
+  // Returns the first complete result. Fails with InternalError once
+  // `maxRounds` input rounds have been used, or with the handler's error.
+  McpResult<Json> callToolWithInput(const std::string& name, const Json& arguments,
+                                    const InputHandler& handle, int maxRounds = 10);
+
   // subscriptions/listen: opens a long-lived notification stream. Returns
   // after the acknowledged notification; subsequent notifications flow
   // through onNotification, each carrying io.modelcontextprotocol/

@@ -181,6 +181,90 @@ TEST(Client, InputRequiredResultSurfaced) {
   EXPECT_TRUE(request->params["inputResponses"].isObject());
 }
 
+// Round one asks for input and issues a state; the automatic retry must echo
+// that state and carry the handler's inputResponses.
+TEST(ClientMrtr, CallToolWithInputFulfilsRounds) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(request, nullptr);
+    if (member(request->params, "requestState").isNull()) {
+      out.push_back(makeResultLine(request->id, Json(R"({"resultType":"input_required",
+          "inputRequests":{"login":{"method":"elicitation/create","params":{}}},
+          "requestState":"s1"})")));
+    } else {
+      out.push_back(makeResultLine(request->id, Json(R"({"resultType":"complete","ok":true})")));
+    }
+  };
+
+  int handlerCalls = 0;
+  Client client("c", "1");
+  client.connect(t);
+  auto result = client.callToolWithInput("pay", Json(R"({})"),
+      [&](const Json& requests) -> McpResult<Json> {
+        ++handlerCalls;
+        EXPECT_TRUE(member(requests, "login").isObject());
+        return Ok(Json(R"({"login":{"value":"u"}})"));
+      });
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(resultTypeOf(*result), "complete");
+  EXPECT_EQ(handlerCalls, 1);
+
+  ASSERT_EQ(t.sent_.size(), 2u);
+  ParsedMessage retryParsed = parseMessage(t.sent_[1]);
+  const auto* retryReq = std::get_if<JsonRpcRequest>(&retryParsed);
+  ASSERT_NE(retryReq, nullptr);
+  EXPECT_EQ(member(retryReq->params, "requestState").toString(), "s1");
+  EXPECT_TRUE(member(retryReq->params, "inputResponses").isObject());
+}
+
+TEST(ClientMrtr, CallToolWithInputStopsAtMaxRounds) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(request, nullptr);
+    out.push_back(makeResultLine(request->id,
+                                 Json(R"({"resultType":"input_required","requestState":"loop"})")));
+  };
+
+  int handlerCalls = 0;
+  Client client("c", "1");
+  client.connect(t);
+  auto result = client.callToolWithInput("pay", Json(R"({})"),
+      [&](const Json&) -> McpResult<Json> {
+        ++handlerCalls;
+        return Ok(Json(R"({})"));
+      },
+      /*maxRounds=*/2);
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code, McpErrorCode::InternalError);
+  EXPECT_EQ(handlerCalls, 2);
+  EXPECT_EQ(t.sent_.size(), 3u);  // initial call + one retry per round
+}
+
+TEST(ClientMrtr, CallToolWithInputPropagatesHandlerError) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(request, nullptr);
+    out.push_back(makeResultLine(request->id,
+                                 Json(R"({"resultType":"input_required","requestState":"s1"})")));
+  };
+
+  Client client("c", "1");
+  client.connect(t);
+  auto result = client.callToolWithInput("pay", Json(R"({})"),
+      [](const Json&) -> McpResult<Json> {
+        return Err(McpErrorCode::InvalidParams, "user declined");
+      });
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code, McpErrorCode::InvalidParams);
+  EXPECT_EQ(t.sent_.size(), 1u);  // no retry after a handler failure
+}
+
 TEST(Client, SubscribeReceivesAcknowledgedThenNotifications) {
   ScriptedTransport t({}, {});
   t.responder_ = [](const std::string& req, std::deque<std::string>& out) {

@@ -2,6 +2,7 @@
 
 #include <mcp/schema.hpp>
 
+#include <chrono>
 #include <iostream>
 #include <utility>
 
@@ -105,12 +106,14 @@ bool matchUriTemplate(const std::string& tmpl, const std::string& uri,
 SubscriptionFilter parseSubscriptionFilter(const Json& obj) {
   SubscriptionFilter f;
   if (!obj.isObject()) return f;
-  const Json notifications = obj["notifications"];
+  // member(), not operator[]: zjson's operator[] deep-searches nested layers
+  // when the key is absent at the top level (see CLAUDE.md).
+  const Json notifications = member(obj, "notifications");
   if (!notifications.isObject()) return f;
-  if (notifications["toolsListChanged"].isTrue()) f.toolsListChanged = true;
-  if (notifications["promptsListChanged"].isTrue()) f.promptsListChanged = true;
-  if (notifications["resourcesListChanged"].isTrue()) f.resourcesListChanged = true;
-  const Json uris = notifications["resourceSubscriptions"];
+  if (member(notifications, "toolsListChanged").isTrue()) f.toolsListChanged = true;
+  if (member(notifications, "promptsListChanged").isTrue()) f.promptsListChanged = true;
+  if (member(notifications, "resourcesListChanged").isTrue()) f.resourcesListChanged = true;
+  const Json uris = member(notifications, "resourceSubscriptions");
   if (uris.isArray()) {
     for (const auto& item : uris.toVector()) {
       f.resourceUris.emplace_back(item.toString());
@@ -149,6 +152,7 @@ Server::Server(Server&& other) noexcept
       name_(std::move(other.name_)),
       version_(std::move(other.version_)),
       completionsHandler_(std::move(other.completionsHandler_)),
+      stateCodec_(std::move(other.stateCodec_)),
       cancellations_(std::move(other.cancellations_)),
       subscriptions_(std::move(other.subscriptions_)) {}
 
@@ -180,9 +184,22 @@ Json structuredResult(const Json& structured, const std::string& textForCompat) 
 
 // ---- dispatch loop -----------------------------------------------------------
 
+namespace {
+
+constexpr const char* kBadRequestState = "Invalid requestState";
+
+int64_t unixNowSeconds() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+
+}  // namespace
+
 Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
-                    const std::function<bool()>& cancelled, const NotifyFn& notify) const {
-  Ctx ctx{params, meta, cancelled, {}, {}, {}, {}};
+                    const std::function<bool()>& cancelled, const NotifyFn& notify,
+                    std::string stateContext) const {
+  Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}};
   ctx.notify = notify;
   ctx.progress = [notify, token = meta.progressToken](double value, double total,
                                                       const std::string& message) {
@@ -244,6 +261,31 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
     Json requests = Json(R"({})");
     requests.add("elicit", std::move(request));
     return inputRequired(std::move(requests), std::move(requestState));
+  };
+  ctx.openRequestState = [codec = stateCodec_, context = stateContext,
+                          paramsPtr = &params]() -> McpResult<std::optional<std::string>> {
+    if (!codec) {
+      return Err(McpErrorCode::InternalError, "requestState requires Builder::requestStateCodec");
+    }
+    if (context.empty()) {
+      return Err(McpErrorCode::InternalError, "requestState is not available for this method");
+    }
+    const Json echoed = member(*paramsPtr, kRequestStateKey);
+    if (echoed.isNull()) return Ok(std::optional<std::string>{});
+    if (!echoed.isString()) return Err(McpErrorCode::InvalidParams, kBadRequestState);
+    auto opened = codec->open(std::string(echoed.toString()), context, unixNowSeconds());
+    if (!opened.has_value()) return Err(McpErrorCode::InvalidParams, kBadRequestState);
+    return Ok(std::optional<std::string>(std::move(opened).value()));
+  };
+  ctx.sealRequestState = [codec = stateCodec_, context = stateContext](
+                             std::string payload) -> McpResult<std::string> {
+    if (!codec) {
+      return Err(McpErrorCode::InternalError, "requestState requires Builder::requestStateCodec");
+    }
+    if (context.empty()) {
+      return Err(McpErrorCode::InternalError, "requestState is not available for this method");
+    }
+    return Ok(codec->seal(payload, context, unixNowSeconds()));
   };
   return ctx;
 }
@@ -488,7 +530,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     if (handler == nullptr) {
       return Err(McpErrorCode::InvalidParams, "Unknown resource: " + uriText);
     }
-    Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify, "resources/read\n" + uriText);
     McpResult<Json> read = (*handler)(ctx);
     // 2026-07-28 requires CacheableResult (ttlMs + cacheScope) on resources/read
     // too: a strict modern client rejects the result without them, so a handler
@@ -511,7 +553,8 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     if (it == prompts_.handlers.end()) {
       return Err(McpErrorCode::InvalidParams, "Unknown prompt: " + std::string(name.toString()));
     }
-    Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify,
+                      "prompts/get\n" + std::string(name.toString()));
     return it->second(ctx);
   }
 
@@ -595,7 +638,7 @@ McpResult<Json> Server::handleToolCall(const JsonRpcRequest& req, const RequestM
   const Json def = findToolDefinition(std::string(name.toString()));
   const Json inputSchema = member(def, "inputSchema");
   if (inputSchema.isObject()) {
-    const Json arguments = req.params["arguments"];
+    const Json arguments = member(req.params, "arguments");
     const Json toValidate = arguments.isObject() ? arguments : Json(R"({})");
     auto verdict = validateSchema(toValidate, inputSchema);
     if (!verdict.has_value()) {
@@ -605,7 +648,8 @@ McpResult<Json> Server::handleToolCall(const JsonRpcRequest& req, const RequestM
 
   // Ctx: handlers may emit progress notifications, arbitrary notifications, and
   // MRTR input requests.
-  Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
+  Ctx ctx = makeCtx(req.params, meta, cancelled, notify,
+                    "tools/call\n" + std::string(name.toString()));
 
   McpResult<Json> result = it->second(ctx);
   if (!result.has_value()) return result;
@@ -769,6 +813,11 @@ Builder& Builder::completions(Handler handler) {
 
 Builder& Builder::acceptLegacyClients(bool on) {
   server_.acceptLegacy_ = on;
+  return *this;
+}
+
+Builder& Builder::requestStateCodec(RequestStateCodec codec) {
+  server_.stateCodec_ = std::make_shared<const RequestStateCodec>(std::move(codec));
   return *this;
 }
 

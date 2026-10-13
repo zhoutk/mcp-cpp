@@ -179,12 +179,13 @@ struct HttpServerTransport::Impl {
     // value in the body must appear as a header with the matching value, and
     // every mirrored header must correspond to an annotated parameter.
     if (request != nullptr && request->method == "tools/call") {
-      const Json toolDef = server.findToolDefinition(
-          std::string(request->params["name"].toString()));
+      const Json toolName = member(request->params, "name");
+      const Json toolDef = server.findToolDefinition(std::string(toolName.toString()));
       const Json inputSchema = member(toolDef, "inputSchema");
       if (inputSchema.isObject()) {
         std::vector<std::pair<std::string, std::string>> expected;
-        detail::collectHeaderParams(inputSchema, request->params["arguments"], {}, expected);
+        detail::collectHeaderParams(inputSchema, member(request->params, "arguments"), {},
+                                    expected);
 
         // index received Mcp-Param-* headers (case-insensitive names)
         std::map<std::string, std::string> received;  // upper(name) -> (name,value)

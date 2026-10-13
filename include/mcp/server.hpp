@@ -26,6 +26,7 @@
 #include <mcp/error.hpp>
 #include <mcp/json.hpp>
 #include <mcp/jsonrpc.hpp>
+#include <mcp/request_state.hpp>
 #include <mcp/transport.hpp>
 #include <mcp/types.hpp>
 
@@ -34,6 +35,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -77,6 +79,20 @@ struct Ctx {
   // InputRequiredResult containing one elicitation/create request.
   std::function<McpResult<Json>(std::string message, Json requestedSchema,
                                 std::string requestState)> elicit;
+
+  // Verified MRTR requestState (requires Builder::requestStateCodec). The state
+  // is bound to this method and tool name, prompt name, or resource URI, so a
+  // state issued for one call cannot be replayed against another. Returns
+  // nullopt when the client echoed no state (first round), the verified payload
+  // when valid, and Err(InvalidParams) with a generic message when the state is
+  // forged, expired, or mismatched. The generic message is safe to return to the
+  // client; the cause is not revealed. Err(InternalError) when no codec is
+  // configured or the method cannot carry state.
+  std::function<McpResult<std::optional<std::string>>()> openRequestState;
+
+  // Seals `payload` into a requestState for the next round of this request.
+  // Err(InternalError) when no codec is configured or the method cannot carry state.
+  std::function<McpResult<std::string>(std::string payload)> sealRequestState;
 };
 
 // ---- subscriptions -----------------------------------------------------------
@@ -206,8 +222,11 @@ class Server {
   // Builds the per-request Ctx, wiring progress/notify/inputRequired against the
   // active transport and this request's metadata. `params`/`meta` must outlive
   // the returned Ctx (they are referenced, not copied).
+  // `stateContext` identifies the call for requestState binding (for example
+  // "tools/call\nname"); empty disables requestState for this context.
   Ctx makeCtx(const Json& params, const RequestMeta& meta,
-              const std::function<bool()>& cancelled, const NotifyFn& notify) const;
+              const std::function<bool()>& cancelled, const NotifyFn& notify,
+              std::string stateContext = {}) const;
 
   bool versionSupported(std::string_view wire) const;
 
@@ -234,6 +253,7 @@ class Server {
   std::string name_ = "mcp-cpp-server";
   std::string version_ = "0.1.0";
   Handler completionsHandler_;
+  std::shared_ptr<const RequestStateCodec> stateCodec_;  // null: requestState unsupported
 
   // request id (string form) -> cancel flag
   std::map<std::string, std::shared_ptr<std::atomic_bool>> cancellations_;
@@ -299,6 +319,10 @@ class Builder {
   //   * requests without params._meta are served with default metadata
   //   * requests WITH an ill-formed _meta still fail -32602 (modern clients)
   Builder& acceptLegacyClients(bool on = true);
+
+  // Enables integrity-protected MRTR requestState (see RequestStateCodec). Without
+  // it, Ctx::openRequestState and Ctx::sealRequestState return InternalError.
+  Builder& requestStateCodec(RequestStateCodec codec);
 
   std::shared_ptr<Server> build();
 
