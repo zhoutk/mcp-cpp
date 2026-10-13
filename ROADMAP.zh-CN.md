@@ -47,6 +47,7 @@
 | --- | --- |
 | OAuth 2.1 + Client ID Metadata Documents（远程 HTTP） | ⏳ |
 | 强类型 MRTR / elicitation 辅助工具（`Ctx::elicit`、`Ctx::inputRequired`、客户端 `retry`） | ✅ |
+| 签名 `requestState` 编解码（HMAC-SHA256、绑定上下文、TTL）+ 服务端绑定 + 客户端自动履行 | ✅ |
 | 日志辅助工具（`Ctx::log`）+ `_meta` 日志级别打通 | ⏳ |
 | Doxygen API 参考；客户端 + HTTP 示例 | ⏳ |
 | 零拷贝解析优化（重新测量 B1） | ⏳ |

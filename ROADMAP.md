@@ -48,6 +48,7 @@ implements; the suite has no 2026 scenario to score instead.
 | --- | --- |
 | OAuth 2.1 + Client ID Metadata Documents (remote HTTP) | ⏳ |
 | Typed MRTR / elicitation helpers (`Ctx::elicit`, `Ctx::inputRequired`, client `retry`) | ✅ |
+| Signed `requestState` codec (HMAC-SHA256, context-bound, TTL) + server binding + client auto-fulfil | ✅ |
 | Logging helper (`Ctx::log`) + `_meta` log-level plumbing | ⏳ |
 | Doxygen API reference; client + HTTP examples | ⏳ |
 | Zero-copy parse optimization (re-measure B1) | ⏳ |

@@ -23,6 +23,7 @@ error → version → json → jsonrpc → types → transport → server / clie
 | `include/mcp/types.hpp` | `RequestId`、`RequestMeta`、能力探针、`member()`、MRTR 辅助函数 |
 | `include/mcp/transport.hpp` | `ITransport`、`StreamTransport`、`StdioTransport` |
 | `include/mcp/server.hpp` | `Server` 派发循环 + `Builder` 注册 API |
+| `include/mcp/request_state.hpp` | `RequestStateCodec`——HMAC 签名的 MRTR `requestState`（绑定上下文、带 TTL）；`src/sha256.*` 是零依赖的 SHA-256/HMAC 原语 |
 | `include/mcp/client.hpp` | 阻塞式 `Client`，可运行于任意 `ITransport` |
 | `include/mcp/schema.hpp` | JSON Schema 2020-12 校验器（仅本地 `$ref`，带资源上限） |
 | `include/mcp/transport_http.hpp` | Streamable HTTP + SSE 双侧实现（pimpl 把 httplib 挡在头文件外） |
@@ -55,5 +56,5 @@ error → version → json → jsonrpc → types → transport → server / clie
 ## 有意为之的简化
 
 - 单线程、无异步运行时。多 worker 保留为将来可能的编译期选项。
-- 长寿命服务器实例（每请求状态归 handler；MRTR 状态由 `requestState` 承载）。因此水平扩展需要有状态路由，与官方 SDK 的每请求工厂模型不同——这是已记录的权衡，有真实负载需求时再改。
+- 长寿命服务器实例（每请求状态归 handler；MRTR 状态由 `requestState` 承载，`RequestStateCodec` 用 HMAC-SHA256 绑定方法与目标进行签名，回显的状态既不能重放到其他工具，也能在服务器重启后（密钥不变时）存活）。因此水平扩展需要有状态路由，与官方 SDK 的每请求工厂模型不同——这是已记录的权衡，有真实负载需求时再改。
 - 暂无 OAuth（见 `ROADMAP.md`）；HTTP 服务器对外时请在其前面做认证。

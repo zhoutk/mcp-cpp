@@ -64,6 +64,7 @@ mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
 | Resource URI templates (RFC 6570 subset) + template-fallback `resources/read` | ✅ | ✅ |
 | `notifications/cancelled` + queryable cancellation flag | ✅ | ✅ |
 | MRTR: `input_required` results + `inputResponses` retry, `requestState` echo, capability-gated `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
+| Signed `requestState` (`RequestStateCodec`: HMAC-SHA256, context-bound, TTL) + `Client::callToolWithInput` auto-fulfil loop | ✅ | ✅ |
 | Progress notifications (`Ctx::progress`, client `progressToken` opt-in) | ✅ | ✅ |
 | `completion/complete` (server + client) | ✅ | ✅ |
 | CacheableResult (`ttlMs`/`cacheScope`) on discover, `*/list`, `resources/read` | ✅ | ✅ |

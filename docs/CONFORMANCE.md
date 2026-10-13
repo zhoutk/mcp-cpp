@@ -8,18 +8,22 @@ MCP SDKs are scored by the official
 suite. Tier 1 requires **100%** of applicable required scenarios; Tier 2 requires
 **80%**. This document explains how mcp-cpp is wired to that suite.
 
-> **Status (2026-10-09): 26/30 scored server scenarios pass (86.7%)** with suite
-> v0.1.16 — see [`conformance/report.json`](../conformance/report.json). The four
-> failures all require the **server to send a request to the client** mid-call
-> (`sampling/createMessage` / `elicitation/create`); 2026-07-28 replaced that
-> mechanism with MRTR, so there is no 2026 equivalent to pass. They are recorded
-> in [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml).
+> **Status (2026-10-13), both spec versions:**
 >
-> **Important:** suite v0.1.16 has **no scenarios for 2026-07-28** (the revision
-> this SDK targets). Its valid spec versions are `2025-03-26`, `2025-06-18`,
-> `2025-11-25`, `draft`, `extension`; passing it means the server also serves
-> 2025-era clients, which mcp-cpp does in legacy-client mode. A 2026-07-28 score
-> cannot be produced until the suite adds 2026 scenarios.
+> - **2026-07-28: 42/42 checks, 20/20 scenarios — 100%** of the scored (active)
+>   suite, with `@modelcontextprotocol/conformance@0.2.0-alpha.12` — see
+>   [`conformance/report-2026-07-28.json`](../conformance/report-2026-07-28.json).
+> - **2025-11-25: 26/30** with v0.1.16 — see
+>   [`conformance/report.json`](../conformance/report.json). The four failures
+>   all require the **server to send a request to the client** mid-call
+>   (`sampling/createMessage` / `elicitation/create`); 2026-07-28 replaced that
+>   mechanism with MRTR, which this SDK implements. Recorded in
+>   [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml).
+>
+> The unscored *pending* 2026 scenarios additionally run with `--suite all`:
+> `sep-2164-resource-not-found` passes; `server-stateless` needs the fixture's
+> `--strict` flag (15/28); the `input-required-*` scenarios need the fixture to
+> expose MRTR tools — tracked as follow-up work in the 2026 report.
 
 ---
 

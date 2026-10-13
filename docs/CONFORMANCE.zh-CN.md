@@ -8,17 +8,22 @@ MCP SDK 由官方
 套件评分。Tier 1 要求所有适用必需场景的 **100%**；Tier 2 要求 **80%**。本文档
 说明 mcp-cpp 是如何接入该套件的。
 
-> **状态（2026-10-09）：30 个计分的服务端场景中通过 26 个（86.7%）**，套件版本
-> v0.1.16——参见 [`conformance/report.json`](../conformance/report.json)。这四个
-> 失败都需要**服务器在调用中途向客户端发送请求**
-> （`sampling/createMessage` / `elicitation/create`）；2026-07-28 已用 MRTR 取代该
-> 机制，因此没有可用来通过的 2026 等价项。它们记录在
-> [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml) 中。
+> **状态（2026-10-13），双规范版本：**
 >
-> **重要：** 套件 v0.1.16 **没有针对 2026-07-28 的场景**（即本 SDK 所针对的修订）。
-> 其有效的规范版本为 `2025-03-26`、`2025-06-18`、`2025-11-25`、`draft`、`extension`；
-> 通过它意味着服务器同时也能服务 2025 时代的客户端，而 mcp-cpp 在旧版客户端模式下
-> 正是如此。在套件添加 2026 场景之前，无法产出 2026-07-28 的得分。
+> - **2026-07-28：42/42 检查项、20/20 场景——计分（active）套件 100%**，使用
+>   `@modelcontextprotocol/conformance@0.2.0-alpha.12`——参见
+>   [`conformance/report-2026-07-28.json`](../conformance/report-2026-07-28.json)。
+> - **2025-11-25：26/30**（v0.1.16）——参见
+>   [`conformance/report.json`](../conformance/report.json)。四个失败都需要
+>   **服务器在调用中途向客户端发送请求**（`sampling/createMessage` /
+>   `elicitation/create`）；2026-07-28 已用 MRTR 取代该机制，而本 SDK 已实现
+>   MRTR。记录在
+>   [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml) 中。
+>
+> 未计分的 *pending* 2026 场景可用 `--suite all` 额外运行：
+> `sep-2164-resource-not-found` 通过；`server-stateless` 需要 fixture 的
+> `--strict` 旗标（15/28）；`input-required-*` 系列需要 fixture 暴露 MRTR
+> 工具——已作为后续工作记录在 2026 报告中。
 
 ---
 

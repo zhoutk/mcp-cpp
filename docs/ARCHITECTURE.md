@@ -26,6 +26,7 @@ that one.
 | `include/mcp/types.hpp` | `RequestId`, `RequestMeta`, capability probes, `member()`, MRTR helpers |
 | `include/mcp/transport.hpp` | `ITransport`, `StreamTransport`, `StdioTransport` |
 | `include/mcp/server.hpp` | `Server` dispatch loop + `Builder` registration API |
+| `include/mcp/request_state.hpp` | `RequestStateCodec` — HMAC-sealed `requestState` (context-bound, TTL) for MRTR; `src/sha256.*` is the dependency-free SHA-256/HMAC primitive |
 | `include/mcp/client.hpp` | blocking `Client` over any `ITransport` |
 | `include/mcp/schema.hpp` | JSON Schema 2020-12 validator (local `$ref` only, resource bounds) |
 | `include/mcp/transport_http.hpp` | Streamable HTTP + SSE, both sides (pimpl keeps httplib out of the header) |
@@ -82,7 +83,10 @@ viable. A meta-test enforces the include direction.
 - Single-threaded, no async runtime. Multi-worker remains a possible
   compile-time option if a workload demands it.
 - Long-lived server instance (per-request state is the handler's business;
-  MRTR state is carried by `requestState`). Horizontal scaling therefore
-  requires stateful routing, unlike the official SDKs' per-request factory
-  model — a documented trade-off, revisit if a workload demands it.
+  MRTR state is carried by `requestState`, which `RequestStateCodec` seals with
+  HMAC-SHA256 bound to the method and target, so an echoed state cannot be
+  replayed against another tool and survives a server restart when the key does).
+  Horizontal scaling therefore requires stateful routing, unlike the official
+  SDKs' per-request factory model — a documented trade-off, revisit if a
+  workload demands it.
 - No OAuth yet (see `ROADMAP.md`); terminate auth in front of an HTTP server.

@@ -77,6 +77,7 @@ aggregate include; use it in examples/tests.
 | `include/mcp/types.hpp` / `src/types.cpp` | `RequestId`, `RequestMeta`, capability probes, `member()` |
 | `include/mcp/transport.hpp` / `src/transport.cpp` | `ITransport`, `StreamTransport`, `StdioTransport` |
 | `include/mcp/server.hpp` / `src/server.cpp` | `Server` dispatch loop + `Builder` registration API |
+| `include/mcp/request_state.hpp` / `src/request_state.cpp` | `RequestStateCodec` — HMAC-sealed MRTR `requestState` (`src/sha256.*` is the in-tree primitive); enabled per-server via `Builder::requestStateCodec()`, surfaced to handlers as `Ctx::sealRequestState`/`Ctx::openRequestState` |
 | `include/mcp/client.hpp` / `src/client.cpp` | blocking `Client` over any `ITransport` |
 | `include/mcp/schema.hpp` / `src/schema.cpp` | JSON Schema 2020-12 validator (local `$ref` only) |
 | `include/mcp/transport_http.hpp` / `src/transport_http.cpp` | Streamable HTTP + SSE (httplib), both sides |
