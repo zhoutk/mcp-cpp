@@ -31,7 +31,7 @@
 | 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 26/30 |
 | 达到所有适用必需场景的 100% | 🔄 4 个受阻（服务器发起的请求；见下文） |
 | 发布 `conformance/report.json` + 一份 `--expected-failures` 基线 | ✅ |
-| 客户端模式的一致性运行（需要一个 `client_probe` 示例） | ⏳ |
+| 客户端模式的一致性运行（需要一个 `conformance_client` fixture） | ✅ 8 个场景通过（见 [docs/CONFORMANCE.zh-CN.md](docs/CONFORMANCE.zh-CN.md)） |
 | 仓库内 **2026-07-28** 一致性测试套件（`mcp_test_conformance_2026`，12 个场景，含完整的 MRTR 往返） | ✅ |
 | 稳定的 **v1.0.0** 发布 | ⏳ |
 

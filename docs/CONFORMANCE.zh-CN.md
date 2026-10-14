@@ -67,14 +67,41 @@ npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp \
 
 ### 客户端模式
 
+套件会启动自己的场景服务器，通过 `examples/conformance_client.cpp` 驱动我们的
+客户端。请逐个场景运行（套件的并行套件模式会触发其 mock 服务器的会话路由竞态，
+官方 rust-sdk 参考客户端同样受影响）：
+
 ```bash
 npx @modelcontextprotocol/conformance client \
-  --command "bin/mcp_client_probe.exe" \
-  --scenario initialize --output json
+  --command "bin/conformance_client" \
+  --scenario initialize --spec-version 2026-07-28 \
+  --expected-failures conformance/expected-failures.yaml \
+  --output json
 ```
 
-> 尚不存在一个专门的 `mcp_client_probe` 示例——参见
-> 路线图。在那之前只能运行服务端模式。
+**客户端得分（2026-10-14，套件 0.2.0-alpha.12，串行运行）：**
+
+| 场景 | 2025-11-25 | 2026-07-28 |
+| --- | --- | --- |
+| `initialize` | 1/1 | n/a（仅 legacy） |
+| `tools_call` | 2/2 | 2/2 |
+| `json-schema-2020-12-preservation` | 9/9 | 9/9 |
+| `json-schema-ref-no-deref` | n/a | 1/1 |
+| `request-metadata` | n/a | 6/6 |
+| `sep-2322-client-request-state` | n/a | 间歇* |
+| `http-standard-headers` | n/a | 3/3 |
+| `http-custom-headers` | n/a | 18/18 |
+| `http-invalid-tool-headers` | n/a | 12/12 |
+| `sse-retry` | 3/3（间歇*） | n/a |
+| `elicitation-sep1034-client-defaults` | 间歇* | n/a |
+| `auth/*`（约 33 个场景） | 已基线——暂无 OAuth | 已基线 |
+
+\* 这三个场景可间歇通过，但在套件并行模式下失败；**官方 rust-sdk 参考客户端在
+相同环境下持续失败**（elicitation 0/5 ×3、sse-retry 0/1 ×2、sep-2322 0/5——
+2026-10-14 验证），说明问题出在套件 mock 的会话路由而非 SDK。它们已连同该证据
+一并基线化在
+[`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml)
+中；CI 按场景串行运行。
 
 ### 层级自我评估
 

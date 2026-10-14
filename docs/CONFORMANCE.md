@@ -69,14 +69,43 @@ Useful flags: `--scenario <name>` (one scenario), `--suite active|all|pending`,
 
 ### Client mode
 
+The harness starts its own scenario servers and drives OUR client through
+`examples/conformance_client.cpp`. Run scenarios one at a time (the harness's
+parallel suite mode hits a session-routing race in its mock servers that also
+affects the official rust-sdk reference client):
+
 ```bash
 npx @modelcontextprotocol/conformance client \
   --command "bin/conformance_client" \
-  --scenario initialize --output json
+  --scenario initialize --spec-version 2026-07-28 \
+  --expected-failures conformance/expected-failures.yaml \
+  --output json
 ```
 
-> The `conformance_client` fixture does not exist yet — see
-> the roadmap. Until then only server mode is runnable.
+**Client scores (2026-10-14, suite 0.2.0-alpha.12, sequential runs):**
+
+| Scenario | 2025-11-25 | 2026-07-28 |
+| --- | --- | --- |
+| `initialize` | 1/1 | n/a (legacy-only) |
+| `tools_call` | 2/2 | 2/2 |
+| `json-schema-2020-12-preservation` | 9/9 | 9/9 |
+| `json-schema-ref-no-deref` | n/a | 1/1 |
+| `request-metadata` | n/a | 6/6 |
+| `sep-2322-client-request-state` | n/a | intermittent* |
+| `http-standard-headers` | n/a | 3/3 |
+| `http-custom-headers` | n/a | 18/18 |
+| `http-invalid-tool-headers` | n/a | 12/12 |
+| `sse-retry` | 3/3 (intermittent*) | n/a |
+| `elicitation-sep1034-client-defaults` | intermittent* | n/a |
+| `auth/*` (≈33 scenarios) | baselined — no OAuth yet | baselined |
+
+\* These three pass intermittently and fail under the harness's parallel suite
+mode; the **official rust-sdk reference client fails them consistently in the
+same environment** (elicitation 0/5 ×3, sse-retry 0/1 ×2, sep-2322 0/5 — verified
+2026-10-14), which points at the harness mock's session routing rather than the
+SDK. They are baselined in
+[`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml)
+with this evidence; CI runs the scenarios sequentially.
 
 ### Tier self-assessment
 

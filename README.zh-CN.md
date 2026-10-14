@@ -62,6 +62,7 @@ CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 | `notifications/cancelled` + 可查询的取消标志 | ✅ | ✅ |
 | MRTR：`input_required` 结果 + `inputResponses` 重试、`requestState` 回显、带能力门控的 `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | 签名 `requestState`（`RequestStateCodec`：HMAC-SHA256、绑定上下文、TTL）+ `Client::callToolWithInput` 自动履行循环 | ✅ | ✅ |
+| 官方一致性套件——**客户端模式**（8 个场景通过，双规范版本） | ✅ | ✅ |
 | 进度通知（`Ctx::progress`，客户端通过 `progressToken` 选择性加入） | ✅ | ✅ |
 | `completion/complete`（服务端 + 客户端） | ✅ | ✅ |
 | discover、`*/list`、`resources/read` 上的 CacheableResult（`ttlMs`/`cacheScope`） | ✅ | ✅ |

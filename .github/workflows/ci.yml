@@ -102,3 +102,39 @@ jobs:
         with:
           name: conformance-report
           path: conformance/out
+
+  # Client mode: the harness starts its own scenario servers and drives OUR
+  # client (examples/conformance_client.cpp). Scenarios run one at a time - the
+  # harness's parallel suite mode hits a session-routing race in its mock
+  # servers that also affects the official rust-sdk reference client.
+  conformance-client:
+    name: conformance (client)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        spec-version: ["2025-11-25", "2026-07-28"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure + build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
+      - name: Run client scenarios
+        run: |
+          for s in initialize tools_call sse-retry elicitation-sep1034-client-defaults \
+                   json-schema-2020-12-preservation json-schema-ref-no-deref \
+                   request-metadata sep-2322-client-request-state \
+                   http-standard-headers http-custom-headers http-invalid-tool-headers; do
+            npx --yes @modelcontextprotocol/conformance client \
+              --command "bin/conformance_client" --scenario "$s" \
+              --spec-version "${{ matrix.spec-version }}" \
+              --expected-failures conformance/expected-failures.yaml \
+              -o "conformance/out-client-${{ matrix.spec-version }}" || exit 1
+          done
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-client-report-${{ matrix.spec-version }}
+          path: conformance/out-client-*

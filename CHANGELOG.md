@@ -41,6 +41,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answers each `input_required` round through a handler and retries with the echoed
   `requestState` and the `inputResponses`. It stops with `InternalError` after
   `maxRounds`, and a handler error ends the loop without a retry.
+- **Client conformance fixture.** `examples/conformance_client.cpp` + CI client
+  jobs (both spec versions): `Client::initialize()` (legacy handshake that adopts
+  the negotiated version), answering server-initiated requests
+  (`Client::onServerRequest`), and the transport work below. Passing client
+  scenarios: initialize, tools_call, json-schema-2020-12-preservation (9/9),
+  json-schema-ref-no-deref, request-metadata (6/6), http-standard-headers (3/3),
+  http-custom-headers (18/18), http-invalid-tool-headers (12/12). Baseline
+  (with evidence): auth/* (no OAuth yet) and three scenarios the official
+  rust-sdk reference client also fails in this environment.
+- **HTTP client transport hardening** (found by the client suite): GET listening
+  stream with `Mcp-Session-Id` echo and `Last-Event-ID` reconnect honoring the
+  SSE `retry:` field; request POSTs stream responses on background threads so a
+  client can answer mid-call elicitations; full SSE field parsing (`event:`,
+  `id:`, `retry:`, CRLF terminators); error responses may carry `id: null`
+  (JSON-RPC 2.0 allows it; 2025-era peers send it); mirrored `Mcp-Param-*`
+  headers with empty values are sent; SEP-2243 client-side annotation
+  validation excludes malformed tools.
 - **2026-07-28 conformance suite.** `mcp_test_conformance_2026` — 12 named
   scenarios covering discover, stateless `_meta`, version negotiation, capability
   gating, resultType, progress, outputSchema, and a full MRTR round trip over a

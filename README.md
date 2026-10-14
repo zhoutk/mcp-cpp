@@ -65,6 +65,7 @@ mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
 | `notifications/cancelled` + queryable cancellation flag | ✅ | ✅ |
 | MRTR: `input_required` results + `inputResponses` retry, `requestState` echo, capability-gated `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | Signed `requestState` (`RequestStateCodec`: HMAC-SHA256, context-bound, TTL) + `Client::callToolWithInput` auto-fulfil loop | ✅ | ✅ |
+| Official conformance suite — **client mode** (8 scenarios green, both spec versions) | ✅ | ✅ |
 | Progress notifications (`Ctx::progress`, client `progressToken` opt-in) | ✅ | ✅ |
 | `completion/complete` (server + client) | ✅ | ✅ |
 | CacheableResult (`ttlMs`/`cacheScope`) on discover, `*/list`, `resources/read` | ✅ | ✅ |
