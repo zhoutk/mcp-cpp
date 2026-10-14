@@ -60,12 +60,40 @@ Json Client::buildParams(const Json& extraParams,
 
 McpResult<Json> Client::request(std::string_view method, const Json& extraParams,
                                 const std::optional<RequestId>& progressToken) {
+  return exchange(method, buildParams(extraParams, progressToken));
+}
+
+McpResult<Json> Client::initialize(std::string_view protocolVersion,
+                                   const Implementation& clientInfo) {
+  Json params;
+  params.add("protocolVersion", Json::str(std::string(protocolVersion)));
+  params.add("capabilities", Json(R"({})"));
+  params.add("clientInfo", encodeImplementation(clientInfo));
+  auto result = exchange("initialize", std::move(params));
+  if (!result.has_value()) return result;
+  // Later requests must declare the version the server actually negotiated.
+  const Json negotiated = member(result.value(), "protocolVersion");
+  if (negotiated.isString()) {
+    if (auto v = fromString(negotiated.toString())) setProtocolVersion(*v);
+  }
+  // The legacy lifecycle completes with notifications/initialized.
+  if (transport_ != nullptr) {
+    (void)transport_->write(encodeNotification("notifications/initialized", Json(nullptr)));
+  }
+  return result;
+}
+
+void Client::onServerRequest(ServerRequestHandler handler) {
+  onServerRequest_ = std::move(handler);
+}
+
+McpResult<Json> Client::exchange(std::string_view method, const Json& params) {
   if (transport_ == nullptr) {
     return Err(McpErrorCode::InternalError, "client is not connected");
   }
   const RequestId id = nextRequestId(nextId_);
   const std::string idString = idToString(id);
-  const std::string line = encodeRequest(id, method, buildParams(extraParams, progressToken));
+  const std::string line = encodeRequest(id, method, params);
   auto wrote = transport_->write(line);
   if (!wrote.has_value()) return Err(wrote.error());
 
@@ -113,8 +141,27 @@ McpResult<Json> Client::request(std::string_view method, const Json& extraParams
       }
       continue;
     }
-    // Requests arriving at a client: not supported by this runtime (MRTR is
-    // result-embedded); ignore.
+    if (const auto* incoming = std::get_if<JsonRpcRequest>(&parsed)) {
+      // A request the SERVER initiated (pre-2026 servers do this: sampling,
+      // elicitation, roots). Answer it if a handler is registered, then keep
+      // waiting for our own response. Writing the answer goes out as a fresh
+      // POST, which is exactly how streamable HTTP carries it.
+      if (onServerRequest_) {
+        auto answer = onServerRequest_(std::string(incoming->method), incoming->params,
+                                       incoming->id);
+        if (answer.has_value()) {
+          (void)transport_->write(encodeResultResponse(incoming->id, answer.value()));
+        } else {
+          // Local conversion: toErrorValue is a server-side helper.
+          JsonRpcErrorValue v;
+          v.code = static_cast<int32_t>(answer.error().code);
+          v.message = answer.error().message;
+          v.data = answer.error().data;
+          (void)transport_->write(encodeErrorResponse(incoming->id, v));
+        }
+      }
+      continue;  // not our response; keep waiting
+    }
   }
 }
 
@@ -244,17 +291,24 @@ McpResult<Json> Client::subscribe(const Json& filter) {
 }
 
 void Client::mirrorHeaderParams(const std::string& toolName, const Json& arguments) {
-  // Clear headers mirrored for the previous call.
-  for (const auto& h : lastParamHeaders_) transport_->setHeader(h, "");
-  lastParamHeaders_.clear();
-
   auto it = toolSchemas_.find(toolName);
-  if (it == toolSchemas_.end()) return;  // unknown tool -> nothing to mirror
-  const Json inputSchema = member(it->second, "inputSchema");
-  if (!inputSchema.isObject()) return;
-
   std::vector<std::pair<std::string, std::string>> params;
-  detail::collectHeaderParams(inputSchema, arguments, {}, params);
+  if (it != toolSchemas_.end()) {
+    const Json inputSchema = member(it->second, "inputSchema");
+    if (inputSchema.isObject()) {
+      detail::collectHeaderParams(inputSchema, arguments, {}, params);
+    }
+  }
+  // Drop headers mirrored for the previous call that the current call does not
+  // mirror; empty string values are real headers and must be SENT.
+  for (const auto& h : lastParamHeaders_) {
+    const bool stillMirrored =
+        std::any_of(params.begin(), params.end(), [&](const auto& p) {
+          return "Mcp-Param-" + p.first == h;
+        });
+    if (!stillMirrored) transport_->removeHeader(h);
+  }
+  lastParamHeaders_.clear();
   for (auto& [headerName, value] : params) {
     const std::string wireName = "Mcp-Param-" + headerName;
     transport_->setHeader(wireName, detail::encodeHeaderValue(value));

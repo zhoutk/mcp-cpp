@@ -349,3 +349,71 @@ TEST(ClientProgress, OmitsTokenWhenNotRequested) {
   ASSERT_NE(req, nullptr);
   EXPECT_FALSE(req->params["_meta"].contains(std::string("progressToken")));
 }
+
+// ---- legacy initialize handshake -------------------------------------------------
+
+TEST(ClientInitialize, SendsLegacyHandshakeThenInitialized) {
+  ScriptedTransport t({}, {});
+  Client c("probe", "1.0");
+  c.connect(t);
+  // Respond to initialize with a legacy result carrying the negotiated version.
+  t.responder_ = [](const std::string& sent, std::deque<std::string>& responses) {
+    static bool first = true;
+    if (first) {
+      first = false;
+      auto parsed = parseMessage(sent);
+      auto* req = std::get_if<JsonRpcRequest>(&parsed);
+      ASSERT_NE(req, nullptr);
+      // Legacy metadata lives at the params root - no _meta envelope.
+      EXPECT_EQ(req->method, "initialize");
+      EXPECT_EQ(member(req->params, "protocolVersion").toString(), "2025-11-25");
+      EXPECT_FALSE(member(req->params, "_meta").isObject());
+      responses.push_back(encodeResultResponse(
+          req->id, Json(R"({"protocolVersion":"2025-11-25","capabilities":{},
+                          "serverInfo":{"name":"m","version":"1"}})")));
+    }
+  };
+  auto r = c.initialize("2025-11-25", Implementation{"probe", std::string(), "1.0",
+                                                     std::string(), std::string(),
+                                                     Json(nullptr)});
+  ASSERT_TRUE(r.has_value()) << r.error().message;
+  EXPECT_EQ(member(r.value(), "protocolVersion").toString(), "2025-11-25");
+  // The follow-up notifications/initialized must have gone out.
+  bool sawInitialized = false;
+  for (const auto& sent : t.sent_) {
+    auto parsed = parseMessage(sent);
+    if (auto* n = std::get_if<JsonRpcNotification>(&parsed)) {
+      if (n->method == "notifications/initialized") sawInitialized = true;
+    }
+  }
+  EXPECT_TRUE(sawInitialized);
+}
+
+TEST(ClientInitialize, AdoptsNegotiatedVersionForLaterRequests) {
+  // The server negotiates DOWN to 2025-06-18; later requests must declare it.
+  ScriptedTransport t({}, {});
+  Client c("probe", "1.0");
+  c.connect(t);
+  std::string declaredVersion;
+  t.responder_ = [&](const std::string& sent, std::deque<std::string>& responses) {
+    auto parsed = parseMessage(sent);
+    if (auto* req = std::get_if<JsonRpcRequest>(&parsed)) {
+      if (req->method == "initialize") {
+        responses.push_back(encodeResultResponse(
+            req->id, Json(R"({"protocolVersion":"2025-06-18","capabilities":{}})")));
+        return;
+      }
+      if (req->method == "tools/list") {
+        declaredVersion =
+            member(member(req->params, "_meta"), kMetaProtocolVersion).toString();
+        responses.push_back(encodeResultResponse(req->id, Json(R"({"tools":[]})")));
+      }
+    }
+  };
+  auto r = c.initialize("2025-11-25", Implementation{"probe", std::string(), "1.0",
+                                                     std::string(), std::string(),
+                                                     Json(nullptr)});
+  ASSERT_TRUE(r.has_value());
+  (void)c.listTools();
+  EXPECT_EQ(declaredVersion, "2025-06-18");
+}

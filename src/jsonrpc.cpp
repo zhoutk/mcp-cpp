@@ -116,7 +116,15 @@ ParsedMessage parseMessage(std::string_view text) {
   if (hasId) {
     id = decodeRequestId(e.id);
     if (!id) {
-      return invalid("Invalid request: id must be a string or an integer, never null");
+      // JSON-RPC 2.0 lets an ERROR response carry "id": null when the request
+      // id was unreadable. A 2025-era peer does exactly that; rejecting it
+      // globally would make us unable to talk to them. Result responses stay
+      // strict (their id is how we correlate).
+      if (hasError) {
+        id = std::nullopt;
+      } else {
+        return invalid("Invalid request: id must be a string or an integer, never null");
+      }
     }
   } else if (hasResult) {
     // A result response MUST carry its request id to be correlatable; only

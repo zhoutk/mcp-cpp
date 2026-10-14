@@ -38,6 +38,10 @@ class ITransport {
   // Optional per-message header injection (Streamable HTTP mirrored headers).
   // No-op on transports without a header layer (stdio).
   virtual void setHeader(std::string /*name*/, std::string /*value*/) {}
+  // Removes a previously set header. Empty-value headers are real headers (the
+  // mirrored Mcp-Param-* contract allows an empty string value), so removal is
+  // a separate operation, not setHeader(name, "").
+  virtual void removeHeader(const std::string& /*name*/) {}
 
   // Terminates all open subscription streams and waits for their background
   // threads to exit. Base no-op: only transports that host long-lived

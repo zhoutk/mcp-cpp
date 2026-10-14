@@ -122,6 +122,12 @@ if(MCP_BUILD_EXAMPLES)
   add_executable(conformance_server examples/conformance_server.cpp)
   target_link_libraries(conformance_server PRIVATE mcp)
 
+  # Client-side fixture for the suite's client mode (HTTP only).
+  if(TARGET httplib)
+    add_executable(conformance_client examples/conformance_client.cpp)
+    target_link_libraries(conformance_client PRIVATE mcp)
+  endif()
+
   # benchmarks (not registered with CTest; run manually)
   add_executable(mcp_bench_parse bench/bench_parse.cpp)
   add_executable(mcp_bench_dispatch bench/bench_dispatch.cpp)
@@ -131,7 +137,7 @@ if(MCP_BUILD_EXAMPLES)
     target_compile_options(${t} PRIVATE ${MCP_CXX_WARNINGS})
   endforeach()
 
-  set_target_properties(minimal_server conformance_server mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e
+  set_target_properties(minimal_server conformance_server conformance_client mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 endif()
 

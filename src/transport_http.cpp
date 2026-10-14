@@ -3,6 +3,7 @@
 
 #include <mcp/transport_http.hpp>
 
+
 #if defined(MCP_HAS_HTTP)
 
 #include <httplib.h>
@@ -498,6 +499,106 @@ struct HttpClientTransport::Impl {
   size_t subscriptionThreads = 0;                        // still-running count
   bool subscriptionsClosed = false;
 
+  // ---- request stream lifecycle -------------------------------------------
+  // A request POST may answer with a long-lived SSE stream: the server holds
+  // it open while it elicits mid-call (MRTR over streamable HTTP). Receiving
+  // it synchronously would block the client loop from answering, so every
+  // request POST streams on its own background thread and queues events as
+  // they arrive; write() returns immediately.
+  std::mutex reqMutex;
+  std::condition_variable reqCv;
+  // Session header from a legacy-era initialize response (2025-03-26 introduced
+  // Mcp-Session-Id; 2026-07-28 removed it). Echoed on every later POST.
+  std::string sessionId;
+  std::string protocolVersion = "2026-07-28";  // echoed on GET listen streams
+  std::set<httplib::Client*> activeRequestStreams;       // handles to stop()
+  size_t requestThreads = 0;                             // still-running count
+  bool requestStreamsClosed = false;
+
+  // ---- listening stream (GET SSE; the 2025-era server->client channel) -----
+  // 2025-11-25 servers deliver server-initiated requests (elicitation,
+  // sampling) over a GET event stream; a graceful close is reconnectable via
+  // Last-Event-ID (basic/transports + sse-retry scenario). 2026-07-28 servers
+  // answer GET with 405, which marks the channel unsupported.
+  std::mutex listenMutex;
+  std::condition_variable listenCv;
+  std::set<httplib::Client*> activeListenStreams;        // handles to stop()
+  size_t listenThreads = 0;                              // still-running count
+  bool listenClosed = false;                             // shutdown
+  bool listenOpen = false;                               // a loop is running
+  bool listenUnsupported = false;                        // peer said 405
+  std::string lastEventId;                               // SSE id: for reconnect
+  int retryMs = 0;                                       // SSE retry: advice
+
+  // Emits every complete "data: <json>" event currently buffered in `acc`
+  // (called with accMutex NOT held - it only touches the queue). Events end
+  // with a blank line, which peers write as "\n\n" or "\r\n\r\n" (the SSE
+  // spec allows both). An event's payload is ALL its "data:" lines joined
+  // with "\n"; "event:"/"id:"/"retry:"/comment lines are ignored - peers do
+  // emit "event: message" ahead of the data line.
+  static std::string sseEventData(const std::string& event, std::string* eventId = nullptr,
+                                  int* retryMs = nullptr) {
+    std::string out;
+    bool any = false;
+    size_t pos = 0;
+    if (eventId != nullptr) eventId->clear();
+    if (retryMs != nullptr) *retryMs = -1;
+    while (pos <= event.size()) {
+      const size_t eol = event.find('\n', pos);
+      std::string_view line = std::string_view(event).substr(
+          pos, eol == std::string::npos ? std::string::npos : eol - pos);
+      while (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+      if (line.rfind("data:", 0) == 0) {
+        std::string_view value = line.substr(5);
+        if (!value.empty() && value.front() == ' ') value.remove_prefix(1);
+        if (any) out += '\n';
+        out.append(value);
+        any = true;
+      } else if (eventId != nullptr && line.rfind("id:", 0) == 0) {
+        std::string_view value = line.substr(3);
+        if (!value.empty() && value.front() == ' ') value.remove_prefix(1);
+        *eventId = std::string(value);
+      } else if (retryMs != nullptr && line.rfind("retry:", 0) == 0) {
+        // SSE retry field: reconnect advice in milliseconds.
+        std::string_view value = line.substr(6);
+        while (!value.empty() && value.front() == ' ') value.remove_prefix(1);
+        *retryMs = std::atoi(std::string(value).c_str());
+      }
+      if (eol == std::string::npos) break;
+      pos = eol + 1;
+    }
+    return any ? out : std::string();
+  }
+
+  void drainSseIntoQueue(std::string& acc) {
+    static const std::string kEndLf = "\n\n";
+    static const std::string kEndCrLf = "\r\n\r\n";
+    for (;;) {
+      const size_t a = acc.find(kEndLf);
+      const size_t b = acc.find(kEndCrLf);
+      size_t pos, size;
+      if (a == std::string::npos && b == std::string::npos) return;
+      if (b == std::string::npos || (a != std::string::npos && a < b)) {
+        pos = a; size = kEndLf.size();
+      } else {
+        pos = b; size = kEndCrLf.size();
+      }
+      std::string event = acc.substr(0, pos);
+      acc.erase(0, pos + size);
+      std::string id;
+      int retry = -1;
+      std::string data = sseEventData(event, &id, &retry);
+      // Every SSE stream can advance the reconnection state (the sse-retry
+      // scenario puts "id:"/"retry:" on the tools/call stream).
+      {
+        std::lock_guard<std::mutex> lock(listenMutex);
+        if (!id.empty()) lastEventId = id;
+        if (retry >= 0) retryMs = retry;
+      }
+      if (!data.empty()) pushQueue(std::move(data));
+    }
+  }
+
   void registerSubscription(httplib::Client* c) {
     std::lock_guard<std::mutex> lock(subMutex);
     activeSubscriptions.insert(c);
@@ -522,17 +623,39 @@ HttpClientTransport::HttpClientTransport(std::string host, int port, std::string
 }
 
 HttpClientTransport::~HttpClientTransport() {
-  // Stop any live subscription streams so their background threads do not
-  // outlive the transport (they would push into a destroyed queue).
+  // Stop any live streams so their background threads do not outlive the
+  // transport (they would push into a destroyed queue).
   closeSubscriptions();
+  closeRequestStreams();
+  closeListenStreams();
+}
+
+void HttpClientTransport::setProtocolVersion(ProtocolVersion v) {
+  std::lock_guard<std::mutex> lock(impl_->reqMutex);
+  impl_->protocolVersion = std::string(toString(v));
 }
 
 void HttpClientTransport::setHeader(std::string name, std::string value) {
-  if (value.empty()) {
-    impl_->headers.erase(name);
-  } else {
-    impl_->headers[name] = std::move(value);
+  // Stores even empty values: the mirrored Mcp-Param-* contract allows an
+  // empty string parameter, which must still be sent as a header.
+  impl_->headers[name] = std::move(value);
+}
+
+void HttpClientTransport::removeHeader(const std::string& name) {
+  impl_->headers.erase(name);
+}
+
+void HttpClientTransport::closeRequestStreams() {
+  std::vector<httplib::Client*> toStop;
+  {
+    std::lock_guard<std::mutex> lock(impl_->reqMutex);
+    if (impl_->requestStreamsClosed) return;
+    impl_->requestStreamsClosed = true;
+    toStop.assign(impl_->activeRequestStreams.begin(), impl_->activeRequestStreams.end());
   }
+  for (httplib::Client* c : toStop) c->stop();
+  std::unique_lock<std::mutex> lock(impl_->reqMutex);
+  impl_->reqCv.wait(lock, [&] { return impl_->requestThreads == 0; });
 }
 
 void HttpClientTransport::closeSubscriptions() {
@@ -580,7 +703,20 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
   const JsonRpcRequest* request = std::get_if<JsonRpcRequest>(&parsed);
   const JsonRpcNotification* notification = std::get_if<JsonRpcNotification>(&parsed);
   if (request == nullptr && notification == nullptr) {
-    return Err(McpErrorCode::InvalidRequest, "http transport only sends requests/notifications");
+    // A client-to-server RESPONSE: the answer to a server-initiated request
+    // (pre-2026 elicitation/sampling). No mirrored headers apply - post it
+    // verbatim, fire-and-forget; a lost answer surfaces as a peer timeout.
+    httplib::Headers responseHeaders;
+    responseHeaders.emplace("Accept", "application/json, text/event-stream");
+    {
+      std::lock_guard<std::mutex> lock(impl_->reqMutex);
+      if (!impl_->sessionId.empty()) {
+        responseHeaders.emplace("Mcp-Session-Id", impl_->sessionId);
+      }
+    }
+    (void)impl_->cli.Post(impl_->endpoint.c_str(), responseHeaders, std::string(message),
+                          "application/json");
+    return Ok();
   }
   const std::string method = request ? request->method : notification->method;
   const Json& params = request ? request->params : notification->params;
@@ -601,6 +737,10 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
   for (const auto& [k, v] : impl_->headers) {
     headers.erase(k);  // override the body-derived mirror (e.g. tamper tests)
     headers.emplace(k, v);
+  }
+  {
+    std::lock_guard<std::mutex> lock(impl_->reqMutex);
+    if (!impl_->sessionId.empty()) headers.emplace("Mcp-Session-Id", impl_->sessionId);
   }
 
   // subscriptions/listen: the response is a long-lived SSE stream. Serve it
@@ -630,14 +770,25 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       std::string acc;
       auto receiver = [this, &acc](const char* data, size_t len) -> bool {
         acc.append(data, len);
+        // Events end with a blank line: "\n\n" or "\r\n\r\n" (spec allows both).
         std::deque<std::string> events;
         {
-          static const std::string kEventEnd = "\n\n";
-          size_t pos;
-          while ((pos = acc.find(kEventEnd)) != std::string::npos) {
+          static const std::string kEndLf = "\n\n";
+          static const std::string kEndCrLf = "\r\n\r\n";
+          for (;;) {
+            const size_t a = acc.find(kEndLf);
+            const size_t b = acc.find(kEndCrLf);
+            size_t pos, size;
+            if (a == std::string::npos && b == std::string::npos) break;
+            if (b == std::string::npos || (a != std::string::npos && a < b)) {
+              pos = a; size = kEndLf.size();
+            } else {
+              pos = b; size = kEndCrLf.size();
+            }
             const std::string event = acc.substr(0, pos);
-            acc.erase(0, pos + kEventEnd.size());
-            if (event.rfind("data: ", 0) == 0) events.push_back(event.substr(6));
+            acc.erase(0, pos + size);
+            std::string data = Impl::sseEventData(event);
+            if (!data.empty()) events.push_back(std::move(data));
           }
         }
         for (auto& e : events) impl_->pushQueue(std::move(e));
@@ -650,46 +801,241 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       // the 1s read timeout elapses while subscriptionsClosed is set.
       (void)stream->Post(impl_->endpoint.c_str(), headersCopy, body, "application/json",
                          receiver);
+      // Tail flush: whatever is left is at most one unterminated event.
       {
-        std::string tail = std::move(acc);
-        std::deque<std::string> events;
-        static const std::string kEventEnd = "\n\n";
-        size_t pos;
-        while ((pos = tail.find(kEventEnd)) != std::string::npos) {
-          const std::string event = tail.substr(0, pos);
-          tail.erase(0, pos + kEventEnd.size());
-          if (event.rfind("data: ", 0) == 0) events.push_back(event.substr(6));
-        }
-        for (auto& e : events) impl_->pushQueue(std::move(e));
+        std::string data = Impl::sseEventData(acc);
+        if (!data.empty()) impl_->pushQueue(std::move(data));
       }
       impl_->unregisterSubscription(raw);
     }).detach();
     return Ok();
   }
 
-  auto result = impl_->cli.Post(impl_->endpoint.c_str(), headers,
-                                std::string(message), "application/json");
-  if (!result) {
-    return Err(McpErrorCode::InternalError,
-               "http POST failed: " + httplib::to_string(result.error()));
+  // Stream the response on a background thread (see the request-stream
+  // lifecycle note in Impl). write() returns as soon as the POST is in
+  // flight; the response's messages reach read() through the queue.
+  std::string body(message);
+  auto stream = std::make_unique<httplib::Client>(impl_->cli.host(), impl_->cli.port());
+  stream->set_connection_timeout(5);
+  httplib::Client* raw = stream.get();
+  {
+    std::lock_guard<std::mutex> lock(impl_->reqMutex);
+    if (impl_->requestStreamsClosed) return Ok();  // transport shutting down
+    ++impl_->requestThreads;
+    impl_->activeRequestStreams.insert(raw);
   }
-  auto& res = *result;
-
-  if (res.status == 202) return Ok();  // accepted notification, no body
-
-  const std::string& contentType = res.get_header_value("Content-Type");
-  if (contentType.rfind("text/event-stream", 0) == 0) {
-    queueSseBody(res.body);
-    return Ok();
-  }
-  if (!res.body.empty()) {
-    // application/json (or an error body) - one message line.
-    impl_->pushQueue(res.body);
-  } else if (res.status >= 400) {
-    return Err(McpErrorCode::InternalError,
-               "http POST returned status " + std::to_string(res.status));
-  }
+  std::thread([this, stream = std::move(stream), body = std::move(body),
+               headersCopy = std::move(headers), raw]() mutable {
+    std::string acc;      // response bytes not yet turned into queued messages
+    bool isSse = false;   // does the response look like an event stream?
+    auto receiver = [&](const char* data, size_t len) -> bool {
+      {
+        std::lock_guard<std::mutex> lock(impl_->reqMutex);
+        if (impl_->requestStreamsClosed) return false;
+      }
+      acc.append(data, len);
+      if (!isSse && !acc.empty()) {
+        // SSE framing: "data:"/"event:"/"retry:"/"id:"/comment lines.
+        isSse = acc.rfind("data:", 0) == 0 || acc.rfind("event:", 0) == 0 ||
+                acc.rfind("retry:", 0) == 0 || acc.rfind("id:", 0) == 0 ||
+                (acc[0] == ':' && acc.size() > 1);
+      }
+      if (isSse) {
+        std::lock_guard<std::mutex> lock(impl_->reqMutex);
+        impl_->drainSseIntoQueue(acc);
+      }
+      return true;
+    };
+    auto result = raw->Post(impl_->endpoint.c_str(), headersCopy, body,
+                            "application/json", receiver);
+    if (result) {
+      // First response carrying a session header wins (the legacy initialize).
+      // 2025-03-26 introduced Mcp-Session-Id; 2026-07-28 removed it, so the
+      // header is echoed only when a peer issued one.
+      const std::string sid = result->get_header_value("Mcp-Session-Id");
+      if (!sid.empty()) {
+        std::lock_guard<std::mutex> lock(impl_->reqMutex);
+        if (impl_->sessionId.empty()) impl_->sessionId = sid;
+      }
+      // Open the GET listening stream after the first successful exchange -
+      // this is where a 2025-era server delivers server-initiated requests.
+      if (result->status < 400) openListenStreamOnce();
+    }
+    {
+      std::lock_guard<std::mutex> lock(impl_->reqMutex);
+      if (isSse) {
+        impl_->drainSseIntoQueue(acc);
+      } else if (!acc.empty()) {
+        // application/json (or an error body) - one message line.
+        impl_->pushQueue(std::move(acc));
+      }
+    }
+    // Surface failures the same way the wire would: as a message in the queue.
+    if (!result) {
+      JsonRpcErrorValue v;
+      v.code = static_cast<int32_t>(McpErrorCode::InternalError);
+      v.message = "http POST failed: " + httplib::to_string(result.error());
+      queueSyntheticError(body, v);
+    } else if (result->status >= 400 && !isSse && acc.empty()) {
+      JsonRpcErrorValue v;
+      v.code = static_cast<int32_t>(McpErrorCode::InternalError);
+      v.message = "http POST returned status " + std::to_string(result->status);
+      queueSyntheticError(body, v);
+    }
+    {
+      std::lock_guard<std::mutex> lock(impl_->reqMutex);
+      impl_->activeRequestStreams.erase(raw);
+      --impl_->requestThreads;
+    }
+    impl_->reqCv.notify_all();
+    // A gracefully closed POST stream means the server dropped the connection
+    // (SEP-1699): force the listening stream to reconnect after the advised
+    // delay - a pending result may be delivered on the reconnected stream. The
+    // listen loop applies the retry delay itself when it reopens.
+    if (result && result->status < 400 && !impl_->listenUnsupported) {
+      std::vector<httplib::Client*> toStop;
+      {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        if (!impl_->listenClosed) {
+          toStop.assign(impl_->activeListenStreams.begin(), impl_->activeListenStreams.end());
+        }
+      }
+      for (httplib::Client* c : toStop) c->stop();
+    }
+  }).detach();
   return Ok();
+}
+
+// Builds a JSON-RPC error response for the outgoing request carried by `wire`
+// and queues it, so exchange() surfaces transport failures as normal errors.
+void HttpClientTransport::queueSyntheticError(const std::string& wire, JsonRpcErrorValue v) {
+  const ParsedMessage parsed = parseMessage(wire);
+  if (const auto* request = std::get_if<JsonRpcRequest>(&parsed)) {
+    impl_->pushQueue(encodeErrorResponse(request->id, v));
+  }
+}
+
+void HttpClientTransport::openListenStreamOnce() {
+  {
+    std::lock_guard<std::mutex> lock(impl_->listenMutex);
+    if (impl_->listenClosed || impl_->listenOpen || impl_->listenUnsupported) return;
+    impl_->listenOpen = true;
+    ++impl_->listenThreads;
+  }
+  std::thread([this]() mutable {
+    // Reconnect loop: a graceful server-side close is reconnectable via
+    // Last-Event-ID (the sse-retry scenario); a 405 means the peer is a
+    // 2026-style server with no GET stream - give up quietly.
+    // The small startup delay avoids racing the peer's session registration:
+    // a GET that lands before the session is fully established is dropped by
+    // some servers, and our reconnect would then be keyed to a dead stream.
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    while (true) {
+      {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        if (impl_->listenClosed || impl_->listenUnsupported) break;
+      }
+      auto stream = std::make_unique<httplib::Client>(impl_->cli.host(), impl_->cli.port());
+      stream->set_connection_timeout(5);
+      stream->set_read_timeout(30, 0);  // keepalives keep it alive; close reconnects
+      httplib::Client* raw = stream.get();
+      {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        if (impl_->listenClosed) break;
+        impl_->activeListenStreams.insert(raw);
+      }
+      httplib::Headers headers;
+      headers.emplace("Accept", "text/event-stream");
+      headers.emplace("MCP-Protocol-Version", impl_->protocolVersion);
+      {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        if (!impl_->sessionId.empty()) headers.emplace("Mcp-Session-Id", impl_->sessionId);
+        if (!impl_->lastEventId.empty()) {
+          headers.emplace("Last-Event-ID", impl_->lastEventId);
+        }
+      }
+      std::string acc;
+      auto receiver = [&](const char* data, size_t len) -> bool {
+        {
+          std::lock_guard<std::mutex> lock(impl_->listenMutex);
+          if (impl_->listenClosed) return false;
+        }
+        acc.append(data, len);
+        std::deque<std::string> events;
+        {
+          static const std::string kEndLf = "\n\n";
+          static const std::string kEndCrLf = "\r\n\r\n";
+          for (;;) {
+            const size_t a = acc.find(kEndLf);
+            const size_t b = acc.find(kEndCrLf);
+            size_t pos, size;
+            if (a == std::string::npos && b == std::string::npos) break;
+            if (b == std::string::npos || (a != std::string::npos && a < b)) {
+              pos = a; size = kEndLf.size();
+            } else {
+              pos = b; size = kEndCrLf.size();
+            }
+            const std::string event = acc.substr(0, pos);
+            acc.erase(0, pos + size);
+            events.push_back(std::move(event));
+          }
+        }
+        for (auto& e : events) {
+          std::string id;
+          int retry = -1;
+          std::string data = Impl::sseEventData(e, &id, &retry);
+          {
+            std::lock_guard<std::mutex> lock(impl_->listenMutex);
+            if (!id.empty()) impl_->lastEventId = id;
+            if (retry >= 0) impl_->retryMs = retry;
+          }
+          if (!data.empty()) impl_->pushQueue(std::move(data));
+        }
+        return true;
+      };
+      auto result = raw->Get(impl_->endpoint.c_str(), headers, receiver);
+      bool unsupported = false;
+      {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        impl_->activeListenStreams.erase(raw);
+        if (result && result->status == 405) {
+          impl_->listenUnsupported = true;
+          unsupported = true;
+        }
+      }
+      if (unsupported) break;
+      // Honour the server's SSE retry advice (sse-retry scenario: reconnecting
+      // earlier than the advised delay is a conformance failure). The advice
+      // applies to the connection, so the last known value is kept. The margin
+      // covers the lag between our seeing the TCP close and the server recording
+      // its own close timestamp (~70ms observed); waiting longer is compliant.
+      int delay = 100;
+      {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        if (impl_->retryMs > 0) delay = impl_->retryMs + 250;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+    }
+    {
+      std::lock_guard<std::mutex> lock(impl_->listenMutex);
+      impl_->listenOpen = false;
+      --impl_->listenThreads;
+    }
+    impl_->listenCv.notify_all();
+  }).detach();
+}
+
+void HttpClientTransport::closeListenStreams() {
+  std::vector<httplib::Client*> toStop;
+  {
+    std::lock_guard<std::mutex> lock(impl_->listenMutex);
+    if (impl_->listenClosed) return;
+    impl_->listenClosed = true;
+    toStop.assign(impl_->activeListenStreams.begin(), impl_->activeListenStreams.end());
+  }
+  for (httplib::Client* c : toStop) c->stop();
+  std::unique_lock<std::mutex> lock(impl_->listenMutex);
+  impl_->listenCv.wait(lock, [&] { return impl_->listenThreads == 0; });
 }
 
 void HttpClientTransport::queueSseBody(const std::string& body) {

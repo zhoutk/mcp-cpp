@@ -96,12 +96,33 @@ class HttpClientTransport final : public ITransport {
   // Adds/replaces a header sent with every POST (e.g. Authorization), or
   // per-request mirrored headers (Mcp-Param-*). Empty value removes.
   void setHeader(std::string name, std::string value) override;
+  void removeHeader(const std::string& name) override;
+
+  // The protocol revision echoed on the GET listening stream's
+  // MCP-Protocol-Version header. Mirrors Client::setProtocolVersion; the
+  // fixture calls both. Defaults to the latest revision.
+  void setProtocolVersion(ProtocolVersion v);
 
   // Terminates all open subscription streams (background SSE connections)
   // and waits for their threads to finish. Safe to call from any thread;
   // idempotent. Called automatically by the destructor. After this returns,
   // no further notification lines will be queued.
   void closeSubscriptions() override;
+
+ private:
+  // Stops in-flight request streams and waits for their threads. Destructor
+  // only: closing these mid-call would drop the response the caller waits for.
+  void closeRequestStreams();
+
+  // Queues a JSON-RPC error response for the request carried by `wire`, so a
+  // transport-level failure surfaces to the caller as a normal error result.
+  void queueSyntheticError(const std::string& wire, JsonRpcErrorValue v);
+
+  // Opens the GET event stream (once) - the 2025-era server-to-client channel.
+  // A 405 answer (2026-style servers) marks it unsupported and it stays closed.
+  void openListenStreamOnce();
+  // Stops the listening stream and its reconnect loop. Destructor only.
+  void closeListenStreams();
 
  private:
   McpResult<void> postOne(std::string_view message);

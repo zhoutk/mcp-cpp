@@ -120,12 +120,34 @@ class Client {
   McpResult<Json> request(std::string_view method, const Json& extraParams,
                           const std::optional<RequestId>& progressToken = std::nullopt);
 
+  // --- legacy-era client (pre-2026) -----------------------------------------
+  // Runs the initialize handshake: sends the legacy `initialize` request
+  // (protocolVersion/capabilities/clientInfo at the params ROOT - no _meta
+  // envelope), then the notifications/initialized notification. Required by
+  // clients that must also serve pre-2026 servers, e.g. conformance fixtures.
+  McpResult<Json> initialize(std::string_view protocolVersion,
+                             const Implementation& clientInfo);
+
+  // Handles a request the SERVER initiates on the wire (pre-2026 servers do
+  // this: sampling/createMessage, elicitation/create, roots/list). 2026-07-28
+  // replaced this with MRTR, so the modern path never invokes it. The handler
+  // receives the method, the params and the request id, and returns the result
+  // object to answer with (or an error, which becomes a JSON-RPC error
+  // response). Without a handler, arriving server requests are ignored.
+  using ServerRequestHandler = std::function<McpResult<Json>(
+      const std::string& method, const Json& params, const RequestId& id)>;
+  void onServerRequest(ServerRequestHandler handler);
+
   // Sends notifications/cancelled over the underlying transport (stdio
   // cancellation; on HTTP closing the stream is the cancellation signal).
   McpResult<void> cancel(const RequestId& requestId, const std::string& reason = "");
 
  private:
   Json buildParams(const Json& extraParams, const std::optional<RequestId>& progressToken) const;
+  // One request/response exchange with the params already final. Callers pick
+  // the envelope: request() wraps _meta (modern), initialize() sends the legacy
+  // root-level metadata instead.
+  McpResult<Json> exchange(std::string_view method, const Json& params);
 
   ITransport* transport_ = nullptr;
   std::string clientName_;
@@ -133,6 +155,7 @@ class Client {
   Json clientCapabilities_;
   std::string protocolVersion_ = std::string(toString(ProtocolVersion::Latest));
   NotificationSink onNotification_;
+  ServerRequestHandler onServerRequest_;
   std::function<void(const std::string&)> onSubscriptionClosed_;
   bool awaitAck_ = false;  // subscribe() waits for the acknowledgment
   int64_t nextId_ = 1;
