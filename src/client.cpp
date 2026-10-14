@@ -132,7 +132,10 @@ McpResult<Json> Client::exchange(std::string_view method, const Json& params) {
       continue;  // response to someone else (should not happen; skip defensively)
     }
     if (const auto* res = std::get_if<JsonRpcResult>(&parsed)) {
-      if (res->id == id) return Ok(res->result);
+      // A result without an id is accepted: the client is sequential, so an
+      // id-less result can only be the answer to the one outstanding request
+      // (legacy-era peers omit it; 2026-07-28 always includes it).
+      if (!res->id.has_value() || res->id == id) return Ok(res->result);
       // A result carrying a subscriptionId closes that subscription
       // gracefully (basic/patterns/subscriptions.md "Graceful Closure").
       const Json subId = member(member(res->result, "_meta"), kMetaSubscriptionId);

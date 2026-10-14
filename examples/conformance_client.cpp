@@ -82,10 +82,22 @@ struct Session {
     if (legacy) {
       // A failed handshake surfaces on the first real request below; do not
       // abort here so the harness observes the actual wire behaviour.
-      (void)client.initialize(protocolVersion,
-                              Implementation{"mcp-cpp-conformance", std::string(),
-                                             "1.0.0", std::string(), std::string(),
-                                             Json(nullptr)});
+      auto init = client.initialize(protocolVersion,
+                                    Implementation{"mcp-cpp-conformance", std::string(),
+                                                   "1.0.0", std::string(), std::string(),
+                                                   Json(nullptr)});
+      // The GET listening stream echoes MCP-Protocol-Version - it MUST be the
+      // version the server negotiated, not our default. A mismatching header
+      // makes the peer reject the stream with 400 and the server-initiated
+      // requests never reach us.
+      if (init.has_value()) {
+        const Json negotiated = member(init.value(), "protocolVersion");
+        if (negotiated.isString()) {
+          if (auto v = fromString(negotiated.toString())) {
+            transport.setProtocolVersion(*v);
+          }
+        }
+      }
     } else {
       (void)client.discover();
     }

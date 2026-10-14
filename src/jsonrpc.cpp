@@ -127,15 +127,16 @@ ParsedMessage parseMessage(std::string_view text) {
       }
     }
   } else if (hasResult) {
-    // A result response MUST carry its request id to be correlatable; only
-    // error responses may omit it (id unreadable), per the schema's
-    // `id?: RequestId` on JSONRPCErrorResponse.
-    return invalid("Invalid request: result response must carry its request id");
+    // 2026-07-28 requires a result to carry its request id, but legacy-era
+    // peers occasionally omit it. Parsing KEEPS the message (id absent); the
+    // client - which has exactly one request outstanding at a time - accepts
+    // it, while anything id-correlated simply never matches.
+    id = std::nullopt;
   }
 
   if (hasResult) {
     JsonRpcResult res;
-    res.id = std::move(*id);
+    if (id) res.id = std::move(*id);  // absent on legacy id-less results
     res.result = e.result;
     return ParsedMessage(std::move(res));
   }

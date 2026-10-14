@@ -92,7 +92,7 @@ jobs:
           done
       - name: Run conformance suite
         run: |
-          npx --yes @modelcontextprotocol/conformance server \
+          npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.12 server \
             --url http://127.0.0.1:8099/mcp \
             --expected-failures conformance/expected-failures.yaml \
             -o conformance/out
@@ -122,11 +122,17 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
       - name: Run client scenarios
         run: |
-          for s in initialize tools_call sse-retry elicitation-sep1034-client-defaults \
-                   json-schema-2020-12-preservation json-schema-ref-no-deref \
-                   request-metadata sep-2322-client-request-state \
-                   http-standard-headers http-custom-headers http-invalid-tool-headers; do
-            npx --yes @modelcontextprotocol/conformance client \
+          # Scenario availability differs per revision (initialize is legacy-only;
+          # request-metadata/sep-2322/http-* exist only from 2026-07-28).
+          if [ "${{ matrix.spec-version }}" = "2026-07-28" ]; then
+            scenarios="tools_call json-schema-2020-12-preservation json-schema-ref-no-deref request-metadata sep-2322-client-request-state http-standard-headers http-custom-headers http-invalid-tool-headers"
+          else
+            scenarios="initialize tools_call sse-retry elicitation-sep1034-client-defaults json-schema-2020-12-preservation"
+          fi
+          for s in $scenarios; do
+            # Bound each scenario: a harness mock can hold a stream open past
+            # the client timeout; the baseline still makes the exit code 0.
+            timeout 180 npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.12 client \
               --command "bin/conformance_client" --scenario "$s" \
               --spec-version "${{ matrix.spec-version }}" \
               --expected-failures conformance/expected-failures.yaml \

@@ -48,7 +48,11 @@ struct JsonRpcErrorValue {
 };
 
 struct JsonRpcResult {  // a success response
-  RequestId id;
+  // Absent when the peer omitted the id. 2026-07-28 requires it; legacy-era
+  // mock servers sometimes omit it, and a sequential client can still
+  // correlate (exactly one request is outstanding). The SERVER never consumes
+  // results, so the strict wire contract is enforced on encode.
+  std::optional<RequestId> id;
   Json result;
 };
 

@@ -527,6 +527,9 @@ struct HttpClientTransport::Impl {
   bool listenClosed = false;                             // shutdown
   bool listenOpen = false;                               // a loop is running
   bool listenUnsupported = false;                        // peer said 405
+  // Set when a closed POST stream forces the listening stream to reconnect:
+  // the loop then waits the advised retry delay before the new GET.
+  std::atomic<bool> listenForced{false};
   std::string lastEventId;                               // SSE id: for reconnect
   int retryMs = 0;                                       // SSE retry: advice
 
@@ -889,10 +892,11 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     }
     impl_->reqCv.notify_all();
     // A gracefully closed POST stream means the server dropped the connection
-    // (SEP-1699): force the listening stream to reconnect after the advised
-    // delay - a pending result may be delivered on the reconnected stream. The
-    // listen loop applies the retry delay itself when it reopens.
+    // (SEP-1699): force the listening stream to reconnect - a pending result
+    // may be delivered on the reconnected stream. The listen loop applies the
+    // advised retry delay when it reopens (see listenForced below).
     if (result && result->status < 400 && !impl_->listenUnsupported) {
+      impl_->listenForced.store(true);
       std::vector<httplib::Client*> toStop;
       {
         std::lock_guard<std::mutex> lock(impl_->listenMutex);
@@ -995,6 +999,7 @@ void HttpClientTransport::openListenStreamOnce() {
       };
       auto result = raw->Get(impl_->endpoint.c_str(), headers, receiver);
       bool unsupported = false;
+      bool forced = false;
       {
         std::lock_guard<std::mutex> lock(impl_->listenMutex);
         impl_->activeListenStreams.erase(raw);
@@ -1002,17 +1007,25 @@ void HttpClientTransport::openListenStreamOnce() {
           impl_->listenUnsupported = true;
           unsupported = true;
         }
+        forced = impl_->listenForced.exchange(false);
       }
       if (unsupported) break;
       // Honour the server's SSE retry advice (sse-retry scenario: reconnecting
       // earlier than the advised delay is a conformance failure). The advice
       // applies to the connection, so the last known value is kept. The margin
       // covers the lag between our seeing the TCP close and the server recording
-      // its own close timestamp (~70ms observed); waiting longer is compliant.
-      int delay = 100;
-      {
-        std::lock_guard<std::mutex> lock(impl_->listenMutex);
-        if (impl_->retryMs > 0) delay = impl_->retryMs + 250;
+      // its own close timestamp; waiting longer is compliant. A forced
+      // reconnect (a closed POST stream) waits the full advised delay too; a
+      // failed connection attempt backs off modestly instead.
+      int delay;
+      if (forced || result) {
+        delay = 100;
+        {
+          std::lock_guard<std::mutex> lock(impl_->listenMutex);
+          if (impl_->retryMs > 0) delay = impl_->retryMs + 250;
+        }
+      } else {
+        delay = 250;  // connection error backoff
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(delay));
     }

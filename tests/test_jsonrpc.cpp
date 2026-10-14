@@ -87,8 +87,18 @@ TEST(ParseMessage, ResultResponse) {
       R"({"jsonrpc":"2.0","id":5,"result":{"resultType":"complete","tools":[]}})");
   const auto* r = asResult(m);
   ASSERT_NE(r, nullptr);
-  EXPECT_EQ(std::get<int64_t>(r->id), 5);
+  ASSERT_TRUE(r->id.has_value());
+  EXPECT_EQ(std::get<int64_t>(*r->id), 5);
   EXPECT_EQ(r->result["resultType"].toString(), "complete");
+}
+
+TEST(ParseMessage, ResultWithoutIdIsParsedForLegacyPeers) {
+  // JSON-RPC 2.0 / legacy-era mocks sometimes omit the id on a result. The
+  // message parses with an absent id; the client correlates sequentially.
+  auto m = parseMessage(R"({"jsonrpc":"2.0","result":{"ok":true}})");
+  const auto* r = asResult(m);
+  ASSERT_NE(r, nullptr);
+  EXPECT_FALSE(r->id.has_value());
 }
 
 TEST(ParseMessage, ErrorResponse) {
@@ -286,7 +296,8 @@ TEST(Encode, ResultRoundtrip) {
   ParsedMessage r_msg = parseMessage(text);
   const auto* r = asResult(r_msg);
   ASSERT_NE(r, nullptr);
-  EXPECT_EQ(std::get<int64_t>(r->id), 9);
+  ASSERT_TRUE(r->id.has_value());
+  EXPECT_EQ(std::get<int64_t>(*r->id), 9);
   EXPECT_EQ(r->result["resultType"].toString(), "complete");
 }
 
