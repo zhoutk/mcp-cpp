@@ -65,7 +65,9 @@ mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
 | `notifications/cancelled` + queryable cancellation flag | ✅ | ✅ |
 | MRTR: `input_required` results + `inputResponses` retry, `requestState` echo, capability-gated `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | Signed `requestState` (`RequestStateCodec`: HMAC-SHA256, context-bound, TTL) + `Client::callToolWithInput` auto-fulfil loop | ✅ | ✅ |
-| Official conformance suite — **client mode** (8 scenarios green, both spec versions) | ✅ | ✅ |
+| Official conformance suite — **server mode** (2026-07-28: 42/42 checks) | ✅ | ✅ |
+| Official conformance suite — **client mode** (2026-07-28: 32/32 scenarios, incl. all 25 `auth/*`) | ✅ | ✅ |
+| OAuth 2.1 client: PRM + AS metadata discovery, DCR / CIMD / pre-registration, PKCE (S256), RFC 8707 `resource`, RFC 9207 `iss`, scope step-up, SEP-2352 migration | ✅ | ✅ |
 | Progress notifications (`Ctx::progress`, client `progressToken` opt-in) | ✅ | ✅ |
 | `completion/complete` (server + client) | ✅ | ✅ |
 | CacheableResult (`ttlMs`/`cacheScope`) on discover, `*/list`, `resources/read` | ✅ | ✅ |
@@ -76,7 +78,6 @@ mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
 | CMake package (`find_package(mcp CONFIG)`, exported `mcp::mcp`) | ✅ | n/a |
 | Roots / Sampling (deprecated by SEP-2577) | ❌ intentionally | Tier-1 keeps compat shims |
 | Tasks extension (`io.modelcontextprotocol/tasks`) | ⏳ roadmap | extension |
-| OAuth 2.1 / Client ID Metadata | ⏳ roadmap | ✅ |
 
 Value-semantic message model, exception-free protocol layer, `[[nodiscard]]` result
 types with `Ok`/`Err` factories that read identically whether `McpResult<T>` aliases
@@ -198,6 +199,21 @@ client.onServerRequest([](const std::string& method, const mcp::Json& params,
 client.initialize("2025-11-25", mcp::Implementation{"probe", "", "1.0", "", "", mcp::Json(nullptr)});
 ```
 
+For an OAuth-protected HTTP server, `mcp::oauth::OAuthClient` runs the whole
+authorization-code + PKCE flow (discovery, DCR/CIMD, `resource`, `iss`):
+
+```cpp
+mcp::oauth::Config cfg;
+cfg.resourceUrl = "https://host/mcp";
+cfg.redirectUri = "http://localhost:3000/callback";
+cfg.clientMetadataUrl = "https://my.app/client-metadata.json";  // CIMD
+mcp::oauth::OAuthClient auth(cfg);
+auth.discover(challengeFrom401);                    // WWW-Authenticate
+auto url = auth.authorizationUrl({});                // scopes, or {} to derive
+auth.authorizeAndExchange(*url);                     // GET -> Location -> token
+transport.setHeader("Authorization", "Bearer " + auth.accessToken());
+```
+
 ## Ecosystem — built with mcp-cpp
 
 - **[zorm-mcp](https://github.com/zhoutk/zorm-mcp)** — a production MCP server
@@ -226,8 +242,8 @@ domain.
 
 ```
 include/mcp/   public headers (mcp.hpp aggregates everything)
-src/           compiled implementation
-tests/         googletest unit tests (12 CTest registrations, incl. real
+src/           compiled implementation (oauth.cpp is the OAuth 2.1 client)
+tests/         googletest unit tests (13 CTest registrations, incl. real
                subprocess stdio e2e and loopback HTTP/SSE e2e)
 bench/         B1 parse / B2 dispatch / B3 stdio e2e benchmarks
 examples/      minimal_server (Inspector-ready) + the two official-conformance

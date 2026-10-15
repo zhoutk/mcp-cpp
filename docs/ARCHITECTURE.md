@@ -11,7 +11,7 @@ contributor must not break. For the history of *why*, see [PLAN.md](../PLAN.md)
 Each layer depends only on the ones before it:
 
 ```
-error → version → json → jsonrpc → types → transport → server / client → schema / request_state / transport_http
+error → version → json → jsonrpc → types → transport → server / client → schema / request_state / transport_http / oauth
 ```
 
 `include/mcp/mcp.hpp` is the single aggregate include; applications include only
@@ -30,6 +30,7 @@ that one.
 | `include/mcp/client.hpp` | blocking `Client` over any `ITransport`; modern `request()` (per-request `_meta`) plus the legacy `initialize()` handshake and `onServerRequest()` for pre-2026 server-initiated requests |
 | `include/mcp/schema.hpp` | JSON Schema 2020-12 validator (local `$ref` only, resource bounds) |
 | `include/mcp/transport_http.hpp` | Streamable HTTP + SSE, both sides (pimpl keeps httplib out of the header) |
+| `include/mcp/oauth.hpp` | `mcp::oauth::OAuthClient` — the OAuth 2.1 client for remote HTTP servers: PRM + AS metadata discovery, DCR/CIMD/pre-registration, PKCE, RFC 8707 `resource`, RFC 9207 `iss`, scope step-up, SEP-2352 migration (HTTP-only, like `transport_http`) |
 
 **No project header includes another project header** — cross-module use happens
 only inside `.cpp` files, which is what keeps the flat `include/` directory
@@ -58,6 +59,13 @@ viable. A meta-test enforces the include direction.
   `closeSubscriptions()`, `closeRequestStreams()`, `closeListenStreams()` (the
   last two destructor-only) - and the destructor joins them so no thread
   outlives the queue.
+- **The legacy `initialize` response is held back until its session id is
+  read.** A stateful pre-2026 server issues `Mcp-Session-Id` on that response and
+  rejects the next request without it; queueing the message before the worker
+  stored the header let `notifications/initialized` race ahead of it.
+- **`HttpClientTransport::setAuthChallengeHandler` reports 401/403
+  `WWW-Authenticate` challenges**; the transport never authenticates itself.
+  That is the hook `mcp::oauth` (and the conformance fixture) drives.
 
 ## Request lifecycle (2026-07-28)
 

@@ -576,5 +576,87 @@ request, and the reference SDKs accept them); adding a lock to `Impl::headers`
 (it is only ever touched from the caller's single client loop, while the
 per-request copies are taken before the worker thread starts).
 
+### 2026-10-15 Update 12 — A2 complete: the OAuth 2.1 client and 100% client conformance
+
+**Motivation**: Update 11 left the client fixture baselined on `auth/*` — 25 of
+the 32 required 2026-07-28 client scenarios — because the SDK had no OAuth. That
+was the last conformance gap against the official SDKs (rust-sdk reports 39/39
+across both revisions; mcp-cpp was "green except auth"). This update closes it.
+
+**Deliverable**: `mcp::oauth` (`include/mcp/oauth.hpp`, `src/oauth.cpp`), the
+client half of the MCP authorization model, driving the existing
+`HttpClientTransport`.
+
+- **Discovery.** Protected-resource metadata (RFC 9728) read from the
+  `WWW-Authenticate` `resource_metadata` pointer when the challenge carries one,
+  else from the well-known candidates derived from the server URL (path-inserted
+  first, then the issuer-prefixed form, then the canonical root). The published
+  `resource` is validated against the server URL: scheme/host/port must match and
+  the server path must be the published path or nested under it. A document that
+  exists but is unusable is a hard error, not something to retry elsewhere.
+- **Authorization-server metadata.** RFC 8414 path insertion, the OIDC
+  `openid-configuration` spellings, and the canonical root as a last resort; the
+  metadata `issuer` MUST equal the identifier the well-known URL was built from
+  (RFC 8414 §3.3), so a mismatched document is rejected rather than used.
+- **Client identity.** Pre-registration, Dynamic Client Registration (RFC 7591,
+  with `application_type` per SEP-837 and `refresh_token` in `grant_types`), or a
+  Client ID Metadata Document (SEP-991) when the server advertises
+  `client_id_metadata_document_supported`.
+- **Authorization + token.** Authorization Code with PKCE (S256), the RFC 8707
+  `resource` parameter on both requests, RFC 9207 `iss` validation (byte-wise
+  comparison — no scheme/host case folding, port elision or trailing-slash
+  normalization; required when advertised; always compared when present), and
+  token-endpoint client authentication per the advertised method
+  (`client_secret_basic`/`client_secret_post`/`none`).
+- **Scope strategy.** Explicit request → challenge `scope` → PRM
+  `scopes_supported` → AS `scopes_supported` → omit, per MCP's "Scope selection
+  strategy".
+- **Lifecycle.** `refreshAuthorizationServer()` implements SEP-2352 (re-read PRM;
+  when `authorization_servers` changed, re-discover and re-register instead of
+  reusing the old client). The fixture layers the SEP-2350 scope-union step-up
+  and a 3-attempt authorization cap on top.
+- **Legacy discovery.** When no PRM exists anywhere, the MCP server URL is taken
+  as the resource and its origin as the authorization server, and if that origin
+  publishes no AS metadata either, the 2025-03-26 default endpoints
+  (`/authorize`, `/token`, `/register`) are used.
+
+**Transport support**: `HttpClientTransport::setAuthChallengeHandler` forwards a
+401/403 `WWW-Authenticate` challenge to the caller (the transport itself never
+authenticates). Two ordering fixes came with it: the legacy `initialize`
+response is held back until its `Mcp-Session-Id` has been captured (a stateful
+server rejects the next request without it, and the queue could otherwise beat
+the header), and the SSE `retry:` advice is now honoured before the
+*first* reconnect on the listening stream, not only after a connection.
+
+**Fixture**: the auth scenarios drive the flow end-to-end; every listed tool is
+called; 403 re-authorizes with the scope union; 401 re-registers when the
+authorization server moved; `auth/*` handlers gate on the challenge/`iss`
+behaviour each scenario probes.
+
+**Verification** (clang 22.1.8 / MSYS2 clang64 / windows-gnu, suite
+0.2.0-alpha.12):
+
+- **2026-07-28 client: 32/32 scenarios, 399/399 checks, 0 failed.** Every
+  required scenario, including all 25 `auth/*`.
+- **2025-11-25 client: 17/18, 231/231 scored checks.** The one failure,
+  `elicitation-sep1034-client-defaults`, is a harness defect: the mock never
+  delivers the server→client elicitation (its GET stream answers keepalives), so
+  the tool call it should drive never completes. Verified independently —
+  building `refer/rust-sdk` and running the same scenario reproduces it exactly
+  (0/5, and it crashes with `0xC0000005`).
+- **2025-03-26 legacy auth: 2/2 scenarios, 15/15 checks** (they are outside the
+  2025-11-25/2026-07-28 requirement sets, but the fallback is implemented).
+- **13/13 CTest suites**, including the new `mcp_test_oauth` (31 cases over a real
+  loopback authorization server) and new `mcp_test_http_e2e` cases for the auth
+  challenge hook. Pure-stdio (`-DMCP_DISABLE_HTTP=ON`) still configures and
+  builds.
+
+**Rejected**: making `selectScopes` request `offline_access` by default (the
+library stays policy-neutral; the fixture adds it for the SEP-2207 scenario);
+treating a mismatched PRM `resource` as "try the next candidate" (it is a
+security-relevant check, so it fails the flow); normalizing `iss` before
+comparison (RFC 9207 requires a byte-wise compare, and the suite has a scenario
+that pins exactly this).
+
 ---
 *Document maintenance rule: after each milestone completes, record the deviations encountered, the measured performance numbers, and rejected designs as newly added "Update YYYY-MM-DD" entries under the corresponding section; the original text is never deleted.*

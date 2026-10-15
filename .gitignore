@@ -10,3 +10,4 @@ conformance/out/
 refer/
 docs/internal-docs/
 conformance/out-*/
+conformance/*.log

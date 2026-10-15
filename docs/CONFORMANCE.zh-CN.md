@@ -68,13 +68,13 @@ npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp \
 ### 客户端模式
 
 套件会启动自己的场景服务器，通过 `examples/conformance_client.cpp` 驱动我们的
-客户端。请逐个场景运行（套件的并行套件模式会触发其 mock 服务器的会话路由竞态，
-官方 rust-sdk 参考客户端同样受影响）：
+客户端。该 fixture 实现了全部必需客户端场景，包括 25 个 `auth/*`
+OAuth 2.1 + CIMD 场景（由 `mcp::oauth` 支撑）。
 
 ```bash
 npx @modelcontextprotocol/conformance client \
   --command "bin/conformance_client" \
-  --scenario tools_call --spec-version 2026-07-28 \
+  --suite all --spec-version 2026-07-28 \
   --expected-failures conformance/expected-failures.yaml \
   -o conformance/out
 ```
@@ -82,30 +82,23 @@ npx @modelcontextprotocol/conformance client \
 在 Windows 上套件通过 `cmd.exe` 启动命令，因此请带上可执行文件扩展名
 （`--command "bin\conformance_client.exe"`）。
 
-**客户端得分（2026-10-15 复验，套件 0.2.0-alpha.12，串行运行）：**
+**客户端得分（2026-10-15，套件 0.2.0-alpha.12）：**
 
-| 场景 | 2025-11-25 | 2026-07-28 |
+| 规范版本 | 场景 | 检查项 |
 | --- | --- | --- |
-| `initialize` | 1/1 | n/a（仅 legacy） |
-| `tools_call` | 2/2 | 2/2 |
-| `json-schema-2020-12-preservation` | 9/9 | 9/9 |
-| `json-schema-ref-no-deref` | n/a | 1/1 |
-| `request-metadata` | n/a | 6/6 |
-| `sep-2322-client-request-state` | n/a | 间歇* |
-| `http-standard-headers` | n/a | 3/3 |
-| `http-custom-headers` | n/a | 18/18 |
-| `http-invalid-tool-headers` | n/a | 12/12 |
-| `sse-retry` | 2/3（间歇*） | n/a |
-| `elicitation-sep1034-client-defaults` | 0/6（0/5）* | n/a |
-| `auth/*`（约 33 个场景） | 已基线——暂无 OAuth | 已基线 |
+| **2026-07-28** | **32/32（100%）**——全部必需场景，含全部 25 个 `auth/*` | **399/399** |
+| 2025-11-25 | 17/18（仅 `elicitation-sep1034-client-defaults`） | 231/231 计分项 |
+| 2025-03-26（额外） | 2/2 个旧版 auth 场景 | 15/15 |
 
-\* 这三个场景已基线化。**官方 rust-sdk 参考客户端在相同环境下持续失败**
-（elicitation 0/5 ×3、sse-retry 0/1 ×2、sep-2322 0/5——2026-10-14 验证），
-说明问题出在套件 mock 的会话路由而非 SDK：mock 收到了客户端的 GET 流，却始终
-不发送 elicitation，只发 keepalive 直到场景超时。`sse-retry` 可间歇通过。
-2026-10-15 用改动前的代码做 A/B 复跑，结果一致。它们已连同该证据一并基线化在
+唯一被基线化的失败来自套件 mock 而非 SDK：在
+`elicitation-sep1034-client-defaults` 中，mock 始终不投递“服务端→客户端”的
+elicitation（其 GET 流只回 keepalive），因此它本应驱动的工具调用永不完成。
+**官方 rust-sdk 参考客户端在本机表现完全相同**——2026-10-15 构建
+`refer/rust-sdk` 并运行同一场景验证（0/5，且以 `0xC0000005` 崩溃）。mcp-cpp
+的客户端能正确应答服务端发起的 elicitation（有单元测试，且在同机制的 auth
+场景中全绿），只是在这里收不到请求。该场景连同此证据一并基线化在
 [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml)
-中；CI 按场景串行运行。
+中。
 
 ### 层级自我评估
 

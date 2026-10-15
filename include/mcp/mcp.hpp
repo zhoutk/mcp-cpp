@@ -19,5 +19,6 @@
 // Present only when the HTTP transport is compiled in (MCP_HAS_HTTP); a
 // pure-stdio build (MCP_DISABLE_HTTP=ON) omits it.
 #if defined(MCP_HAS_HTTP)
+#include <mcp/oauth.hpp>
 #include <mcp/transport_http.hpp>
 #endif

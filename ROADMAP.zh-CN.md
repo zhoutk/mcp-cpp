@@ -31,8 +31,8 @@
 | 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 2026-07-28：**42/42（100%）** · 2025-11-25：26/30 |
 | 达到所有适用必需场景的 100% | ✅ 2026-07-28 · 🔄 2025-11-25（4 个受阻，见下文） |
 | 发布 `conformance/report.json` + 一份 `--expected-failures` 基线 | ✅ |
-| 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 两个规范版本各 8 个场景通过（见 [docs/CONFORMANCE.zh-CN.md](docs/CONFORMANCE.zh-CN.md)） |
-| 客户端模式 `--expected-failures` 基线（`auth/*` + 3 个 mock 不稳定场景，附 rust-sdk 证据） | ✅ |
+| 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 2026-07-28：**32/32 场景（100%）**；2025-11-25：17/18（另加两个 2025-03-26 legacy 场景） |
+| 客户端模式 `--expected-failures` 基线 | ✅ 仅 1 个套件 mock 缺陷场景，附 rust-sdk A/B 证据 |
 | 仓库内 **2026-07-28** 一致性测试套件（`mcp_test_conformance_2026`，12 个场景，含完整的 MRTR 往返） | ✅ |
 | 稳定的 **v1.0.0** 发布 | ⏳ |
 
@@ -46,7 +46,7 @@
 
 | 事项 | 状态 |
 | --- | --- |
-| OAuth 2.1 + Client ID Metadata Documents（远程 HTTP） | ⏳ |
+| OAuth 2.1 客户端 + Client ID Metadata Documents（远程 HTTP） | ✅ 客户端侧（PRM/AS 发现、DCR/CIMD/预注册、PKCE、scope 升级、SEP-2352）· ⏳ 服务端侧 |
 | 强类型 MRTR / elicitation 辅助工具（`Ctx::elicit`、`Ctx::inputRequired`、客户端 `retry`） | ✅ |
 | 签名 `requestState` 编解码（HMAC-SHA256、绑定上下文、TTL）+ 服务端绑定 + 客户端自动履行 | ✅ |
 | 日志辅助工具（`Ctx::log`）+ `_meta` 日志级别打通 | ⏳ |

@@ -44,12 +44,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Client conformance fixture.** `examples/conformance_client.cpp` + CI client
   jobs (both spec versions): `Client::initialize()` (legacy handshake that adopts
   the negotiated version), answering server-initiated requests
-  (`Client::onServerRequest`), and the transport work below. Passing client
-  scenarios: initialize, tools_call, json-schema-2020-12-preservation (9/9),
-  json-schema-ref-no-deref, request-metadata (6/6), http-standard-headers (3/3),
-  http-custom-headers (18/18), http-invalid-tool-headers (12/12). Baseline
-  (with evidence): auth/* (no OAuth yet) and three scenarios the official
-  rust-sdk reference client also fails in this environment.
+  (`Client::onServerRequest`), and the transport work below.
+  **2026-07-28: 32/32 scenarios (100%), including all 25 `auth/*`; 2025-11-25:
+  17/18** (only `elicitation-sep1034-client-defaults`, which the official
+  rust-sdk reference fixture also fails here — verified by building it and
+  running the same scenario). Two 2025-03-26 legacy auth scenarios pass too.
+- **`mcp::oauth` — the OAuth 2.1 client** (`oauth.hpp` / `src/oauth.cpp`).
+  Protected-resource metadata discovery (RFC 9728) from the `WWW-Authenticate`
+  `resource_metadata` pointer or the well-known candidates; authorization-server
+  metadata discovery (RFC 8414 + OIDC) with the issuer validated against the
+  identifier the URL was built from; client identity via pre-registration,
+  Dynamic Client Registration (RFC 7591) or a Client ID Metadata Document
+  (SEP-991); authorization-code + PKCE (S256); the RFC 8707 `resource`
+  parameter; RFC 9207 `iss` validation; scope selection from the challenge →
+  PRM → AS metadata; scope step-up with a retry cap; SEP-2352
+  authorization-server migration; and the 2025-03-26 fallbacks for servers with
+  no metadata discovery.
+- **`HttpClientTransport::setAuthChallengeHandler`.** A 401/403 carrying
+  `WWW-Authenticate` is reported to the caller, which is how the OAuth flow is
+  triggered; the transport itself never authenticates.
 - **HTTP client transport hardening** (found by the client suite): GET listening
   stream with `Mcp-Session-Id` echo and `Last-Event-ID` reconnect honoring the
   SSE `retry:` field; request POSTs stream responses on background threads so a
@@ -67,6 +80,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `HttpClientTransport::setProtocolVersion(v)`. Removal is now a distinct
   operation: an empty header value is a real value the mirrored-header contract
   requires sending, so `setHeader(name, "")` stores rather than deletes.
+- **`mcp_test_oauth`** (CTest suite): 31 cases over a real loopback
+  authorization server covering discovery, registration, PKCE, `iss`, scope
+  selection, token-endpoint client authentication and SEP-2352 migration.
 
 - **2026-07-28 conformance suite.** `mcp_test_conformance_2026` — 12 named
   scenarios covering discover, stateless `_meta`, version negotiation, capability
@@ -95,6 +111,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The legacy `initialize` response is held until its session id is captured.**
+  A stateful pre-2026 server issues `Mcp-Session-Id` on the `initialize`
+  response and rejects the next request without it. The response message could
+  otherwise reach the caller before the worker stored the header, so
+  `notifications/initialized` raced ahead and got a 400.
 - **`JsonRpcResult::id` is now `std::optional<RequestId>`.** It is absent when a
   legacy peer omits it on a result; the encoder still requires an id, so the
   server's strict wire contract is unchanged.
@@ -133,6 +154,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Notification POST failures were swallowed.** Once request POSTs moved to
   background threads, a failed `notifications/*` POST still returned `Ok()`, so
   `Client::cancel()` could report success against an unreachable peer.
+- **SSE `retry:` advice was not honoured by the first reconnect.** A POST stream
+  that closed without answering sets the listening stream's forced-reconnect
+  flag, but when no GET was open yet the flag was only consumed *after* the next
+  connection, so the client reconnected too early (SEP-1699 timing). The flag is
+  now honoured before opening the connection too.
+- **`sep-2322-client-request-state` was misdiagnosed as a harness flake.** The
+  fixture never ran the MRTR flow, so the server-side checks saw "tool was not
+  called". The fixture now drives `callToolWithInput` for every listed tool;
+  the scenario passes 5/5.
 - **Line endings.** 16 tracked text files carried CRLF despite `* text=auto`,
   which made `git stash` fail; they are normalized to LF.
 

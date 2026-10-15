@@ -11,8 +11,11 @@
 #
 # Server suite, 2026-07-28 (suite 0.2.0-alpha.12): 42/42 checks, 20/20 scenarios - 100%.
 # Server suite, 2025-11-25 (suite v0.1.16): 26/30.
-# Client suite, 2025-11-25: initialize, tools_call, sse-retry, elicitation pass
-# (see the elicitation/sse-retry notes below); auth/* does not (no OAuth yet).
+#
+# Client suite (suite 0.2.0-alpha.12, sequential/parallel):
+#   2026-07-28: 399/399 checks, 32/32 scenarios - 100% (incl. all 25 auth/*)
+#   2025-11-25: 231/231 scored checks except elicitation-sep1034-client-defaults
+#               (see the note below). auth/* is green on this revision too.
 server:
   - tools-call-sampling          # server->client sampling/createMessage (2025 mechanism;
                                  #   2026-07-28 replaced it with MRTR, which mcp-cpp implements)
@@ -24,50 +27,12 @@ server:
   # checks, and the baseline gate treats a non-passing scenario as unexpected.
   - server-sse-multiple-streams
 client:
-  # OAuth 2.1 / Client ID Metadata Documents are not implemented yet (ROADMAP,
-  # Milestone C). All auth scenarios are therefore expected failures until then.
-  - auth/metadata-default
-  - auth/metadata-var1
-  - auth/metadata-var2
-  - auth/metadata-var3
-  - auth/basic-cimd
-  - auth/scope-from-www-authenticate
-  - auth/scope-from-scopes-supported
-  - auth/scope-omitted-when-undefined
-  - auth/scope-step-up
-  - auth/scope-retry-limit
-  - auth/token-endpoint-auth-basic
-  - auth/token-endpoint-auth-post
-  - auth/token-endpoint-auth-none
-  - auth/pre-registration
-  - auth/2025-03-26-oauth-metadata-backcompat
-  - auth/2025-03-26-oauth-endpoint-fallback
-  - auth/resource-mismatch
-  - auth/offline-access-scope
-  - auth/offline-access-not-supported
-  - auth/authorization-server-migration
-  - auth/iss-supported
-  - auth/iss-not-advertised
-  - auth/iss-supported-missing
-  - auth/iss-wrong-issuer
-  - auth/iss-unexpected
-  - auth/iss-normalized
-  - auth/metadata-issuer-mismatch
-  - auth/client-credentials-jwt
-  - auth/client-credentials-basic
-  - auth/enterprise-managed-authorization
-  - auth/dpop
-  - auth/dpop-nonce
-  - auth/wif-jwt-bearer
-  - auth/cross-app-access-complete-flow
-  # Flaky under the harness on Windows, NOT an SDK defect: the scenario passes
-  # standalone intermittently, and the official rust-sdk reference client fails
-  # it consistently in the same environment (0/5 x3, verified 2026-10-14) - the
-  # mock's GET-stream session routing races the client's listener setup.
+  # The harness's own mock does not deliver the server->client elicitation in
+  # this environment: its GET stream answers keepalives only, and the tool call
+  # it is meant to drive never completes. The official rust-sdk reference
+  # fixture fails it identically (0/5, and it crashes with 0xC0000005) - verified
+  # 2026-10-15 by building refer/rust-sdk and running the same scenario. It is a
+  # mock defect, not an SDK one: mcp-cpp's client answers server-initiated
+  # elicitation correctly (unit-tested, and green on the auth/* elicitation
+  # scenarios), it simply never receives the request here.
   - elicitation-sep1034-client-defaults
-  - sse-retry
-  # Same harness-environment flake: the official rust-sdk reference client
-  # fails it identically here (0/5, verified 2026-10-14); mcp-cpp passes it
-  # intermittently. The scenario probes SEP-2322 requestState wire shapes
-  # server-side; our client echoes requestState per spec (unit-tested).
-  - sep-2322-client-request-state

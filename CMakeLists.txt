@@ -66,6 +66,7 @@ add_library(mcp STATIC
   src/base64.cpp
   src/sha256.cpp
   src/request_state.cpp
+  src/oauth.cpp
   src/transport_http.cpp)
 add_library(mcp::mcp ALIAS mcp)
 
@@ -204,6 +205,12 @@ if(MCP_BUILD_TESTS)
     target_compile_options(mcp_test_http_e2e PRIVATE ${MCP_CXX_WARNINGS})
     add_test(NAME mcp_test_http_e2e COMMAND mcp_test_http_e2e)
     list(APPEND MCP_TEST_EXECUTABLES mcp_test_http_e2e)
+
+    add_executable(mcp_test_oauth tests/test_oauth.cpp)
+    target_link_libraries(mcp_test_oauth PRIVATE mcp gtest gtest_main httplib)
+    target_compile_options(mcp_test_oauth PRIVATE ${MCP_CXX_WARNINGS})
+    add_test(NAME mcp_test_oauth COMMAND mcp_test_oauth)
+    list(APPEND MCP_TEST_EXECUTABLES mcp_test_oauth)
   endif()
 
   target_link_libraries(mcp_test_conformance_2026 PRIVATE mcp gtest gtest_main)

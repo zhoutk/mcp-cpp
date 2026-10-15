@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <string>
 #include <thread>
 
 using namespace mcp;
@@ -218,6 +219,76 @@ TEST(HttpClientTransport, PostFailureSurfacesAsAnError) {
   requester.connect(transport);
   auto listed = requester.listTools();
   EXPECT_FALSE(listed.has_value());
+}
+
+TEST(HttpClientTransport, Reports401AuthChallenge) {
+  // A 401 carrying WWW-Authenticate must reach the registered handler - it is
+  // how a client learns where the protected-resource metadata lives.
+  httplib::Server svr;
+  const char* kChallenge =
+      "Bearer error=\"invalid_token\", resource_metadata=\"http://example.test/"
+      ".well-known/oauth-protected-resource\"";
+  svr.Post("/mcp", [&](const httplib::Request&, httplib::Response& res) {
+    res.status = 401;
+    res.set_header("WWW-Authenticate", kChallenge);
+    res.set_content(
+        R"({"jsonrpc":"2.0","error":{"code":-32000,"message":"unauthorized"},"id":null})",
+        "application/json");
+  });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  while (!svr.is_running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  int status = 0;
+  std::string challenge;
+  transport.setAuthChallengeHandler([&](int code, const std::string& value) {
+    status = code;
+    challenge = value;
+  });
+  Client client("probe", "1.0");
+  client.connect(transport);
+  const auto result = client.listTools();
+  EXPECT_FALSE(result.has_value());
+  EXPECT_EQ(status, 401);
+  EXPECT_NE(challenge.find("resource_metadata="), std::string::npos);
+  EXPECT_NE(challenge.find("invalid_token"), std::string::npos);
+
+  svr.stop();
+  if (runner.joinable()) runner.join();
+}
+
+TEST(HttpClientTransport, Reports403ScopeChallenge) {
+  // A 403 insufficient_scope challenge carries the scope the client must ask
+  // for on re-authorization (SEP-2350).
+  httplib::Server svr;
+  svr.Post("/mcp", [](const httplib::Request&, httplib::Response& res) {
+    res.status = 403;
+    res.set_header("WWW-Authenticate",
+                   "Bearer error=\"insufficient_scope\", scope=\"mcp:write\"");
+    res.set_content(
+        R"({"jsonrpc":"2.0","error":{"code":-32000,"message":"insufficient"},"id":null})",
+        "application/json");
+  });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  while (!svr.is_running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  int status = 0;
+  std::string challenge;
+  transport.setAuthChallengeHandler([&](int code, const std::string& value) {
+    status = code;
+    challenge = value;
+  });
+  Client client("probe", "1.0");
+  client.connect(transport);
+  EXPECT_FALSE(client.listTools().has_value());
+  EXPECT_EQ(status, 403);
+  EXPECT_NE(challenge.find("scope=\"mcp:write\""), std::string::npos);
+
+  svr.stop();
+  if (runner.joinable()) runner.join();
 }
 
 #endif  // MCP_HAS_HTTP

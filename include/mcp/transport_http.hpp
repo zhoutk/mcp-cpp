@@ -107,6 +107,12 @@ class HttpClientTransport final : public ITransport {
   // fixture calls both. Defaults to the latest revision.
   void setProtocolVersion(ProtocolVersion v);
 
+  // Report an HTTP authentication challenge (a 401/403 carrying a
+  // WWW-Authenticate header) so the caller can run the OAuth flow and set the
+  // Authorization header. The transport never authenticates by itself.
+  using AuthChallengeHandler = std::function<void(int status, const std::string& challenge)>;
+  void setAuthChallengeHandler(AuthChallengeHandler handler);
+
   // Terminates all open subscription streams (background SSE connections)
   // and waits for their threads to finish. Safe to call from any thread;
   // idempotent. Called automatically by the destructor. After this returns,
@@ -121,6 +127,9 @@ class HttpClientTransport final : public ITransport {
   // Queues a JSON-RPC error response for the request carried by `wire`, so a
   // transport-level failure surfaces to the caller as a normal error result.
   void queueSyntheticError(const std::string& wire, JsonRpcErrorValue v);
+
+  // Forwards a 401/403 WWW-Authenticate challenge to the registered handler.
+  void reportAuthChallenge(int status, const std::string& challenge);
 
   // Opens the GET event stream (once) - the 2025-era server-to-client channel.
   // A 405 answer (2026-style servers) marks it unsupported and it stays closed.

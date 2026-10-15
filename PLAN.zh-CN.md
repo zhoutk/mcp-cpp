@@ -506,5 +506,32 @@ server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
 
 **审查中被否决的方案**：让客户端拒绝无 id 的错误响应（为严格而严格——串行客户端只有一个在途请求，官方参考 SDK 也接受之）；给 `Impl::headers` 加锁（它只在调用方单一客户端循环中被访问，且每请求的副本在工作线程启动前就已拷出）。
 
+### 2026-10-15 Update 12 — A2 收官：OAuth 2.1 客户端与客户端一致性 100%
+
+**动机**：Update 11 之后，客户端 fixture 仍把 `auth/*`（2026-07-28 必需 32 个场景中的 25 个）列为基线，因为 SDK 没有 OAuth。这是与官方 SDK 对齐的最后一处一致性空缺（rust-sdk 报告两个规范版本合计 39/39；mcp-cpp 此前是“除 auth 外全绿”）。本次补齐。
+
+**交付物**：`mcp::oauth`（`include/mcp/oauth.hpp`、`src/oauth.cpp`）——MCP 授权模型的客户端半边，驱动既有的 `HttpClientTransport`。
+
+- **发现**：受保护资源元数据（RFC 9728）优先取自 `WWW-Authenticate` 的 `resource_metadata` 指针，否则取由服务器 URL 推导的 well-known 候选（先路径插入，再 issuer 前缀形式，最后根路径）。发布的 `resource` 必须与服务端 URL 一致：scheme/host/port 相同，且服务端路径等于发布路径或嵌套其下。文档存在但不可用是硬错误，不会再去别处重试。
+- **授权服务器元数据**：RFC 8414 路径插入、OIDC `openid-configuration` 的不同拼写，以及最后兜底的根路径；元数据的 `issuer` 必须等于构造 well-known URL 时所用的标识（RFC 8414 §3.3），不匹配的文档会被拒绝而不是采用。
+- **客户端身份**：预注册、动态客户端注册（RFC 7591，按 SEP-837 带 `application_type`，`grant_types` 含 `refresh_token`），或当服务器声明 `client_id_metadata_document_supported` 时使用 Client ID Metadata Document（SEP-991）。
+- **授权与令牌**：授权码 + PKCE（S256）、两个请求都带 RFC 8707 `resource`、RFC 9207 `iss` 校验（逐字节比较——不做 scheme/host 大小写折叠、端口省略或尾部斜杠归一；声明支持时必填；出现时始终比较），并按声明的 `client_secret_basic`/`client_secret_post`/`none` 做令牌端客户端认证。
+- **scope 策略**：显式请求 → 质询 `scope` → PRM `scopes_supported` → AS `scopes_supported` → 省略，符合 MCP 的“Scope selection strategy”。
+- **生命周期**：`refreshAuthorizationServer()` 实现 SEP-2352（重读 PRM；当 `authorization_servers` 变化时重新发现并重新注册，而不是复用旧客户端）。fixture 在其上叠加 SEP-2350 的 scope 并集升级与最多 3 次授权上限。
+- **旧版发现**：当任何位置都没有 PRM 时，把 MCP 服务器 URL 当作资源、其 origin 当作授权服务器；若该 origin 也没有 AS 元数据，则使用 2025-03-26 的默认端点（`/authorize`、`/token`、`/register`）。
+
+**传输支持**：`HttpClientTransport::setAuthChallengeHandler` 把 401/403 的 `WWW-Authenticate` 质询转给调用方（传输层自身不做认证）。随之修正两处时序：旧版 `initialize` 响应会先被扣住，直到其 `Mcp-Session-Id` 被读出（有状态服务器没有它就会拒绝下一个请求，而队列可能抢在头上报之前把消息交给调用方）；SSE `retry:` 建议现在在监听流的*首次*重连前就被遵守，而不只是某次连接之后。
+
+**fixture**：auth 场景端到端驱动整个流程；清单中的每个工具都会被调用；403 时用 scope 并集重新授权；401 且在授权服务器迁移时重新注册；`auth/*` 的处理按各场景探测的质询/`iss` 行为分别处理。
+
+**验收**（clang 22.1.8 / MSYS2 clang64 / windows-gnu，套件 0.2.0-alpha.12）：
+
+- **2026-07-28 客户端：32/32 场景、399/399 检查、0 失败。** 全部必需场景，含全部 25 个 `auth/*`。
+- **2025-11-25 客户端：17/18、231/231 计分检查。** 唯一失败 `elicitation-sep1034-client-defaults` 属套件缺陷：mock 始终不投递“服务端→客户端”的 elicitation（其 GET 流只回 keepalive），本应被驱动的工具调用永不完成。已独立验证——构建 `refer/rust-sdk` 并运行同一场景结果完全一致（0/5，并以 `0xC0000005` 崩溃）。
+- **2025-03-26 旧版 auth：2/2 场景、15/15 检查**（不属于 2025-11-25/2026-07-28 要求集，但回退已实现）。
+- **13/13 CTest 套件**，含新增的 `mcp_test_oauth`（31 个用例，跑在真实回环授权服务器上）与 `mcp_test_http_e2e` 中针对 auth 质询钩子的新用例。纯 stdio（`-DMCP_DISABLE_HTTP=ON`）仍可配置并构建。
+
+**被否决的方案**：让 `selectScopes` 默认请求 `offline_access`（库保持策略中立；由 fixture 为 SEP-2207 场景加上）；把 PRM `resource` 不匹配当作“尝试下一个候选”（这是安全相关的检查，应直接使流程失败）；在比较前对 `iss` 做归一化（RFC 9207 要求逐字节比较，且套件有场景专门钉住这一点）。
+
 ---
 *文档维护规则：每个里程碑完成后，把遇到的偏差、性能实测数字、被否决的设计记录到对应用节下新增「Update YYYY-MM-DD」条目，原文不删。*

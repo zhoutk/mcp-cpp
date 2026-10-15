@@ -70,14 +70,13 @@ Useful flags: `--scenario <name>` (one scenario), `--suite active|all|pending`,
 ### Client mode
 
 The harness starts its own scenario servers and drives OUR client through
-`examples/conformance_client.cpp`. Run scenarios one at a time (the harness's
-parallel suite mode hits a session-routing race in its mock servers that also
-affects the official rust-sdk reference client):
+`examples/conformance_client.cpp`, which implements every required client
+scenario including the 25 `auth/*` OAuth 2.1 + CIMD ones (via `mcp::oauth`).
 
 ```bash
 npx @modelcontextprotocol/conformance client \
   --command "bin/conformance_client" \
-  --scenario tools_call --spec-version 2026-07-28 \
+  --suite all --spec-version 2026-07-28 \
   --expected-failures conformance/expected-failures.yaml \
   -o conformance/out
 ```
@@ -85,33 +84,25 @@ npx @modelcontextprotocol/conformance client \
 On Windows the harness spawns the command through `cmd.exe`, so pass the
 executable with its extension (`--command "bin\conformance_client.exe"`).
 
-**Client scores (2026-10-15 re-verification, suite 0.2.0-alpha.12, sequential
-runs):**
+**Client scores (2026-10-15, suite 0.2.0-alpha.12):**
 
-| Scenario | 2025-11-25 | 2026-07-28 |
+| Revision | Scenarios | Checks |
 | --- | --- | --- |
-| `initialize` | 1/1 | n/a (legacy-only) |
-| `tools_call` | 2/2 | 2/2 |
-| `json-schema-2020-12-preservation` | 9/9 | 9/9 |
-| `json-schema-ref-no-deref` | n/a | 1/1 |
-| `request-metadata` | n/a | 6/6 |
-| `sep-2322-client-request-state` | n/a | intermittent* |
-| `http-standard-headers` | n/a | 3/3 |
-| `http-custom-headers` | n/a | 18/18 |
-| `http-invalid-tool-headers` | n/a | 12/12 |
-| `sse-retry` | 2/3 (intermittent*) | n/a |
-| `elicitation-sep1034-client-defaults` | 0/6 (0/5)* | n/a |
-| `auth/*` (≈33 scenarios) | baselined — no OAuth yet | baselined |
+| **2026-07-28** | **32/32 (100%)** — every required scenario, incl. all 25 `auth/*` | **399/399** |
+| 2025-11-25 | 17/18 (only `elicitation-sep1034-client-defaults`) | 231/231 scored |
+| 2025-03-26 (extra) | 2/2 legacy auth scenarios | 15/15 |
 
-\* These three are baselined. The **official rust-sdk reference client fails them
-consistently in the same environment** (elicitation 0/5 ×3, sse-retry 0/1 ×2,
-sep-2322 0/5 — verified 2026-10-14), which points at the harness mock's session
-routing rather than the SDK: the mock receives the client's GET stream but never
-sends the elicitation, only emitting keepalives until the scenario times out.
-`sse-retry` passes intermittently. Re-verified 2026-10-15 with a pre-change A/B
-run reproducing the same result. They are baselined in
+The single baselined failure is the harness mock's, not the SDK's: for
+`elicitation-sep1034-client-defaults` the mock never delivers the server→client
+elicitation (its GET stream answers keepalives only), so the tool call it is
+meant to drive never completes. The **official rust-sdk reference client fails it
+identically here** — verified 2026-10-15 by building `refer/rust-sdk` and running
+the same scenario (0/5; it also crashes with `0xC0000005`). mcp-cpp's client
+answers server-initiated elicitation correctly (unit-tested, and green on the
+auth scenarios that exercise the same mechanism); it simply never receives the
+request. It is baselined in
 [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml)
-with this evidence; CI runs the scenarios sequentially.
+with this evidence.
 
 ### Tier self-assessment
 

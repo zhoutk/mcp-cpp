@@ -58,7 +58,8 @@ bin/mcp_test_server.exe --gtest_filter=ServerTest.DiscoverAdvertisesCapabilities
 ```
 
 The `mcp_test_*` names are exactly the CTest registration names (`mcp_test_version`, `_error`, `_jsonrpc`,
-`_types`, `_transport`, `_server`, `_client`, `_schema`, `_stdio_e2e`, `_http_e2e`, `_conformance_2026`).
+`_types`, `_transport`, `_server`, `_client`, `_schema`, `_request_state`, `_stdio_e2e`, `_http_e2e`,
+`_oauth`, `_conformance_2026`).
 Benchmarks
 (`mcp_bench_parse|dispatch|e2e`) are **not** registered with CTest — run them manually from `bin/`.
 
@@ -84,6 +85,7 @@ aggregate include; use it in examples/tests.
 | `include/mcp/client.hpp` / `src/client.cpp` | blocking `Client` over any `ITransport` |
 | `include/mcp/schema.hpp` / `src/schema.cpp` | JSON Schema 2020-12 validator (local `$ref` only) |
 | `include/mcp/transport_http.hpp` / `src/transport_http.cpp` | Streamable HTTP + SSE (httplib), both sides |
+| `include/mcp/oauth.hpp` / `src/oauth.cpp` | `mcp::oauth::OAuthClient` — OAuth 2.1 client for remote HTTP servers: PRM/AS metadata discovery, DCR/CIMD/pre-registration, PKCE (S256), RFC 8707 `resource`, RFC 9207 `iss`, scope step-up, SEP-2352 migration. HTTP-only, like `transport_http` |
 
 Key runtime facts:
 
@@ -127,6 +129,13 @@ Key runtime facts:
   root, `capabilities` from the client's own config, adopting the negotiated version) and
   `Client::onServerRequest()` answers server-initiated requests. `JsonRpcResult::id` is optional (absent on
   legacy id-less results); the server never consumes results, so the encoder keeps the strict contract.
+- **The legacy `initialize` response is deferred** until its `Mcp-Session-Id` has been captured: a
+  stateful server rejects the next request without it, and queueing the message earlier let
+  `notifications/initialized` race the header. Relatedly, the SSE `retry:` advice is honoured *before*
+  the listening stream's first reconnect, not only after a connection.
+- **`HttpClientTransport::setAuthChallengeHandler`** forwards 401/403 `WWW-Authenticate` challenges to the
+  caller; the transport itself never authenticates. `mcp::oauth` (used by the conformance fixture) is what
+  drives the flow on top of it.
 
 ## zjson gotchas (this library's JSON layer)
 
@@ -151,7 +160,9 @@ Key runtime facts:
 - `tests/test_http_e2e.cpp` runs a real httplib server + client on a loopback ephemeral port (only built
   when `MCP_HAS_HTTP`).
 - `examples/conformance_client.cpp` is the official suite's client fixture (`docs/CONFORMANCE.md`); CI runs
-  it with `conformance-client` for both spec revisions, scenarios sequentially. It links only when the
-  HTTP transport is on, so a pure-stdio configure must not name it unconditionally.
+  it with `conformance-client` (`--suite all`) for both spec revisions. It links only when the HTTP
+  transport is on, so a pure-stdio configure must not name it unconditionally.
+- `tests/test_oauth.cpp` (`mcp_test_oauth`, HTTP-only) runs `mcp::oauth` against a real loopback
+  authorization server: discovery, registration, PKCE, `iss`, scope selection, token auth and migration.
 - `bench/bench_e2e.cpp` uses the same self-spawn trick with `--bench-child`.
 - `include/mcp/version.hpp`'s `kSdkVersion` and the repo-root `version.txt` must stay in sync.

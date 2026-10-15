@@ -536,6 +536,10 @@ struct HttpClientTransport::Impl {
   std::string lastEventId;                               // SSE id: for reconnect
   int retryMs = 0;                                       // SSE retry: advice
 
+  // Set by the caller; invoked when a response carries an authentication
+  // challenge. Guarded by sharedMutex so it can be swapped safely.
+  HttpClientTransport::AuthChallengeHandler authChallenge;
+
   // Emits every complete "data: <json>" event currently buffered in `acc`
   // (called with accMutex NOT held - it only touches the queue). Events end
   // with a blank line, which peers write as "\n\n" or "\r\n\r\n" (the SSE
@@ -649,6 +653,25 @@ HttpClientTransport::~HttpClientTransport() {
 void HttpClientTransport::setProtocolVersion(ProtocolVersion v) {
   std::lock_guard<std::mutex> lock(impl_->sharedMutex);
   impl_->protocolVersion = std::string(toString(v));
+}
+
+void HttpClientTransport::setAuthChallengeHandler(AuthChallengeHandler handler) {
+  std::lock_guard<std::mutex> lock(impl_->sharedMutex);
+  impl_->authChallenge = std::move(handler);
+}
+
+// Reports a 401/403 WWW-Authenticate challenge, if one is present. Called from
+// whichever thread performed the POST; the handler copy keeps the callback out
+// of the lock.
+void HttpClientTransport::reportAuthChallenge(int status, const std::string& challenge) {
+  if (status != 401 && status != 403) return;
+  if (challenge.empty()) return;
+  AuthChallengeHandler handler;
+  {
+    std::lock_guard<std::mutex> lock(impl_->sharedMutex);
+    handler = impl_->authChallenge;
+  }
+  if (handler) handler(status, challenge);
 }
 
 void HttpClientTransport::setHeader(std::string name, std::string value) {
@@ -783,6 +806,7 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       return Err(McpErrorCode::InternalError,
                  "http POST failed: " + httplib::to_string(res.error()));
     }
+    reportAuthChallenge(res->status, res->get_header_value("WWW-Authenticate"));
     if (isSse) {
       impl_->drainSseIntoQueue(acc);
     } else if (!acc.empty()) {
@@ -877,7 +901,12 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     impl_->activeRequestStreams.insert(raw);
   }
   std::thread([this, stream = std::move(stream), body = std::move(body),
-               headersCopy = std::move(headers), raw, isRequest = (request != nullptr)]() mutable {
+               headersCopy = std::move(headers), raw, isRequest = (request != nullptr),
+               // The legacy `initialize` response is the one that can establish
+               // a session (its Mcp-Session-Id must be echoed by the very next
+               // request). Hold its messages back until Post() returns and the
+               // id is captured, so the caller cannot race ahead of it.
+               isHandshake = (request != nullptr && request->method == "initialize")]() mutable {
     std::string acc;       // response bytes not yet turned into queued messages
     bool isSse = false;    // does the response look like an event stream?
     bool delivered = false;  // did the stream deliver a message for this request?
@@ -888,7 +917,7 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       }
       acc.append(data, len);
       if (!isSse && !acc.empty()) isSse = Impl::looksLikeSse(acc);
-      if (isSse) {
+      if (isSse && !isHandshake) {
         std::lock_guard<std::mutex> lock(impl_->reqMutex);
         delivered |= impl_->drainSseIntoQueue(acc);
       }
@@ -908,6 +937,7 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       // Open the GET listening stream after the first successful exchange -
       // this is where a 2025-era server delivers server-initiated requests.
       if (result->status < 400) openListenStreamOnce();
+      reportAuthChallenge(result->status, result->get_header_value("WWW-Authenticate"));
     }
     {
       std::lock_guard<std::mutex> lock(impl_->reqMutex);
@@ -990,6 +1020,20 @@ void HttpClientTransport::openListenStreamOnce() {
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
     while (true) {
       {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        if (impl_->listenClosed || impl_->listenUnsupported) break;
+      }
+      // A POST stream that closed without answering sets the forced flag: the
+      // peer dropped our stream, so reconnect only after the advised retry
+      // delay. This can happen while the loop is idle (e.g. before its very
+      // first GET), so it is honoured before opening the connection too.
+      if (impl_->listenForced.exchange(false)) {
+        int waitMs = 100;
+        {
+          std::lock_guard<std::mutex> lock(impl_->listenMutex);
+          if (impl_->retryMs > 0) waitMs = impl_->retryMs + 250;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
         std::lock_guard<std::mutex> lock(impl_->listenMutex);
         if (impl_->listenClosed || impl_->listenUnsupported) break;
       }

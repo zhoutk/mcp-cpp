@@ -62,7 +62,9 @@ CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 | `notifications/cancelled` + 可查询的取消标志 | ✅ | ✅ |
 | MRTR：`input_required` 结果 + `inputResponses` 重试、`requestState` 回显、带能力门控的 `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | 签名 `requestState`（`RequestStateCodec`：HMAC-SHA256、绑定上下文、TTL）+ `Client::callToolWithInput` 自动履行循环 | ✅ | ✅ |
-| 官方一致性套件——**客户端模式**（8 个场景通过，双规范版本） | ✅ | ✅ |
+| 官方一致性套件——**服务端模式**（2026-07-28：42/42 项检查） | ✅ | ✅ |
+| 官方一致性套件——**客户端模式**（2026-07-28：32/32 场景，含全部 25 个 `auth/*`） | ✅ | ✅ |
+| OAuth 2.1 客户端：PRM + AS 元数据发现、DCR / CIMD / 预注册、PKCE（S256）、RFC 8707 `resource`、RFC 9207 `iss`、scope 升级、SEP-2352 迁移 | ✅ | ✅ |
 | 进度通知（`Ctx::progress`，客户端通过 `progressToken` 选择性加入） | ✅ | ✅ |
 | `completion/complete`（服务端 + 客户端） | ✅ | ✅ |
 | discover、`*/list`、`resources/read` 上的 CacheableResult（`ttlMs`/`cacheScope`） | ✅ | ✅ |
@@ -73,7 +75,6 @@ CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 | CMake 包（`find_package(mcp CONFIG)`，导出 `mcp::mcp`） | ✅ | n/a |
 | Roots / Sampling（已被 SEP-2577 弃用） | ❌ 有意不支持 | Tier-1 保留兼容垫片 |
 | Tasks 扩展（`io.modelcontextprotocol/tasks`） | ⏳ 路线图 | 扩展 |
-| OAuth 2.1 / Client ID Metadata | ⏳ 路线图 | ✅ |
 
 值语义的消息模型、不抛异常的协议层、带 `Ok`/`Err` 工厂的 `[[nodiscard]]`
 结果类型——无论 `McpResult<T>` 是 `std::expected` 的别名还是使用内置回退，
@@ -195,6 +196,21 @@ client.onServerRequest([](const std::string& method, const mcp::Json& params,
 client.initialize("2025-11-25", mcp::Implementation{"probe", "", "1.0", "", "", mcp::Json(nullptr)});
 ```
 
+对于受 OAuth 保护的 HTTP 服务器，`mcp::oauth::OAuthClient` 可完成整套
+授权码 + PKCE 流程（发现、DCR/CIMD、`resource`、`iss`）：
+
+```cpp
+mcp::oauth::Config cfg;
+cfg.resourceUrl = "https://host/mcp";
+cfg.redirectUri = "http://localhost:3000/callback";
+cfg.clientMetadataUrl = "https://my.app/client-metadata.json";  // CIMD
+mcp::oauth::OAuthClient auth(cfg);
+auth.discover(challengeFrom401);                    // WWW-Authenticate
+auto url = auth.authorizationUrl({});                // scopes，或 {} 表示推导
+auth.authorizeAndExchange(*url);                     // GET -> Location -> token
+transport.setHeader("Authorization", "Bearer " + auth.accessToken());
+```
+
 ## 生态——用 mcp-cpp 构建
 
 - **[zorm-mcp](https://github.com/zhoutk/zorm-mcp)**——一个生产级 MCP 服务器，
@@ -221,8 +237,8 @@ client.initialize("2025-11-25", mcp::Implementation{"probe", "", "1.0", "", "", 
 
 ```
 include/mcp/   public headers (mcp.hpp aggregates everything)
-src/           compiled implementation
-tests/         googletest unit tests (12 CTest registrations, incl. real
+src/           compiled implementation (oauth.cpp is the OAuth 2.1 client)
+tests/         googletest unit tests (13 CTest registrations, incl. real
                subprocess stdio e2e and loopback HTTP/SSE e2e)
 bench/         B1 parse / B2 dispatch / B3 stdio e2e benchmarks
 examples/      minimal_server (Inspector-ready) + 两个官方一致性 fixture

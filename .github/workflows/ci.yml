@@ -104,9 +104,10 @@ jobs:
           path: conformance/out
 
   # Client mode: the harness starts its own scenario servers and drives OUR
-  # client (examples/conformance_client.cpp). Scenarios run one at a time - the
-  # harness's parallel suite mode hits a session-routing race in its mock
-  # servers that also affects the official rust-sdk reference client.
+  # client (examples/conformance_client.cpp). This covers the whole required
+  # client set for both revisions, including the 25 auth/* OAuth 2.1 + CIMD
+  # scenarios. `--suite all` matches how the official rust-sdk runs its
+  # reference client.
   conformance-client:
     name: conformance (client)
     runs-on: ubuntu-latest
@@ -122,22 +123,12 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
       - name: Run client scenarios
         run: |
-          # Scenario availability differs per revision (initialize is legacy-only;
-          # request-metadata/sep-2322/http-* exist only from 2026-07-28).
-          if [ "${{ matrix.spec-version }}" = "2026-07-28" ]; then
-            scenarios="tools_call json-schema-2020-12-preservation json-schema-ref-no-deref request-metadata sep-2322-client-request-state http-standard-headers http-custom-headers http-invalid-tool-headers"
-          else
-            scenarios="initialize tools_call sse-retry elicitation-sep1034-client-defaults json-schema-2020-12-preservation"
-          fi
-          for s in $scenarios; do
-            # Bound each scenario: a harness mock can hold a stream open past
-            # the client timeout; the baseline still makes the exit code 0.
-            timeout 180 npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.12 client \
-              --command "bin/conformance_client" --scenario "$s" \
-              --spec-version "${{ matrix.spec-version }}" \
-              --expected-failures conformance/expected-failures.yaml \
-              -o "conformance/out-client-${{ matrix.spec-version }}" || exit 1
-          done
+          npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.12 client \
+            --command "bin/conformance_client" \
+            --suite all \
+            --spec-version "${{ matrix.spec-version }}" \
+            --expected-failures conformance/expected-failures.yaml \
+            -o "conformance/out-client-${{ matrix.spec-version }}"
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4

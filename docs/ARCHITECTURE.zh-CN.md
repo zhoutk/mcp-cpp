@@ -9,7 +9,7 @@ mcp-cpp 的分层方式、线程模型，以及贡献者不可破坏的不变量
 每层只依赖它之前的层：
 
 ```
-error → version → json → jsonrpc → types → transport → server / client → schema / request_state / transport_http
+error → version → json → jsonrpc → types → transport → server / client → schema / request_state / transport_http / oauth
 ```
 
 `include/mcp/mcp.hpp` 是唯一的聚合入口；应用只包含这一个头。
@@ -27,6 +27,7 @@ error → version → json → jsonrpc → types → transport → server / clie
 | `include/mcp/client.hpp` | 阻塞式 `Client`，可运行于任意 `ITransport`；含 modern `request()`（每请求 `_meta`）、legacy `initialize()` 握手，以及应答 pre-2026 服务端发起请求的 `onServerRequest()` |
 | `include/mcp/schema.hpp` | JSON Schema 2020-12 校验器（仅本地 `$ref`，带资源上限） |
 | `include/mcp/transport_http.hpp` | Streamable HTTP + SSE 双侧实现（pimpl 把 httplib 挡在头文件外） |
+| `include/mcp/oauth.hpp` | `mcp::oauth::OAuthClient`——面向远程 HTTP 服务器的 OAuth 2.1 客户端：PRM/AS 元数据发现、DCR/CIMD/预注册、PKCE、RFC 8707 `resource`、RFC 9207 `iss`、scope 升级、SEP-2352 迁移（与 `transport_http` 一样仅 HTTP 构建） |
 
 **项目头文件之间互不包含**——跨模块使用只发生在 `.cpp` 内，这正是扁平 `include/` 目录能维持的原因。该包含方向有元测试机械检查。
 
@@ -37,6 +38,8 @@ error → version → json → jsonrpc → types → transport → server / clie
 - **但 pre-2026 服务器会。** 客户端对此仍能应答：对端发起的请求（sampling/elicitation/roots）交给 `Client::onServerRequest`，应答作为一条新消息发回；客户端循环随后继续等待自己的响应。
 - 阻塞的 handler 会阻塞整条连接。长任务应轮询 `Ctx::isCancelled` 并用 `Ctx::progress` 上报进度。
 - **HTTP 客户端传输自带线程。** 每个请求 POST 在 worker 线程上流式读取响应（响应可能是长寿命 SSE 流，同步读取会让客户端循环无法应答调用中途的 elicitation），GET 监听流还拥有自己的重连循环。回到 `read()` 的唯一通道是消息队列。三个句柄负责停止它们——`closeSubscriptions()`、`closeRequestStreams()`、`closeListenStreams()`（后两者仅析构）——析构函数会 join，确保没有线程比队列活得更久。
+- **旧版 `initialize` 响应会先被扣住，直到读出其 session id。** 有状态的 pre-2026 服务器在该响应上发放 `Mcp-Session-Id`，没有它就会拒绝下一个请求；若在 worker 存下该头之前就把消息入队，`notifications/initialized` 会抢先发出。
+- **`HttpClientTransport::setAuthChallengeHandler` 上报 401/403 的 `WWW-Authenticate` 质询**；传输层自身不做认证。这正是 `mcp::oauth`（以及一致性 fixture）所驱动的入口。
 
 ## 请求生命周期（2026-07-28）
 
