@@ -21,7 +21,7 @@ SDK**；本项目即是作为其中之一而提供的（见 [ROADMAP.md](ROADMAP
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
-**状态：** v0.1.0，按 [PLAN.md](PLAN.md) §5 功能已完备。针对官方一致性测试套件
+**状态：** v0.2.0，按 [PLAN.md](PLAN.md) §5 功能已完备。针对官方一致性测试套件
 （v0.1.16），它通过了 **26/30 个计分的服务端场景（86.7%）**；其余四个需要服务器
 在调用中途向客户端*请求*某些东西，而 2026-07-28 已用 MRTR 取代了该机制——参见
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md) 和

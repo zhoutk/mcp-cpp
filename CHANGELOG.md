@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-15
+
 ### Added
 
 - **Progress notifications.** `Ctx::progress(progress, total, message)` emits
@@ -175,5 +177,6 @@ cancellation, `completion/complete`, CacheableResult, a JSON Schema 2020-12
 validator, and `x-mcp-header` mirroring. Ten CTest suites, three benchmarks, and the
 zorm integration example.
 
-[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zhoutk/mcp-cpp/releases/tag/v0.1.0

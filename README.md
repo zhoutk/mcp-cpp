@@ -22,7 +22,7 @@ C++ SDK**; this project is offered as one (see [ROADMAP.md](ROADMAP.md)).
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
-**Status:** v0.1.0, feature-complete per [PLAN.md](PLAN.md) §5. Against the
+**Status:** v0.2.0, feature-complete per [PLAN.md](PLAN.md) §5. Against the
 official conformance suite (v0.2.0-alpha.12) it passes **100% of the scored
 2026-07-28 server scenarios (42/42 checks)** — see
 [`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) and
