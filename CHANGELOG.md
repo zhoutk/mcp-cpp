@@ -58,6 +58,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (JSON-RPC 2.0 allows it; 2025-era peers send it); mirrored `Mcp-Param-*`
   headers with empty values are sent; SEP-2243 client-side annotation
   validation excludes malformed tools.
+- **Legacy client API.** `Client::initialize(protocolVersion, clientInfo)` runs
+  the pre-2026 `initialize` handshake (params-root metadata, adopting the
+  negotiated version) and `Client::onServerRequest(handler)` answers
+  server-initiated requests (sampling/elicitation/roots) — the mechanism
+  2026-07-28 replaced with MRTR.
+- **`ITransport::removeHeader(name)`** and
+  `HttpClientTransport::setProtocolVersion(v)`. Removal is now a distinct
+  operation: an empty header value is a real value the mirrored-header contract
+  requires sending, so `setHeader(name, "")` stores rather than deletes.
+
 - **2026-07-28 conformance suite.** `mcp_test_conformance_2026` — 12 named
   scenarios covering discover, stateless `_meta`, version negotiation, capability
   gating, resultType, progress, outputSchema, and a full MRTR round trip over a
@@ -82,6 +92,49 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Project governance files.** `ROADMAP.md`, `CONTRIBUTING.md` (with dependency
   policy), `SECURITY.md`, `CODE_OF_CONDUCT.md`, `MAINTAINERS.md`, issue/PR templates,
   and CI.
+
+### Changed
+
+- **`JsonRpcResult::id` is now `std::optional<RequestId>`.** It is absent when a
+  legacy peer omits it on a result; the encoder still requires an id, so the
+  server's strict wire contract is unchanged.
+- **`Client::initialize()` declares the client's configured capabilities.** A
+  pre-2026 server gates server-initiated requests on the `capabilities` it
+  receives at the params root, so the handshake used to suppress them.
+- **Notifications POST synchronously again.** A request response streams on a
+  worker thread (it may be a long-lived SSE stream), but a notification has no
+  request id to correlate an asynchronous error with, so its POST blocks so the
+  failure can be returned.
+
+### Fixed
+
+- **Pure-stdio configure regression.** `-DMCP_DISABLE_HTTP=ON` failed at
+  configure time: the runtime-output list named the HTTP-only
+  `conformance_client` target unconditionally. The target is now appended only
+  when it exists.
+- **HTTP client transport data race.** `Mcp-Session-Id` and the echoed protocol
+  version were read by the GET-listen thread while the caller wrote them under a
+  *different* mutex. They now share one mutex, held without nesting, so no
+  lock-order cycle can form with the SSE drain (`reqMutex` -> `listenMutex`).
+- **Spurious transport errors.** A request whose response stream stayed open
+  after the reply (a session-lifetime SSE stream) hit the read timeout and
+  injected a synthetic error for an already-answered request id. Errors are now
+  synthesized only when the stream delivered nothing, and the request stream
+  uses the same 30 s read timeout as the shared client (it had inherited
+  httplib's 5 s default).
+- **Over-eager GET-stream reconnect.** Every successful POST forced the
+  listening stream to reconnect, churning the GET stream and risking in-flight
+  event loss. It is now limited to the case it exists for: a request whose POST
+  stream closed without delivering a response (SEP-1699).
+- **`id: null` error responses were dropped.** `parseMessage` was relaxed to
+  accept them, but the client still ignored them and stalled to its read
+  timeout. A sequential client now treats an id-less error as the answer to its
+  one outstanding request, mirroring the id-less result path.
+- **Notification POST failures were swallowed.** Once request POSTs moved to
+  background threads, a failed `notifications/*` POST still returned `Ok()`, so
+  `Client::cancel()` could report success against an unreachable peer.
+- **Line endings.** 16 tracked text files carried CRLF despite `* text=auto`,
+  which made `git stash` fail; they are normalized to LF.
 
 ## [0.1.0] - 2026-09-21
 

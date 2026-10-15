@@ -183,6 +183,18 @@ auto r = client.callTool("add", mcp::Json(R"({"a":2,"b":3})"), mcp::Json(nullptr
                          mcp::RequestId(std::string("progress-1")));
 ```
 
+要与 **pre-2026** 服务器通信，改用旧版握手——它采用协商出的版本，并以
+`notifications/initialized` 收尾：
+
+```cpp
+client.onServerRequest([](const std::string& method, const mcp::Json& params,
+                          const mcp::RequestId&) -> mcp::McpResult<mcp::Json> {
+  if (method == "elicitation/create") return mcp::Ok(/* ... */);
+  return mcp::Err(mcp::McpErrorCode::MethodNotFound, "unsupported");
+});
+client.initialize("2025-11-25", mcp::Implementation{"probe", "", "1.0", "", "", mcp::Json(nullptr)});
+```
+
 ## 生态——用 mcp-cpp 构建
 
 - **[zorm-mcp](https://github.com/zhoutk/zorm-mcp)**——一个生产级 MCP 服务器，
@@ -210,10 +222,11 @@ auto r = client.callTool("add", mcp::Json(R"({"a":2,"b":3})"), mcp::Json(nullptr
 ```
 include/mcp/   public headers (mcp.hpp aggregates everything)
 src/           compiled implementation
-tests/         googletest unit tests (10 CTest registrations, incl. real
+tests/         googletest unit tests (12 CTest registrations, incl. real
                subprocess stdio e2e and loopback HTTP/SSE e2e)
 bench/         B1 parse / B2 dispatch / B3 stdio e2e benchmarks
-examples/      minimal_server (Inspector-ready) + zorm_server
+examples/      minimal_server (Inspector-ready) + 两个官方一致性 fixture
+               （conformance_server、conformance_client）
 cmake/         package config for find_package(mcp CONFIG)
 docs/          design, optimization, adoption and conformance docs
 ```

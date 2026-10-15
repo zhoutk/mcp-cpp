@@ -87,14 +87,18 @@ class HttpClientTransport final : public ITransport {
   HttpClientTransport(std::string host, int port, std::string endpoint = "/mcp");
   ~HttpClientTransport() override;
 
-  // ITransport: write() performs the synchronous POST and queues response
-  // message lines; read() pops them. Not thread-safe (single client loop).
+  // ITransport: write() starts the POST on a background thread (a response may
+  // be a long-lived SSE stream) and returns immediately; the response's message
+  // lines reach read() through a queue. read() is safe to call concurrently
+  // with write(); write() itself is meant for a single client loop.
   McpResult<std::optional<std::string>> read() override;
   McpResult<void> write(std::string_view message) override;
   McpResult<void> flush() override;
 
   // Adds/replaces a header sent with every POST (e.g. Authorization), or
-  // per-request mirrored headers (Mcp-Param-*). Empty value removes.
+  // per-request mirrored headers (Mcp-Param-*). An empty value is stored and
+  // SENT as-is (the mirrored-header contract allows an empty parameter); use
+  // removeHeader() to drop one.
   void setHeader(std::string name, std::string value) override;
   void removeHeader(const std::string& name) override;
 
@@ -124,9 +128,7 @@ class HttpClientTransport final : public ITransport {
   // Stops the listening stream and its reconnect loop. Destructor only.
   void closeListenStreams();
 
- private:
   McpResult<void> postOne(std::string_view message);
-  void queueSseBody(const std::string& body);
 
   struct Impl;
   std::unique_ptr<Impl> impl_;

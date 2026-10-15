@@ -479,5 +479,102 @@ If you overturn any item, modify this section and synchronize the related design
 
 **Verification** (clang 22.1.8 / MSYS2 clang64 / windows-gnu): 10/10 CTest green with 8 new cases (`ServerProgress.*` ×3, `ServerOutputSchema.*` ×3, `ClientProgress.*` ×2); build is zero-warning; the `find_package(mcp CONFIG)` consumer builds and runs out of tree.
 
+### 2026-10-15 Update 11 — A2 收口 (client-conformance landing) + code review
+
+**Motivation**: A2 ("full parity with the official conformance suite") closes on
+2026-10-14 by adding the *client* half of the suite — until then only server mode
+was runnable — and the day's commits are then reviewed at the code level. The
+landing and the review fixes are recorded together because several of the fixes
+change the protocol surface the fixture relies on.
+
+**Landed 2026-10-14** (commits `386af48`, `06d3edf`, `83b843b`):
+
+- **`examples/conformance_client.cpp`** — the mirror of `conformance_server.cpp`.
+  The harness appends the server URL and names the scenario through
+  `MCP_CONFORMANCE_SCENARIO` / `MCP_CONFORMANCE_PROTOCOL_VERSION` /
+  `MCP_CONFORMANCE_CONTEXT`.
+- **`Client::initialize()`** — the pre-2026 `initialize` handshake (metadata at
+  the params root, no `_meta` envelope) followed by
+  `notifications/initialized`, adopting the version the server negotiates.
+  **`Client::onServerRequest()`** answers server-initiated requests
+  (`sampling/createMessage`, `elicitation/create`, `roots/list`) — the mechanism
+  2026-07-28 replaced with MRTR.
+- **`HttpClientTransport` client side**, promoted from "POST and read the body"
+  to a real Streamable-HTTP client: a GET listening stream (opened once, 405 =
+  unsupported), `Mcp-Session-Id` echo, reconnect driven by `Last-Event-ID` and
+  the SSE `retry:` field, request POSTs streamed on background threads so the
+  client can answer a mid-call elicitation, and full SSE field parsing
+  (`event:` / `id:` / `retry:` / comments, LF and CRLF terminators).
+- **`JsonRpcResult::id` became `std::optional`** and `parseMessage` stopped
+  rejecting id-less results and `id: null` error responses (both sent by
+  2025-era mocks); `ITransport::removeHeader()` was split out of
+  `setHeader(name, "")` so an empty mirrored `Mcp-Param-*` value is sent rather
+  than treated as a deletion. `detail::headerAnnotationsValid()` adds SEP-2243
+  client-side exclusion of tools with malformed `x-mcp-header` annotations.
+- **CI client jobs** (`conformance-client`, matrix over both spec revisions,
+  sequential scenarios) and a client baseline in
+  `conformance/expected-failures.yaml`.
+
+**Code review, 2026-10-15** — eight defects, all fixed:
+
+1. **Pure-stdio configure broke.** `set_target_properties` named the HTTP-only
+   `conformance_client` unconditionally, so `-DMCP_DISABLE_HTTP=ON` failed at
+   configure time. The target is now added to the list only when it exists.
+2. **HTTP client transport data race.** `Mcp-Session-Id` and the protocol
+   version echoed on GET were read by the listen thread while the caller wrote
+   them under a *different* mutex. Both now live under one `sharedMutex`, held
+   only for the assignment, so it never nests with `reqMutex`/`listenMutex` and
+   cannot form a cycle with the SSE drain's `reqMutex` -> `listenMutex` order.
+3. **Spurious transport errors.** A response stream that stayed open after the
+   reply (a session-lifetime SSE stream) hit the read timeout and queued a
+   synthetic error for a request that had already been answered. Errors are now
+   synthesized only when the stream delivered nothing, and the request stream
+   uses the same 30 s read timeout as the shared client (it had inherited
+   httplib's 5 s default).
+4. **Over-eager GET reconnect.** Every successful POST forced the listen stream
+   to reconnect. That is now limited to the SEP-1699 case it exists for: a
+   *request* whose POST stream closed without delivering a response.
+5. **`id: null` errors were dropped.** The relaxed parser accepted them but the
+   sequential client still ignored them and stalled to its read timeout; it now
+   accepts an id-less error as the answer to its one outstanding request,
+   mirroring the id-less result path.
+6. **The legacy handshake sent empty capabilities.** `initialize()` hard-coded
+   `"capabilities": {}`, so a pre-2026 server had no reason to send the
+   elicitation/sampling request the scenario then waits for. It now sends the
+   client's configured capabilities.
+7. **Line endings.** 16 tracked text files were CRLF in the working tree
+   despite `* text=auto`, which made `git stash` fail; normalized to LF.
+8. **Notification POST failures were swallowed.** Moving request POSTs to
+   background threads (which the MRTR client needs) also made a failed
+   `notifications/*` POST return `Ok()`, so `Client::cancel()` reported success
+   against an unreachable peer. Notifications are POSTed synchronously again —
+   they have no id to key an async error to — while request responses keep
+   streaming on a worker.
+
+Also unified the two hand-rolled SSE splitters into one
+`Impl::drainSseIntoQueue()` (plus an `Impl::looksLikeSse()` probe shared by the
+sync and async paths) and deleted the now-dead `queueSseBody()` and
+`streamClient` member.
+
+**Verification** (clang 22.1.8 / MSYS2 clang64 / windows-gnu): 12/12 CTest green
+(5 new cases: id-less error, declared capabilities, empty/stale mirrored headers,
+POST-failure propagation over HTTP, plus the build fix); `-DMCP_DISABLE_HTTP=ON`
+configures and builds again;
+the official client suite re-run sequentially — 2026-07-28: tools_call 2/2,
+json-schema-2020-12-preservation 9/9, json-schema-ref-no-deref 1/1,
+request-metadata 6/6, http-standard-headers 3/3, http-custom-headers 18/18,
+http-invalid-tool-headers 12/12 ✓ · 2025-11-25: initialize 1/1, tools_call 2/2,
+json-schema-2020-12-preservation 9/9 ✓ — with `sse-retry`,
+`elicitation-sep1034-client-defaults` and `sep-2322-client-request-state`
+failing in the harness mock (the official rust-sdk reference client fails them
+identically here; a pre-change A/B run reproduced the same result, so they are
+the harness's session-routing race, not this change).
+
+**Rejected during review**: making the client reject id-less error responses
+(strictness for its own sake — a sequential client has exactly one outstanding
+request, and the reference SDKs accept them); adding a lock to `Impl::headers`
+(it is only ever touched from the caller's single client loop, while the
+per-request copies are taken before the worker thread starts).
+
 ---
 *Document maintenance rule: after each milestone completes, record the deviations encountered, the measured performance numbers, and rejected designs as newly added "Update YYYY-MM-DD" entries under the corresponding section; the original text is never deleted.*

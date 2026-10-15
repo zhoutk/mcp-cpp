@@ -477,5 +477,34 @@ server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
 
 **验收**（clang 22.1.8 / MSYS2 clang64 / windows-gnu）：10/10 CTest 全绿，新增 8 用例（`ServerProgress.*` ×3、`ServerOutputSchema.*` ×3、`ClientProgress.*` ×2）；构建零警告；`find_package(mcp CONFIG)` 消费者在仓库外构建并运行成功。
 
+### 2026-10-15 Update 11 — A2 正式收口（客户端一致性落地）+ 代码审查
+
+**动机**：A2（“与官方一致性套件全面对齐”）于 2026-10-14 通过补齐套件的*客户端*半边而收口——此前只能跑服务端模式；随后对当日提交做代码级审查。落地内容与审查修正合并记录，因为其中若干修正改动了 fixture 依赖的协议表面。
+
+**2026-10-14 落地**（提交 `386af48`、`06d3edf`、`83b843b`）：
+
+- **`examples/conformance_client.cpp`**——`conformance_server.cpp` 的镜像。套件追加服务端 URL，并通过 `MCP_CONFORMANCE_SCENARIO` / `MCP_CONFORMANCE_PROTOCOL_VERSION` / `MCP_CONFORMANCE_CONTEXT` 指定场景。
+- **`Client::initialize()`**——pre-2026 的 `initialize` 握手（元数据放在 params 根，无 `_meta` 信封），随后发 `notifications/initialized`，并采用服务端协商出的版本。**`Client::onServerRequest()`** 用于应答服务端发起的请求（`sampling/createMessage`、`elicitation/create`、`roots/list`）——这正是 2026-07-28 用 MRTR 取代的机制。
+- **`HttpClientTransport` 客户端侧**从“POST 后读 body”升级为真正的 Streamable HTTP 客户端：GET 监听流（只开一次，405 即视为不支持）、回显 `Mcp-Session-Id`、依 `Last-Event-ID` 与 SSE `retry:` 字段重连、请求 POST 在后台线程流式处理（使客户端能在调用中途应答 elicitation），以及完整的 SSE 字段解析（`event:` / `id:` / `retry:` / 注释，LF 与 CRLF 终止符）。
+- **`JsonRpcResult::id` 变为 `std::optional`**，`parseMessage` 不再拒绝无 id 的结果与 `id: null` 的错误响应（2025 版 mock 都会发）；`ITransport::removeHeader()` 从 `setHeader(name, "")` 中拆出，使空的 `Mcp-Param-*` 镜像值被真正发送而非被当作删除。`detail::headerAnnotationsValid()` 增加 SEP-2243 的客户端剔除逻辑（`x-mcp-header` 注解非法的工具）。
+- **CI 客户端任务**（`conformance-client`，覆盖两个规范版本的矩阵、场景串行执行）以及 `conformance/expected-failures.yaml` 中的客户端基线。
+
+**2026-10-15 代码审查**——八处缺陷，全部修复：
+
+1. **纯 stdio 构建配置被破坏。** `set_target_properties` 无条件引用了仅 HTTP 才有的 `conformance_client`，导致 `-DMCP_DISABLE_HTTP=ON` 在配置阶段失败。现仅在目标存在时才加入列表。
+2. **HTTP 客户端传输存在数据竞争。** GET 上回显的 `Mcp-Session-Id` 与协议版本由监听线程读取，而调用方却在*另一个*互斥量下写入。二者现共用一个 `sharedMutex`，且仅在赋值时加锁，不与 `reqMutex`/`listenMutex` 嵌套，因而不会与 SSE 排空的 `reqMutex` -> `listenMutex` 顺序形成环。
+3. **虚假的传输错误。** 若响应流在给出结果后仍保持打开（会话级 SSE 流），会在读超时后为已经应答的请求再塞入一条合成的错误响应。现仅在流未交付任何消息时才合成错误，并把请求流的读超时对齐共用客户端（此前沿用了 httplib 默认的 5 秒）。
+4. **过度的 GET 重连。** 此前每个成功的 POST 都会强制监听流重连。现仅限其存在意义所在的情形：某个*请求*的 POST 流在未交付响应时关闭（SEP-1699）。
+5. **`id: null` 错误被丢弃。** 放宽后的解析器接受它们，但串行客户端仍忽略并一直等到读超时；现把无 id 的错误视为其唯一在途请求的应答，与无 id 结果的处理路径一致。
+6. **旧版握手发送了空的 capabilities。** `initialize()` 硬编码 `"capabilities": {}`，使 pre-2026 服务端没有理由发起场景随后等待的 elicitation/sampling 请求。现发送客户端配置的 capabilities。
+7. **行尾。** 尽管有 `* text=auto`，工作区仍有 16 个受跟踪文本文件是 CRLF，导致 `git stash` 失败；已统一为 LF。
+8. **通知 POST 的失败被吞掉。** 请求 POST 改为后台线程（MRTR 客户端所需）后，失败的 `notifications/*` POST 也返回 `Ok()`，于是 `Client::cancel()` 在对端不可达时也会报告成功。通知重新改为同步 POST——它没有 id 可用于异步错误路由——而请求响应仍在 worker 上流式处理。
+
+另将两处手写的 SSE 切分逻辑合并为 `Impl::drainSseIntoQueue()`（并新增同步/异步路径共用的 `Impl::looksLikeSse()` 探测），以及删除已无用的 `queueSseBody()` 与 `streamClient` 成员。
+
+**验收**（clang 22.1.8 / MSYS2 clang64 / windows-gnu）：12/12 CTest 全绿（新增 5 个用例：无 id 错误、声明的 capabilities、空/过期镜像头、HTTP 上的 POST 失败传播，外加构建修复）；`-DMCP_DISABLE_HTTP=ON` 可重新配置并构建；官方客户端套件串行复跑——2026-07-28：tools_call 2/2、json-schema-2020-12-preservation 9/9、json-schema-ref-no-deref 1/1、request-metadata 6/6、http-standard-headers 3/3、http-custom-headers 18/18、http-invalid-tool-headers 12/12 ✓ · 2025-11-25：initialize 1/1、tools_call 2/2、json-schema-2020-12-preservation 9/9 ✓——`sse-retry`、`elicitation-sep1034-client-defaults`、`sep-2322-client-request-state` 在套件 mock 中失败（官方 rust-sdk 参考客户端在本机同样失败；对改动前的代码做 A/B 复跑结果一致，故属套件的会话路由竞态，非本次改动所致）。
+
+**审查中被否决的方案**：让客户端拒绝无 id 的错误响应（为严格而严格——串行客户端只有一个在途请求，官方参考 SDK 也接受之）；给 `Impl::headers` 加锁（它只在调用方单一客户端循环中被访问，且每请求的副本在工作线程启动前就已拷出）。
+
 ---
 *文档维护规则：每个里程碑完成后，把遇到的偏差、性能实测数字、被否决的设计记录到对应用节下新增「Update YYYY-MM-DD」条目，原文不删。*

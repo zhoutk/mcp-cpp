@@ -24,7 +24,7 @@ error → version → json → jsonrpc → types → transport → server / clie
 | `include/mcp/transport.hpp` | `ITransport`、`StreamTransport`、`StdioTransport` |
 | `include/mcp/server.hpp` | `Server` 派发循环 + `Builder` 注册 API |
 | `include/mcp/request_state.hpp` | `RequestStateCodec`——HMAC 签名的 MRTR `requestState`（绑定上下文、带 TTL）；`src/sha256.*` 是零依赖的 SHA-256/HMAC 原语 |
-| `include/mcp/client.hpp` | 阻塞式 `Client`，可运行于任意 `ITransport` |
+| `include/mcp/client.hpp` | 阻塞式 `Client`，可运行于任意 `ITransport`；含 modern `request()`（每请求 `_meta`）、legacy `initialize()` 握手，以及应答 pre-2026 服务端发起请求的 `onServerRequest()` |
 | `include/mcp/schema.hpp` | JSON Schema 2020-12 校验器（仅本地 `$ref`，带资源上限） |
 | `include/mcp/transport_http.hpp` | Streamable HTTP + SSE 双侧实现（pimpl 把 httplib 挡在头文件外） |
 
@@ -34,7 +34,9 @@ error → version → json → jsonrpc → types → transport → server / clie
 
 - **单线程派发**。`Server::run()` 读一条消息、处理、回写。handler 同步执行；`Server` 成员是普通成员，唯独 `subscriptions_` 有互斥锁，因为通知扇出可能来自其他线程（HTTP SSE pump）。
 - **服务器从不主动发起请求。** 服务端到客户端的交互只通过 `input_required` 结果（MRTR）承载；到达服务器的响应会被忽略。
+- **但 pre-2026 服务器会。** 客户端对此仍能应答：对端发起的请求（sampling/elicitation/roots）交给 `Client::onServerRequest`，应答作为一条新消息发回；客户端循环随后继续等待自己的响应。
 - 阻塞的 handler 会阻塞整条连接。长任务应轮询 `Ctx::isCancelled` 并用 `Ctx::progress` 上报进度。
+- **HTTP 客户端传输自带线程。** 每个请求 POST 在 worker 线程上流式读取响应（响应可能是长寿命 SSE 流，同步读取会让客户端循环无法应答调用中途的 elicitation），GET 监听流还拥有自己的重连循环。回到 `read()` 的唯一通道是消息队列。三个句柄负责停止它们——`closeSubscriptions()`、`closeRequestStreams()`、`closeListenStreams()`（后两者仅析构）——析构函数会 join，确保没有线程比队列活得更久。
 
 ## 请求生命周期（2026-07-28）
 
@@ -49,6 +51,7 @@ error → version → json → jsonrpc → types → transport → server / clie
 - **协议读取一律用 `mcp::member(obj, key)`，绝不用 `obj[key]`**——zjson 的 `operator[]` 对缺失键会深搜嵌套层，误读嵌套协议数据。
 - **文本值必须用 `Json::str(...)` 包裹**——zjson 会嗅探开头的 `{`/`[` 并按 JSON 解析。
 - **用 `isNull()`/`isError()`/`isObject()` 探测存在性**，绝不用 `toString().empty()`——Null 渲染为字面字符串 `"null"`。
+- **空的 `Mcp-Param-*` 镜像值也是值。** 存在但为空的参数必须作为头发送（服务端也据此校验）；`setHeader(name, "")` 是存储，只有 `removeHeader(name)` 才是删除。这正是两者必须分开的原因。
 - **`version.txt` 与 `kSdkVersion` 保持同步。**
 - **`thirds/` 的头文件不出现在公共头里**（只有 `mcp::Json` 到达 API 面），httplib 始终在 pimpl 之后。
 - 各一致性套件（官方双版本 + 仓库内 2026-07-28 套件）必须保持绿色；分数记录在 `CHANGELOG.md`。

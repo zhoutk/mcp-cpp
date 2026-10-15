@@ -193,4 +193,31 @@ TEST(HttpE2E, SubscriptionStreamDeliversNotifications) {
   client->closeSubscriptions();
 }
 
+TEST(HttpClientTransport, PostFailureSurfacesAsAnError) {
+  // Grab an ephemeral port, then release it: connecting to it is refused.
+  int deadPort = 0;
+  {
+    httplib::Server probe;
+    deadPort = probe.bind_to_any_port("127.0.0.1");
+    probe.stop();
+  }
+  ASSERT_GT(deadPort, 0);
+  HttpClientTransport transport("127.0.0.1", deadPort, "/mcp");
+
+  // A notification POST is synchronous (it has no id to key an async error to),
+  // so the failure must reach the caller - Client::cancel() reporting success
+  // while the peer is unreachable is the bug this locks down.
+  Client notifier("probe", "1.0");
+  notifier.connect(transport);
+  auto cancelled = notifier.cancel(RequestId(int64_t(1)), "stop");
+  EXPECT_FALSE(cancelled.has_value());
+
+  // A request POST is asynchronous: the failure is queued as a synthetic error
+  // response and surfaces through read().
+  Client requester("probe", "1.0");
+  requester.connect(transport);
+  auto listed = requester.listTools();
+  EXPECT_FALSE(listed.has_value());
+}
+
 #endif  // MCP_HAS_HTTP

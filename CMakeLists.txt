@@ -137,7 +137,14 @@ if(MCP_BUILD_EXAMPLES)
     target_compile_options(${t} PRIVATE ${MCP_CXX_WARNINGS})
   endforeach()
 
-  set_target_properties(minimal_server conformance_server conformance_client mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e
+  # conformance_client only exists when the HTTP transport is on; name it
+  # conditionally so a pure-stdio configure (-DMCP_DISABLE_HTTP=ON) still works.
+  set(MCP_RUNTIME_EXAMPLES minimal_server conformance_server
+      mcp_bench_parse mcp_bench_dispatch mcp_bench_e2e)
+  if(TARGET conformance_client)
+    list(APPEND MCP_RUNTIME_EXAMPLES conformance_client)
+  endif()
+  set_target_properties(${MCP_RUNTIME_EXAMPLES}
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 endif()
 

@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <deque>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -44,7 +45,14 @@ class ScriptedTransport final : public ITransport {
   }
   McpResult<void> flush() override { return Ok(); }
 
+  // Record header mutations so mirrored-header behaviour is observable.
+  void setHeader(std::string name, std::string value) override {
+    headers[name] = std::move(value);
+  }
+  void removeHeader(const std::string& name) override { headers.erase(name); }
+
   std::vector<std::string> sent_;
+  std::map<std::string, std::string> headers;
   std::function<void(const std::string&, std::deque<std::string>&)> responder_;
 
  private:
@@ -416,4 +424,82 @@ TEST(ClientInitialize, AdoptsNegotiatedVersionForLaterRequests) {
   ASSERT_TRUE(r.has_value());
   (void)c.listTools();
   EXPECT_EQ(declaredVersion, "2025-06-18");
+}
+
+TEST(ClientInitialize, DeclaresConfiguredClientCapabilities) {
+  // A pre-2026 server gates server-initiated requests on the capabilities the
+  // client declares at initialize's params root; sending {} would suppress
+  // elicitation/sampling.
+  ScriptedTransport t({}, {});
+  Client c("probe", "1.0", Json(R"({"elicitation":{},"sampling":{}})"));
+  c.connect(t);
+  t.responder_ = [](const std::string& sent, std::deque<std::string>& responses) {
+    auto parsed = parseMessage(sent);
+    auto* req = std::get_if<JsonRpcRequest>(&parsed);
+    if (req == nullptr) return;  // notifications/initialized completes the handshake
+    responses.push_back(encodeResultResponse(
+        req->id, Json(R"({"protocolVersion":"2025-11-25","capabilities":{}})")));
+  };
+  auto r = c.initialize("2025-11-25", Implementation{"probe", std::string(), "1.0",
+                                                     std::string(), std::string(),
+                                                     Json(nullptr)});
+  ASSERT_TRUE(r.has_value()) << r.error().message;
+  auto parsed = parseMessage(t.sent_.front());
+  auto* req = std::get_if<JsonRpcRequest>(&parsed);
+  ASSERT_NE(req, nullptr);
+  const Json caps = member(req->params, "capabilities");
+  EXPECT_TRUE(member(caps, "elicitation").isObject());
+  EXPECT_TRUE(member(caps, "sampling").isObject());
+}
+
+TEST(Client, ErrorResponseWithoutIdIsAccepted) {
+  // A legacy peer may answer an unreadable-id request with "id": null. The
+  // client is sequential, so that error is the answer to its one outstanding
+  // request and must not be dropped (which would stall until the read timeout).
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string&, std::deque<std::string>& out) {
+    out.push_back(
+        R"({"jsonrpc":"2.0","id":null,"error":{"code":-32601,"message":"no such method"}})");
+  };
+  Client c("c", "1");
+  c.connect(t);
+  auto result = c.listTools();
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code, McpErrorCode::MethodNotFound);
+  EXPECT_EQ(result.error().message, "no such method");
+}
+
+TEST(ClientHeaderMirror, SendsEmptyValueAndDropsStaleHeader) {
+  // An empty-but-present string argument mirrors as an empty header value and
+  // MUST still be sent; a header mirrored for a previous call is removed once
+  // the current call no longer carries that argument.
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& sent, std::deque<std::string>& out) {
+    auto parsed = parseMessage(sent);
+    auto* req = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(req, nullptr);
+    if (req->method == "tools/list") {
+      out.push_back(encodeResultResponse(req->id, Json(R"({"resultType":"complete","tools":[
+        {"name":"t","inputSchema":{"type":"object","properties":{
+          "a":{"type":"string","x-mcp-header":"X-A"},
+          "b":{"type":"string","x-mcp-header":"X-B"}}}}]})")));
+      return;
+    }
+    out.push_back(encodeResultResponse(req->id, Json(R"({"resultType":"complete"})")));
+  };
+  Client c("c", "1");
+  c.connect(t);
+  ASSERT_TRUE(c.listTools().has_value());
+
+  // First call mirrors both, with an EMPTY value for a.
+  ASSERT_TRUE(c.callTool("t", Json(R"({"a":"","b":"v"})")).has_value());
+  ASSERT_TRUE(t.headers.count("Mcp-Param-X-A") == 1);
+  ASSERT_TRUE(t.headers.count("Mcp-Param-X-B") == 1);
+  EXPECT_EQ(t.headers["Mcp-Param-X-B"], "v");
+
+  // Second call only carries a: the stale X-B mirror must be removed.
+  ASSERT_TRUE(c.callTool("t", Json(R"({"a":"x"})")).has_value());
+  EXPECT_EQ(t.headers.count("Mcp-Param-X-B"), 0);
+  ASSERT_TRUE(t.headers.count("Mcp-Param-X-A") == 1);
+  EXPECT_EQ(t.headers["Mcp-Param-X-A"], "x");
 }

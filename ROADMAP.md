@@ -32,7 +32,8 @@ Everything a consumer or reviewer needs to take the project seriously.
 | Run the official `modelcontextprotocol/conformance` server suite | ✅ 2026-07-28: **42/42 (100%)** · 2025-11-25: 26/30 |
 | Reach 100% of applicable required scenarios | ✅ on 2026-07-28 · 🔄 on 2025-11-25 (4 blocked, see below) |
 | Publish `conformance/report.json` + an `--expected-failures` baseline | ✅ |
-| Client-mode conformance run (needs a `conformance_client` fixture) | ✅ 8 scenarios green (see [docs/CONFORMANCE.md](docs/CONFORMANCE.md)) |
+| Client-mode conformance run (`examples/conformance_client.cpp`) | ✅ 8 scenarios green both revisions (see [docs/CONFORMANCE.md](docs/CONFORMANCE.md)) |
+| Client-mode `--expected-failures` baseline (`auth/*` + 3 mock-flaky scenarios, with rust-sdk evidence) | ✅ |
 | In-repo **2026-07-28** conformance suite (`mcp_test_conformance_2026`, 12 scenarios incl. the full MRTR round trip) | ✅ |
 | Stable **v1.0.0** release | ⏳ |
 
@@ -71,4 +72,4 @@ implements; the suite has no 2026 scenario to score instead.
 - Issue triage: ≤ 2 business days; critical (P0) bugs: ≤ 7 days.
 - Conformance job stays green on `main`.
 
-*Last updated: 2026-10-09.*
+*Last updated: 2026-10-15.*

@@ -27,7 +27,7 @@ that one.
 | `include/mcp/transport.hpp` | `ITransport`, `StreamTransport`, `StdioTransport` |
 | `include/mcp/server.hpp` | `Server` dispatch loop + `Builder` registration API |
 | `include/mcp/request_state.hpp` | `RequestStateCodec` — HMAC-sealed `requestState` (context-bound, TTL) for MRTR; `src/sha256.*` is the dependency-free SHA-256/HMAC primitive |
-| `include/mcp/client.hpp` | blocking `Client` over any `ITransport` |
+| `include/mcp/client.hpp` | blocking `Client` over any `ITransport`; modern `request()` (per-request `_meta`) plus the legacy `initialize()` handshake and `onServerRequest()` for pre-2026 server-initiated requests |
 | `include/mcp/schema.hpp` | JSON Schema 2020-12 validator (local `$ref` only, resource bounds) |
 | `include/mcp/transport_http.hpp` | Streamable HTTP + SSE, both sides (pimpl keeps httplib out of the header) |
 
@@ -44,8 +44,20 @@ viable. A meta-test enforces the include direction.
 - **The server never initiates requests.** Server-to-client interaction travels
   inside an `input_required` result (MRTR). A response arriving at a server is
   ignored.
+- **A pre-2026 server may.** The client keeps answering when it does: a request
+  the peer initiated (sampling/elicitation/roots) is handed to
+  `Client::onServerRequest`, and the answer goes back as a fresh message; the
+  client loop then keeps waiting for its own response.
 - A blocking handler blocks the whole connection. For long work, poll
   `Ctx::isCancelled` and emit `Ctx::progress` so the client can watch.
+- **The HTTP client transport runs its own threads.** Every request POST streams
+  its response on a worker thread (a response may be a long-lived SSE stream, so
+  a synchronous read would block the client loop from answering a mid-call
+  elicitation), and the GET listening stream owns a reconnect loop. The only
+  channel back to `read()` is the message queue. Three handles stop them -
+  `closeSubscriptions()`, `closeRequestStreams()`, `closeListenStreams()` (the
+  last two destructor-only) - and the destructor joins them so no thread
+  outlives the queue.
 
 ## Request lifecycle (2026-07-28)
 
@@ -72,6 +84,10 @@ viable. A meta-test enforces the include direction.
   and parses it as JSON.
 - **Probe presence with `isNull()`/`isError()`/`isObject()`**, never
   `toString().empty()` — Null renders as the literal string `"null"`.
+- **An empty mirrored `Mcp-Param-*` value is a value.** A present-but-empty
+  argument must be sent as a header (and validated as such server-side);
+  `setHeader(name, "")` stores, and only `removeHeader(name)` deletes. This is
+  why the two are distinct operations.
 - **`version.txt` and `kSdkVersion` stay in sync.**
 - **`thirds/` headers never appear in public headers** (only `mcp::Json`
   reaches the API surface), and httplib stays behind the pimpl wall.

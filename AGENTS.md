@@ -58,7 +58,8 @@ bin/mcp_test_server.exe --gtest_filter=ServerTest.DiscoverAdvertisesCapabilities
 ```
 
 The `mcp_test_*` names are exactly the CTest registration names (`mcp_test_version`, `_error`, `_jsonrpc`,
-`_types`, `_transport`, `_server`, `_client`, `_schema`, `_stdio_e2e`, `_http_e2e`). Benchmarks
+`_types`, `_transport`, `_server`, `_client`, `_schema`, `_stdio_e2e`, `_http_e2e`, `_conformance_2026`).
+Benchmarks
 (`mcp_bench_parse|dispatch|e2e`) are **not** registered with CTest — run them manually from `bin/`.
 
 When embedded in the zorm root project, mcp-cpp's tests are picked up by the root build; run them with
@@ -111,9 +112,21 @@ Key runtime facts:
   then longest literal prefix). Registered via `Builder::resourceTemplate()`.
 - **HTTP transport** (`transport_http.cpp`) keeps httplib out of the public header (pimpl). Single POST
   endpoint; GET/DELETE → 405, unknown method → 404, notifications → 202; validates mirrored headers
-  (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`) → `-32020` on mismatch. Subscriptions
-  upgrade the response to an SSE stream pumped on its own thread; `closeSubscriptions()` must be called
-  (or the destructor) to terminate those threads — see the P0 fix in `docs/mcp-cpp-review.md`.
+  (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`) → `-32020` on mismatch. A present
+  argument with an empty string value still mirrors a header (`setHeader` stores; `removeHeader` deletes —
+  they are distinct). Subscriptions upgrade the response to an SSE stream pumped on its own thread;
+  `closeSubscriptions()` must be called (or the destructor) to terminate those threads — see the P0 fix in
+  `docs/mcp-cpp-review.md`.
+- **`HttpClientTransport` runs background threads.** Each request POST streams its response on a worker
+  (a response may be a long-lived SSE stream, and the client must stay free to answer a mid-call
+  elicitation), and the GET listening stream owns a reconnect loop; `read()` gets messages only through
+  the queue. The destructor joins all three thread groups (`closeSubscriptions`, `closeRequestStreams`,
+  `closeListenStreams`). `sessionId`/`protocolVersion` live under `sharedMutex` — held alone, never nested
+  with `reqMutex`/`listenMutex`, so no lock-order cycle forms with the SSE drain (`reqMutex` → `listenMutex`).
+- **Legacy client surface.** `Client::initialize()` sends the pre-2026 handshake (metadata at the params
+  root, `capabilities` from the client's own config, adopting the negotiated version) and
+  `Client::onServerRequest()` answers server-initiated requests. `JsonRpcResult::id` is optional (absent on
+  legacy id-less results); the server never consumes results, so the encoder keeps the strict contract.
 
 ## zjson gotchas (this library's JSON layer)
 
@@ -137,5 +150,8 @@ Key runtime facts:
   `--mcp-serve-child` and talks newline-framed JSON-RPC over OS pipes (Windows + POSIX branches).
 - `tests/test_http_e2e.cpp` runs a real httplib server + client on a loopback ephemeral port (only built
   when `MCP_HAS_HTTP`).
+- `examples/conformance_client.cpp` is the official suite's client fixture (`docs/CONFORMANCE.md`); CI runs
+  it with `conformance-client` for both spec revisions, scenarios sequentially. It links only when the
+  HTTP transport is on, so a pure-stdio configure must not name it unconditionally.
 - `bench/bench_e2e.cpp` uses the same self-spawn trick with `--bench-child`.
 - `include/mcp/version.hpp`'s `kSdkVersion` and the repo-root `version.txt` must stay in sync.

@@ -3,7 +3,6 @@
 
 #include <mcp/transport_http.hpp>
 
-
 #if defined(MCP_HAS_HTTP)
 
 #include <httplib.h>
@@ -514,6 +513,10 @@ struct HttpClientTransport::Impl {
   std::set<httplib::Client*> activeRequestStreams;       // handles to stop()
   size_t requestThreads = 0;                             // still-running count
   bool requestStreamsClosed = false;
+  // `sessionId` and `protocolVersion` are written on the caller's thread and
+  // read on the GET-listen thread. A dedicated mutex keeps them out of the
+  // reqMutex -> listenMutex order the SSE drain uses, so no cycle can form.
+  std::mutex sharedMutex;
 
   // ---- listening stream (GET SSE; the 2025-era server->client channel) -----
   // 2025-11-25 servers deliver server-initiated requests (elicitation,
@@ -573,14 +576,16 @@ struct HttpClientTransport::Impl {
     return any ? out : std::string();
   }
 
-  void drainSseIntoQueue(std::string& acc) {
+  // Returns true when at least one message was queued.
+  bool drainSseIntoQueue(std::string& acc) {
     static const std::string kEndLf = "\n\n";
     static const std::string kEndCrLf = "\r\n\r\n";
+    bool queued = false;
     for (;;) {
       const size_t a = acc.find(kEndLf);
       const size_t b = acc.find(kEndCrLf);
       size_t pos, size;
-      if (a == std::string::npos && b == std::string::npos) return;
+      if (a == std::string::npos && b == std::string::npos) return queued;
       if (b == std::string::npos || (a != std::string::npos && a < b)) {
         pos = a; size = kEndLf.size();
       } else {
@@ -598,8 +603,19 @@ struct HttpClientTransport::Impl {
         if (!id.empty()) lastEventId = id;
         if (retry >= 0) retryMs = retry;
       }
-      if (!data.empty()) pushQueue(std::move(data));
+      if (!data.empty()) {
+        pushQueue(std::move(data));
+        queued = true;
+      }
     }
+  }
+
+  // Does the response so far look like an SSE stream rather than a JSON body?
+  // Peers prefix the events with `data:`/`event:`/`id:`/`retry:` or a comment.
+  static bool looksLikeSse(std::string_view acc) {
+    return acc.rfind("data:", 0) == 0 || acc.rfind("event:", 0) == 0 ||
+           acc.rfind("retry:", 0) == 0 || acc.rfind("id:", 0) == 0 ||
+           (acc.size() > 1 && acc[0] == ':');
   }
 
   void registerSubscription(httplib::Client* c) {
@@ -611,9 +627,6 @@ struct HttpClientTransport::Impl {
     activeSubscriptions.erase(c);
     if (--subscriptionThreads == 0) subCv.notify_all();
   }
-
-  // Fresh connection per SSE stream: keeps the shared cli single-threaded.
-  std::unique_ptr<httplib::Client> streamClient;
 
   Impl(std::string host, int port, std::string ep)
       : endpoint(std::move(ep)), cli(std::move(host), port) {}
@@ -634,7 +647,7 @@ HttpClientTransport::~HttpClientTransport() {
 }
 
 void HttpClientTransport::setProtocolVersion(ProtocolVersion v) {
-  std::lock_guard<std::mutex> lock(impl_->reqMutex);
+  std::lock_guard<std::mutex> lock(impl_->sharedMutex);
   impl_->protocolVersion = std::string(toString(v));
 }
 
@@ -712,7 +725,7 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     httplib::Headers responseHeaders;
     responseHeaders.emplace("Accept", "application/json, text/event-stream");
     {
-      std::lock_guard<std::mutex> lock(impl_->reqMutex);
+      std::lock_guard<std::mutex> lock(impl_->sharedMutex);
       if (!impl_->sessionId.empty()) {
         responseHeaders.emplace("Mcp-Session-Id", impl_->sessionId);
       }
@@ -742,8 +755,43 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     headers.emplace(k, v);
   }
   {
-    std::lock_guard<std::mutex> lock(impl_->reqMutex);
+    std::lock_guard<std::mutex> lock(impl_->sharedMutex);
     if (!impl_->sessionId.empty()) headers.emplace("Mcp-Session-Id", impl_->sessionId);
+  }
+
+  // A notification expects a 202 and carries no request id to key an
+  // asynchronous error to, so POST it synchronously: a transport failure must
+  // reach the caller (Client::cancel(), notifications/initialized) as an Err.
+  // A peer that multiplexes a response stream onto the notification POST is
+  // still drained into the queue rather than dropped.
+  if (request == nullptr) {
+    std::string acc;
+    bool isSse = false;
+    auto receiver = [&](const char* data, size_t len) -> bool {
+      {
+        std::lock_guard<std::mutex> lock(impl_->reqMutex);
+        if (impl_->requestStreamsClosed) return false;
+      }
+      acc.append(data, len);
+      if (!isSse && !acc.empty()) isSse = Impl::looksLikeSse(acc);
+      if (isSse) impl_->drainSseIntoQueue(acc);
+      return true;
+    };
+    auto res = impl_->cli.Post(impl_->endpoint.c_str(), headers, std::string(message),
+                               "application/json", receiver);
+    if (!res) {
+      return Err(McpErrorCode::InternalError,
+                 "http POST failed: " + httplib::to_string(res.error()));
+    }
+    if (isSse) {
+      impl_->drainSseIntoQueue(acc);
+    } else if (!acc.empty()) {
+      impl_->pushQueue(std::move(acc));
+    } else if (res->status >= 400) {
+      return Err(McpErrorCode::InternalError,
+                 "http POST returned status " + std::to_string(res->status));
+    }
+    return Ok();
   }
 
   // subscriptions/listen: the response is a long-lived SSE stream. Serve it
@@ -820,6 +868,7 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
   std::string body(message);
   auto stream = std::make_unique<httplib::Client>(impl_->cli.host(), impl_->cli.port());
   stream->set_connection_timeout(5);
+  stream->set_read_timeout(30, 0);  // match cli: a stream may stay open a while
   httplib::Client* raw = stream.get();
   {
     std::lock_guard<std::mutex> lock(impl_->reqMutex);
@@ -828,24 +877,20 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     impl_->activeRequestStreams.insert(raw);
   }
   std::thread([this, stream = std::move(stream), body = std::move(body),
-               headersCopy = std::move(headers), raw]() mutable {
-    std::string acc;      // response bytes not yet turned into queued messages
-    bool isSse = false;   // does the response look like an event stream?
+               headersCopy = std::move(headers), raw, isRequest = (request != nullptr)]() mutable {
+    std::string acc;       // response bytes not yet turned into queued messages
+    bool isSse = false;    // does the response look like an event stream?
+    bool delivered = false;  // did the stream deliver a message for this request?
     auto receiver = [&](const char* data, size_t len) -> bool {
       {
         std::lock_guard<std::mutex> lock(impl_->reqMutex);
         if (impl_->requestStreamsClosed) return false;
       }
       acc.append(data, len);
-      if (!isSse && !acc.empty()) {
-        // SSE framing: "data:"/"event:"/"retry:"/"id:"/comment lines.
-        isSse = acc.rfind("data:", 0) == 0 || acc.rfind("event:", 0) == 0 ||
-                acc.rfind("retry:", 0) == 0 || acc.rfind("id:", 0) == 0 ||
-                (acc[0] == ':' && acc.size() > 1);
-      }
+      if (!isSse && !acc.empty()) isSse = Impl::looksLikeSse(acc);
       if (isSse) {
         std::lock_guard<std::mutex> lock(impl_->reqMutex);
-        impl_->drainSseIntoQueue(acc);
+        delivered |= impl_->drainSseIntoQueue(acc);
       }
       return true;
     };
@@ -857,7 +902,7 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       // header is echoed only when a peer issued one.
       const std::string sid = result->get_header_value("Mcp-Session-Id");
       if (!sid.empty()) {
-        std::lock_guard<std::mutex> lock(impl_->reqMutex);
+        std::lock_guard<std::mutex> lock(impl_->sharedMutex);
         if (impl_->sessionId.empty()) impl_->sessionId = sid;
       }
       // Open the GET listening stream after the first successful exchange -
@@ -867,23 +912,29 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     {
       std::lock_guard<std::mutex> lock(impl_->reqMutex);
       if (isSse) {
-        impl_->drainSseIntoQueue(acc);
+        delivered |= impl_->drainSseIntoQueue(acc);
       } else if (!acc.empty()) {
         // application/json (or an error body) - one message line.
         impl_->pushQueue(std::move(acc));
+        delivered = true;
       }
     }
     // Surface failures the same way the wire would: as a message in the queue.
-    if (!result) {
-      JsonRpcErrorValue v;
-      v.code = static_cast<int32_t>(McpErrorCode::InternalError);
-      v.message = "http POST failed: " + httplib::to_string(result.error());
-      queueSyntheticError(body, v);
-    } else if (result->status >= 400 && !isSse && acc.empty()) {
-      JsonRpcErrorValue v;
-      v.code = static_cast<int32_t>(McpErrorCode::InternalError);
-      v.message = "http POST returned status " + std::to_string(result->status);
-      queueSyntheticError(body, v);
+    // Only when nothing was delivered - a stream that answered the request and
+    // then hit its read timeout must not inject a second, spurious error for an
+    // already-satisfied request id.
+    if (!delivered) {
+      if (!result) {
+        JsonRpcErrorValue v;
+        v.code = static_cast<int32_t>(McpErrorCode::InternalError);
+        v.message = "http POST failed: " + httplib::to_string(result.error());
+        queueSyntheticError(body, v);
+      } else if (result->status >= 400) {
+        JsonRpcErrorValue v;
+        v.code = static_cast<int32_t>(McpErrorCode::InternalError);
+        v.message = "http POST returned status " + std::to_string(result->status);
+        queueSyntheticError(body, v);
+      }
     }
     {
       std::lock_guard<std::mutex> lock(impl_->reqMutex);
@@ -895,12 +946,15 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     // (SEP-1699): force the listening stream to reconnect - a pending result
     // may be delivered on the reconnected stream. The listen loop applies the
     // advised retry delay when it reopens (see listenForced below).
-    if (result && result->status < 400 && !impl_->listenUnsupported) {
-      impl_->listenForced.store(true);
+    // Only when the POST answered nothing: a request whose response arrived
+    // inline (or a notification) has no pending result to recover, and
+    // reconnecting then would churn the GET stream for no reason.
+    if (result && result->status < 400 && isRequest && !delivered) {
       std::vector<httplib::Client*> toStop;
       {
         std::lock_guard<std::mutex> lock(impl_->listenMutex);
-        if (!impl_->listenClosed) {
+        if (!impl_->listenClosed && !impl_->listenUnsupported) {
+          impl_->listenForced.store(true);
           toStop.assign(impl_->activeListenStreams.begin(), impl_->activeListenStreams.end());
         }
       }
@@ -950,10 +1004,13 @@ void HttpClientTransport::openListenStreamOnce() {
       }
       httplib::Headers headers;
       headers.emplace("Accept", "text/event-stream");
-      headers.emplace("MCP-Protocol-Version", impl_->protocolVersion);
+      {
+        std::lock_guard<std::mutex> lock(impl_->sharedMutex);
+        headers.emplace("MCP-Protocol-Version", impl_->protocolVersion);
+        if (!impl_->sessionId.empty()) headers.emplace("Mcp-Session-Id", impl_->sessionId);
+      }
       {
         std::lock_guard<std::mutex> lock(impl_->listenMutex);
-        if (!impl_->sessionId.empty()) headers.emplace("Mcp-Session-Id", impl_->sessionId);
         if (!impl_->lastEventId.empty()) {
           headers.emplace("Last-Event-ID", impl_->lastEventId);
         }
@@ -965,36 +1022,7 @@ void HttpClientTransport::openListenStreamOnce() {
           if (impl_->listenClosed) return false;
         }
         acc.append(data, len);
-        std::deque<std::string> events;
-        {
-          static const std::string kEndLf = "\n\n";
-          static const std::string kEndCrLf = "\r\n\r\n";
-          for (;;) {
-            const size_t a = acc.find(kEndLf);
-            const size_t b = acc.find(kEndCrLf);
-            size_t pos, size;
-            if (a == std::string::npos && b == std::string::npos) break;
-            if (b == std::string::npos || (a != std::string::npos && a < b)) {
-              pos = a; size = kEndLf.size();
-            } else {
-              pos = b; size = kEndCrLf.size();
-            }
-            const std::string event = acc.substr(0, pos);
-            acc.erase(0, pos + size);
-            events.push_back(std::move(event));
-          }
-        }
-        for (auto& e : events) {
-          std::string id;
-          int retry = -1;
-          std::string data = Impl::sseEventData(e, &id, &retry);
-          {
-            std::lock_guard<std::mutex> lock(impl_->listenMutex);
-            if (!id.empty()) impl_->lastEventId = id;
-            if (retry >= 0) impl_->retryMs = retry;
-          }
-          if (!data.empty()) impl_->pushQueue(std::move(data));
-        }
+        impl_->drainSseIntoQueue(acc);
         return true;
       };
       auto result = raw->Get(impl_->endpoint.c_str(), headers, receiver);
@@ -1049,22 +1077,6 @@ void HttpClientTransport::closeListenStreams() {
   for (httplib::Client* c : toStop) c->stop();
   std::unique_lock<std::mutex> lock(impl_->listenMutex);
   impl_->listenCv.wait(lock, [&] { return impl_->listenThreads == 0; });
-}
-
-void HttpClientTransport::queueSseBody(const std::string& body) {
-  // Split SSE events: each `data: <json>` line is one queued message.
-  size_t pos = 0;
-  while (pos < body.size()) {
-    const size_t eol = body.find('\n', pos);
-    const std::string_view line = std::string_view(body).substr(
-        pos, eol == std::string::npos ? body.size() - pos : eol - pos);
-    if (line.rfind("data: ", 0) == 0) {
-      std::lock_guard<std::mutex> lock(impl_->queueMutex);
-      impl_->queue.push_back(std::string(line.substr(6)));
-    }
-    if (eol == std::string::npos) break;
-    pos = eol + 1;
-  }
 }
 
 }  // namespace http

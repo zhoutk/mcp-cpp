@@ -28,10 +28,11 @@
 
 | 事项 | 状态 |
 | --- | --- |
-| 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 26/30 |
-| 达到所有适用必需场景的 100% | 🔄 4 个受阻（服务器发起的请求；见下文） |
+| 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 2026-07-28：**42/42（100%）** · 2025-11-25：26/30 |
+| 达到所有适用必需场景的 100% | ✅ 2026-07-28 · 🔄 2025-11-25（4 个受阻，见下文） |
 | 发布 `conformance/report.json` + 一份 `--expected-failures` 基线 | ✅ |
-| 客户端模式的一致性运行（需要一个 `conformance_client` fixture） | ✅ 8 个场景通过（见 [docs/CONFORMANCE.zh-CN.md](docs/CONFORMANCE.zh-CN.md)） |
+| 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 两个规范版本各 8 个场景通过（见 [docs/CONFORMANCE.zh-CN.md](docs/CONFORMANCE.zh-CN.md)） |
+| 客户端模式 `--expected-failures` 基线（`auth/*` + 3 个 mock 不稳定场景，附 rust-sdk 证据） | ✅ |
 | 仓库内 **2026-07-28** 一致性测试套件（`mcp_test_conformance_2026`，12 个场景，含完整的 MRTR 往返） | ✅ |
 | 稳定的 **v1.0.0** 发布 | ⏳ |
 
@@ -69,4 +70,4 @@
 - Issue 分类：≤ 2 个工作日；严重（P0）缺陷：≤ 7 天。
 - 一致性任务在 `main` 上保持绿色。
 
-*最后更新：2026-10-09。*
+*最后更新：2026-10-15。*

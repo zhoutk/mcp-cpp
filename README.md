@@ -186,6 +186,18 @@ auto r = client.callTool("add", mcp::Json(R"({"a":2,"b":3})"), mcp::Json(nullptr
                          mcp::RequestId(std::string("progress-1")));
 ```
 
+To talk to a **pre-2026** server, run the legacy handshake instead — it adopts the
+negotiated version and completes with `notifications/initialized`:
+
+```cpp
+client.onServerRequest([](const std::string& method, const mcp::Json& params,
+                          const mcp::RequestId&) -> mcp::McpResult<mcp::Json> {
+  if (method == "elicitation/create") return mcp::Ok(/* ... */);
+  return mcp::Err(mcp::McpErrorCode::MethodNotFound, "unsupported");
+});
+client.initialize("2025-11-25", mcp::Implementation{"probe", "", "1.0", "", "", mcp::Json(nullptr)});
+```
+
 ## Ecosystem — built with mcp-cpp
 
 - **[zorm-mcp](https://github.com/zhoutk/zorm-mcp)** — a production MCP server
@@ -215,10 +227,11 @@ domain.
 ```
 include/mcp/   public headers (mcp.hpp aggregates everything)
 src/           compiled implementation
-tests/         googletest unit tests (10 CTest registrations, incl. real
+tests/         googletest unit tests (12 CTest registrations, incl. real
                subprocess stdio e2e and loopback HTTP/SSE e2e)
 bench/         B1 parse / B2 dispatch / B3 stdio e2e benchmarks
-examples/      minimal_server (Inspector-ready) + zorm_server
+examples/      minimal_server (Inspector-ready) + the two official-conformance
+               fixtures (conformance_server, conformance_client)
 cmake/         package config for find_package(mcp CONFIG)
 docs/          design, optimization, adoption and conformance docs
 ```

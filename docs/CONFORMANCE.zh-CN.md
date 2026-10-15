@@ -74,12 +74,15 @@ npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp \
 ```bash
 npx @modelcontextprotocol/conformance client \
   --command "bin/conformance_client" \
-  --scenario initialize --spec-version 2026-07-28 \
+  --scenario tools_call --spec-version 2026-07-28 \
   --expected-failures conformance/expected-failures.yaml \
-  --output json
+  -o conformance/out
 ```
 
-**客户端得分（2026-10-14，套件 0.2.0-alpha.12，串行运行）：**
+在 Windows 上套件通过 `cmd.exe` 启动命令，因此请带上可执行文件扩展名
+（`--command "bin\conformance_client.exe"`）。
+
+**客户端得分（2026-10-15 复验，套件 0.2.0-alpha.12，串行运行）：**
 
 | 场景 | 2025-11-25 | 2026-07-28 |
 | --- | --- | --- |
@@ -92,14 +95,15 @@ npx @modelcontextprotocol/conformance client \
 | `http-standard-headers` | n/a | 3/3 |
 | `http-custom-headers` | n/a | 18/18 |
 | `http-invalid-tool-headers` | n/a | 12/12 |
-| `sse-retry` | 3/3（间歇*） | n/a |
-| `elicitation-sep1034-client-defaults` | 间歇* | n/a |
+| `sse-retry` | 2/3（间歇*） | n/a |
+| `elicitation-sep1034-client-defaults` | 0/6（0/5）* | n/a |
 | `auth/*`（约 33 个场景） | 已基线——暂无 OAuth | 已基线 |
 
-\* 这三个场景可间歇通过，但在套件并行模式下失败；**官方 rust-sdk 参考客户端在
-相同环境下持续失败**（elicitation 0/5 ×3、sse-retry 0/1 ×2、sep-2322 0/5——
-2026-10-14 验证），说明问题出在套件 mock 的会话路由而非 SDK。它们已连同该证据
-一并基线化在
+\* 这三个场景已基线化。**官方 rust-sdk 参考客户端在相同环境下持续失败**
+（elicitation 0/5 ×3、sse-retry 0/1 ×2、sep-2322 0/5——2026-10-14 验证），
+说明问题出在套件 mock 的会话路由而非 SDK：mock 收到了客户端的 GET 流，却始终
+不发送 elicitation，只发 keepalive 直到场景超时。`sse-retry` 可间歇通过。
+2026-10-15 用改动前的代码做 A/B 复跑，结果一致。它们已连同该证据一并基线化在
 [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml)
 中；CI 按场景串行运行。
 

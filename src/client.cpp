@@ -67,7 +67,12 @@ McpResult<Json> Client::initialize(std::string_view protocolVersion,
                                    const Implementation& clientInfo) {
   Json params;
   params.add("protocolVersion", Json::str(std::string(protocolVersion)));
-  params.add("capabilities", Json(R"({})"));
+  // The legacy handshake declares the client's capabilities at the params
+  // root (no _meta envelope). A pre-2026 server gates server-initiated
+  // requests - elicitation, sampling, roots - on exactly these, so sending an
+  // empty object would suppress them.
+  params.add("capabilities",
+             clientCapabilities_.isObject() ? clientCapabilities_ : Json(R"({})"));
   params.add("clientInfo", encodeImplementation(clientInfo));
   auto result = exchange("initialize", std::move(params));
   if (!result.has_value()) return result;
@@ -122,7 +127,10 @@ McpResult<Json> Client::exchange(std::string_view method, const Json& params) {
       return Err(invalid->code, invalid->message);
     }
     if (const auto* err = std::get_if<JsonRpcErrorResponse>(&parsed)) {
-      if (err->id && *err->id == id) {
+      // An id-less error is the answer to the one outstanding request, exactly
+      // like an id-less result: JSON-RPC 2.0 lets an error carry "id": null when
+      // the request id was unreadable, and 2025-era peers do.
+      if (!err->id.has_value() || *err->id == id) {
         McpError e;
         e.code = static_cast<McpErrorCode>(err->error.code);
         e.message = err->error.message;
