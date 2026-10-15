@@ -3,7 +3,8 @@
 # mcp-cpp
 
 [![CI](https://github.com/zhoutk/mcp-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/zhoutk/mcp-cpp/actions/workflows/ci.yml)
-[![Conformance](https://img.shields.io/badge/conformance-26%20of%2030-blue)](conformance/report.json)
+[![Conformance server 2026-07-28](https://img.shields.io/badge/conformance%20server-100%25%20(42%2F42)-brightgreen)](conformance/report-2026-07-28.json)
+[![Conformance client 2026-07-28](https://img.shields.io/badge/conformance%20client-100%25%20(32%2F32%20scenarios%2C%20399%2F399)-brightgreen)](docs/CONFORMANCE.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](https://en.cppreference.com/w/cpp/17)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
