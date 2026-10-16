@@ -31,7 +31,8 @@ client:
   # this environment: its GET stream answers keepalives only, and the tool call
   # it is meant to drive never completes. The official rust-sdk reference
   # fixture fails it identically (0/5, and it crashes with 0xC0000005) - verified
-  # 2026-10-15 by building refer/rust-sdk and running the same scenario. It is a
+  # 2026-10-15 by building refer/rust-sdk and running the same scenario; filed
+  # upstream as modelcontextprotocol/conformance#557. It is a
   # mock defect, not an SDK one: mcp-cpp's client answers server-initiated
   # elicitation correctly (unit-tested, and green on the auth/* elicitation
   # scenarios), it simply never receives the request here.
