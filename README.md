@@ -22,7 +22,7 @@ C++ SDK**; this project is offered as one (see [ROADMAP.md](ROADMAP.md)).
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
-**Status:** v0.2.0, feature-complete per [PLAN.md](PLAN.md) §5. Against the
+**Status:** v0.3.0, feature-complete per [PLAN.md](PLAN.md) §5. Against the
 official conformance suite (v0.2.0-alpha.12) it passes **100% of the scored
 2026-07-28 server scenarios (42/42 checks)** — see
 [`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) and
@@ -31,11 +31,13 @@ official conformance suite (v0.2.0-alpha.12) it passes **100% of the scored
 mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
 [ROADMAP.md](ROADMAP.md).
 
-Post-0.2.0 hardening (see `CHANGELOG.md` → Unreleased): HTTP dispatch is now
+v0.3.0 is the review-hardening release (see `CHANGELOG.md`): HTTP dispatch is
 serialized across httplib's worker pool, subscriptions survive idle periods and
-reconnect, and the installed CMake package carries its platform link
-dependencies. **v0.3.0** is the next release; the remaining P1 items are tracked
-in [docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md).
+reconnect, the installed CMake package carries its platform link dependencies,
+and the full P1 list from
+[docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) is closed —
+protocol-level rejections answer HTTP 400, OAuth and schema inputs are
+hardened against hostile peers, and the concurrency suites run under TSan in CI.
 
 ---
 

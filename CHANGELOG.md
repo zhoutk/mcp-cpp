@@ -4,7 +4,12 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-10-19
+
+Behavior-correctness release: everything from the P0 review round plus the
+full P1 hardening list ([docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md),
+§六 tracks each item). The `Server` threading promise changed (see the first
+entry), which is why this is a MINOR bump.
 
 ### Fixed
 
@@ -45,6 +50,59 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `HttpE2E.SubscriptionSurvivesIdlePeriod` (5 s of silence, then a delivered
   notification).
 - `tests/consumer/` + CI jobs `install-consumer` and `tsan`.
+
+### Fixed (P1 hardening, second half)
+
+- **`read()` no longer fakes an EOF after 30 s of silence.** A quiet HTTP
+  connection is alive, and a result taking longer than 30 s looked like
+  "closed by peer". Blocking `read()` ends only on orderly transport teardown
+  (EOF) or a detected lost connection (error), with a reader-count handshake
+  in the destructor.
+- **A rejected subscription surfaces as an error.** A 4xx answer to the
+  `subscriptions/listen` POST (except 408/429) is delivered as a normal
+  JSON-RPC error for the listen request instead of being dropped.
+- **Cancellation map hardening.** Cancel keys are type-tagged (the number `1`
+  and the string `"1"` no longer collide), and parked (pre-registered) flags
+  are capped at 1024 with FIFO eviction, so cancels for arbitrary never-sent
+  ids cannot grow the map without bound.
+- **Protocol-level rejections answer HTTP 400**: the MCP-reserved range
+  (`-32020`/`-32021`/`-32022`) and a missing/ill-typed `_meta` envelope
+  (`-32602`). A tool-level `InvalidParams` stays 200.
+- **`-32021` is actually emitted.** Eliciting from a client that did not
+  declare the capability answers `MissingRequiredClientCapability` with
+  `data.requiredCapabilities` instead of `InternalError`; `toErrorValue`
+  no longer drops structured `error.data` on the way to the wire.
+- **Origin policy matches the HOST exactly.** The old prefix match admitted
+  `http://localhost.evil.example` (DNS rebinding). Any port is allowed;
+  scheme must be http/https; `[::1]` is accepted.
+- **Empty header values round-trip.** An empty `Mcp-Param-*` value was wrapped
+  in the base64 sentinel in a form the decoder could not read, failing header
+  validation forever; the empty string now travels plain.
+- **OAuth hardening.** URL ports are bounds-checked; `makeClient` no longer
+  throws (https without a TLS backend threw from the constructor; requests on
+  an invalid client dereferenced null internals); OAuth credentials are
+  refused over plain http except to loopback hosts; and the authorization
+  server must advertise PKCE S256 — a missing
+  `code_challenge_methods_supported` is a rejection, not a silent downgrade.
+- **Schema hardening.** `maxChecks` is a global budget (the anyOf/oneOf/not
+  probes each reset it, so nested schemas could burn minutes of CPU);
+  `$ref` is evaluated together with its sibling keywords (2020-12); JSON
+  Pointer indices are hand-parsed (no `std::stoi` throw) and resolve by direct
+  member lookup (no `operator[]` deep search); `minProperties`/`maxProperties`
+  count real properties (`Json::size()` returns -1 for objects — both were
+  inert); property keys compare as full strings (an embedded NUL could spoof a
+  declared key past `additionalProperties:false`); `prefixItems` is
+  implemented.
+- **Legacy version gate.** The relaxed `_meta` fill uses the server's oldest
+  supported version, so a legacy server supporting only 2025-03-26 no longer
+  rejects its first meta-less request with `-32022`.
+
+### Added (phase C)
+
+- CI jobs: `cxx23` (headers compile as C++23 with `-Werror`) and `stdio-only`
+  (`MCP_DISABLE_HTTP=ON` builds and passes its suites).
+- Every registered test has a CTest `TIMEOUT`; test-server startup loops wait
+  with a deadline instead of spinning forever.
 
 ## [0.2.0] - 2026-10-15
 

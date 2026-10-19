@@ -22,7 +22,7 @@ Everything a consumer or reviewer needs to take the project seriously.
 | Client wrappers (`listResources`, `listPrompts`, `complete`) | ✅ |
 | `ROADMAP.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md` | ✅ |
 | `.github/` issue + PR templates, triage labels | ✅ |
-| GitHub Actions CI matrix (Linux/macOS/Windows × clang/gcc/msvc) | 🔄 |
+| GitHub Actions CI matrix (Linux/macOS/Windows × clang/gcc/msvc), plus TSan, sanitizer, install-consumer, C++23 and stdio-only jobs | ✅ |
 | vcpkg port | ⏳ |
 
 ## Milestone B — Conformant (Tier 2)

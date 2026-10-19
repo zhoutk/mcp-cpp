@@ -21,16 +21,17 @@ SDK**；本项目即是作为其中之一而提供的（见 [ROADMAP.md](ROADMAP
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
-**状态：** v0.2.0，按 [PLAN.md](PLAN.md) §5 功能已完备。针对官方一致性测试套件
+**状态：** v0.3.0，按 [PLAN.md](PLAN.md) §5 功能已完备。针对官方一致性测试套件
 （v0.2.0-alpha.12），它通过了 **100% 的计分 2026-07-28 服务端场景（42/42 项检查）**——参见
 [`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) 和
 [docs/CONFORMANCE.md](docs/CONFORMANCE.md)。2025-11-25 套件为 26/30；其余四个需要服务器
 在调用中途向客户端*请求*某些东西，而 2026-07-28 已用 MRTR 取代了该机制。公开路线图见
 [ROADMAP.md](ROADMAP.md)。
 
-0.2.0 之后的加固（见 `CHANGELOG.md` 的 Unreleased 段）：HTTP 派发在 httplib worker 池上
-串行化，订阅能熬过空闲期并自动重连，安装后的 CMake 包带上了平台链接依赖。下一个版本为
-**v0.3.0**；剩余 P1 项记录在 [docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md)。
+v0.3.0 是评审加固版本（见 `CHANGELOG.md`）：HTTP 派发在 httplib worker 池上串行化，订阅
+能熬过空闲期并自动重连，安装后的 CMake 包带上了平台链接依赖，
+[docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) 中的全部 P1 项已收口——协议级
+拒绝回 HTTP 400，OAuth 与 schema 输入对恶意对端加固，并发套件在 CI 中跑 TSan。
 
 ---
 

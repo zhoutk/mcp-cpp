@@ -21,7 +21,7 @@
 | 客户端封装（`listResources`、`listPrompts`、`complete`） | ✅ |
 | `ROADMAP.md`、`CONTRIBUTING.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md`、`CHANGELOG.md` | ✅ |
 | `.github/` issue + PR 模板、分类标签 | ✅ |
-| GitHub Actions CI 矩阵（Linux/macOS/Windows × clang/gcc/msvc） | 🔄 |
+| GitHub Actions CI 矩阵（Linux/macOS/Windows × clang/gcc/msvc），另含 TSan、消毒器、install-consumer、C++23 与纯 stdio 任务 | ✅ |
 | vcpkg port | ⏳ |
 
 ## 里程碑 B —— 符合规范（Tier 2）
