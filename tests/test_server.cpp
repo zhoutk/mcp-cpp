@@ -343,6 +343,44 @@ TEST(ServerCancellation, ParkedCancelsAreCapped) {
   EXPECT_TRUE(freshResult->result["cancelled"].isTrue());
 }
 
+// ---- protocol error shapes ----------------------------------------------------------
+
+// MissingRequiredClientCapability (-32021) is emitted - with the missing
+// capability in data.requiredCapabilities - when a handler elicits from a
+// client that did not declare the capability. Previously this was
+// InternalError, which blamed the server for a client-side violation.
+TEST(ServerProtocolErrors, InputRequiredWithoutClientCapabilityIs32021) {
+  Builder b;
+  b.simpleTool("ask", "elicits", [](Ctx& c) -> McpResult<Json> {
+    return c.elicit("continue?", Json(R"({"type":"object"})"), "");
+  });
+  auto server = b.build();
+
+  // encodeRequestMeta sends an empty clientCapabilities object.
+  Out o = serveOnce(server, makeRequest("e1", "tools/call", Json(R"({"name":"ask"})")));
+  ASSERT_NE(o.error, nullptr);
+  EXPECT_EQ(o.error->error.code, -32021);
+  const Json required = o.error->error.data["requiredCapabilities"];
+  ASSERT_TRUE(required.isArray());
+  ASSERT_EQ(required.size(), 1u);
+  EXPECT_EQ(required[0].toString(), "elicitation");
+}
+
+// The HTTP layer maps a missing/ill-typed _meta (InvalidParams) onto 400 by
+// matching the "_meta" marker in decodeRequestMeta's messages. Lock those
+// messages: a rewording that drops the marker silently changes the status.
+TEST(ServerProtocolErrors, MetaErrorMessagesCarryTheHttpMarker) {
+  auto server = makeToolServer();
+  // A request WITHOUT the _meta envelope (makeRequest always adds it, so this
+  // one is built by hand).
+  Json p = Json(R"({"name":"echo","arguments":{"text":"x"}})");
+  Out noMeta = serveOnce(
+      server, encodeRequest(RequestId(int64_t(7)), "tools/call", std::move(p)));
+  ASSERT_NE(noMeta.error, nullptr);
+  EXPECT_EQ(noMeta.error->error.code, -32602);
+  EXPECT_NE(noMeta.error->error.message.find("_meta"), std::string::npos);
+}
+
 // ---- tools --------------------------------------------------------------------------
 
 TEST(ServerTools, ListAndCall) {

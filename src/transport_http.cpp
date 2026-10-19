@@ -239,6 +239,26 @@ struct HttpServerTransport::Impl {
     });
   }
 
+  // Maps a single-line server response onto the HTTP status. The 2026 spec
+  // answers protocol-level rejections with 400: an unsupported protocol
+  // version (-32022), a missing required client capability (-32021), a
+  // mirrored-header mismatch (-32020; rejected above) - the whole MCP-reserved
+  // range - and a request whose _meta envelope is missing or ill-typed
+  // (InvalidParams carrying the "_meta" marker from decodeRequestMeta). A TOOL
+  // or handler InvalidParams must stay 200 with its JSON-RPC error body, so
+  // the marker matters. test_server.cpp locks the _meta marker messages.
+  static int statusForResponseLine(const std::string& line) {
+    const ParsedMessage parsed = parseMessage(line);
+    const auto* err = std::get_if<JsonRpcErrorResponse>(&parsed);
+    if (err == nullptr) return 200;
+    if (isMcpReservedCode(err->error.code)) return 400;
+    if (err->error.code == static_cast<int32_t>(McpErrorCode::InvalidParams) &&
+        err->error.message.find("_meta") != std::string::npos) {
+      return 400;
+    }
+    return 200;
+  }
+
   void handlePost(const httplib::Request& req, httplib::Response& res) {
     // 1. Origin validation.
     const std::string origin = req.get_header_value("Origin");
@@ -303,7 +323,7 @@ struct HttpServerTransport::Impl {
       return;
     }
     if (lines.size() == 1) {
-      res.status = 200;
+      res.status = statusForResponseLine(lines[0]);
       res.set_content(lines[0], "application/json");
       return;
     }

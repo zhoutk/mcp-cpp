@@ -40,6 +40,9 @@ struct Fixture {
       result.add("echoed", Json::str(c.params["arguments"]["text"].toString()));
       return Ok(std::move(result));
     });
+    b.simpleTool("fail", "always errors", [](Ctx&) -> McpResult<Json> {
+      return Err(McpErrorCode::InvalidParams, "intentional failure");
+    });
     b.resource(Json(R"({"uri":"file:///motd","name":"motd"})"),
                [](Ctx&) -> McpResult<Json> {
                  Json result;
@@ -78,6 +81,20 @@ struct Fixture {
 
   std::vector<std::unique_ptr<HttpClientTransport>> transports_;
 };
+
+// Builds a modern request line with the required _meta (for raw-POST tests
+// that bypass the Client wrapper).
+std::string makeModernRequestLine(const std::string& id, const std::string& method,
+                                  const Json& extraParams,
+                                  const std::string& version = "2026-07-28") {
+  Json params = encodeRequestMeta(version, Json(R"({})"), std::nullopt);
+  if (extraParams.isObject()) {
+    for (const auto& item : extraParams.getAllKeys().toVector()) {
+      params.add(item.toString(), extraParams[item.toString()]);
+    }
+  }
+  return encodeRequest(RequestId(id), method, params);
+}
 
 }  // namespace
 
@@ -329,6 +346,58 @@ TEST(HttpClientTransport, ReadBlocksWhileIdleAndReturnsEofOnShutdown) {
     reader.detach();  // already failed; avoid blocking the suite on teardown
   }
   EXPECT_TRUE(eof);
+}
+
+// Protocol-level rejections answer HTTP 400 (2026 streamable HTTP): an
+// unsupported protocol version (-32022) and a missing _meta envelope
+// (-32602). A TOOL-level InvalidParams stays 200 with its JSON-RPC error.
+// The mirrored headers are SENT correctly in all three cases, so the
+// transport's own header validation passes and the SERVER produces the
+// error whose code picks the status.
+TEST(HttpE2E, ProtocolRejectionsAreHttp400ToolErrorsStay200) {
+  Fixture f;
+  httplib::Client raw("127.0.0.1", f.port);
+  raw.set_connection_timeout(5);
+  raw.set_read_timeout(10, 0);
+  auto post = [&raw](const httplib::Headers& headers, const std::string& body) {
+    return raw.Post("/mcp", headers, body, "application/json");
+  };
+  auto expectStatus = [](const httplib::Result& res, int status, int32_t code) {
+    ASSERT_TRUE(res) << "no response";
+    EXPECT_EQ(res->status, status);
+    const ParsedMessage parsed = parseMessage(res->body);
+    const auto* err = std::get_if<JsonRpcErrorResponse>(&parsed);
+    ASSERT_NE(err, nullptr);
+    EXPECT_EQ(err->error.code, code);
+  };
+
+  // Unsupported protocol version -> -32022 -> 400. Header and body agree on
+  // the unsupported version (a mismatch would be -32020 first).
+  {
+    httplib::Headers headers = {{"MCP-Protocol-Version", "2024-11-05"},
+                                {"Mcp-Method", "tools/list"}};
+    expectStatus(post(headers, makeModernRequestLine("1", "tools/list", Json(nullptr),
+                                                     "2024-11-05")),
+                 400, -32022);
+  }
+
+  // Missing _meta -> -32602 -> 400.
+  {
+    httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                                {"Mcp-Method", "tools/list"}};
+    expectStatus(post(headers, encodeRequest(RequestId("2"), "tools/list", Json(R"({})"))),
+                 400, -32602);
+  }
+
+  // A tool that fails -> -32602 WITHOUT the _meta marker -> 200.
+  {
+    httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                                {"Mcp-Method", "tools/call"},
+                                {"Mcp-Name", "fail"}};
+    expectStatus(post(headers, makeModernRequestLine("3", "tools/call",
+                                                     Json(R"({"name":"fail"})"))),
+                 200, -32602);
+  }
 }
 
 TEST(HttpClientTransport, PostFailureSurfacesAsAnError) {

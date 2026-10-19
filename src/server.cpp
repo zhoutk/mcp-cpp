@@ -65,7 +65,9 @@ JsonRpcErrorValue toErrorValue(McpErrorCode code, std::string message) {
 }
 
 JsonRpcErrorValue toErrorValue(const McpError& e) {
-  return toErrorValue(e.code, e.message);
+  JsonRpcErrorValue v = toErrorValue(e.code, e.message);
+  v.data = e.data;  // structured payloads (e.g. -32021 requiredCapabilities) survive
+  return v;
 }
 
 const MethodRoute* findRoute(std::string_view method) {
@@ -251,9 +253,19 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
         }
         // Spec: MUST NOT request something the client did not declare.
         if (!capabilitiesInclude(meta.clientCapabilities, capability)) {
-          return Err(McpErrorCode::InternalError,
-                     "client did not declare the '" + std::string(capability) +
-                         "' capability required by " + std::string(method.toString()));
+          // MissingRequiredClientCapability (-32021) with the missing
+          // capability in data - not InternalError, which would blame the
+          // server for a client-side protocol violation.
+          McpError e;
+          e.code = McpErrorCode::MissingRequiredClientCapability;
+          e.message = "client did not declare the '" + std::string(capability) +
+                      "' capability required by " + std::string(method.toString());
+          Json required = Json("[]");
+          required.push_back(Json::str(std::string(capability)));
+          Json data;
+          data.add("requiredCapabilities", std::move(required));
+          e.data = std::move(data);
+          return Err(std::move(e));
         }
       }
     }

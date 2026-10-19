@@ -278,8 +278,15 @@ TEST(Conformance2026, MrtrRejectsUndeclaredClientCapability) {
   auto parsed = parseMessage(out);
   auto* err = std::get_if<JsonRpcErrorResponse>(&parsed);
   ASSERT_NE(err, nullptr);
-  EXPECT_EQ(err->error.code, static_cast<int32_t>(McpErrorCode::InternalError));
+  // MissingRequiredClientCapability (-32021) with the missing capability in
+  // data.requiredCapabilities - not InternalError, which would blame the
+  // server for a client-side violation.
+  EXPECT_EQ(err->error.code,
+            static_cast<int32_t>(McpErrorCode::MissingRequiredClientCapability));
   EXPECT_NE(err->error.message.find("elicitation"), std::string::npos);
+  const Json required = err->error.data["requiredCapabilities"];
+  ASSERT_TRUE(required.isArray());
+  EXPECT_EQ(required[0].toString(), "elicitation");
 }
 
 TEST(Conformance2026, MrtrNotAllowedOnUnsupportedMethods) {
