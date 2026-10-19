@@ -68,6 +68,16 @@ struct Ctx {
   // Best-effort: write errors are ignored. A no-op on one-shot transports.
   std::function<void(const std::string& method, Json params)> notify;
 
+  // Structured logging (utilities/logging): emits notifications/message with
+  // {level, data, logger} plus the level echoed in _meta
+  // (io.modelcontextprotocol/logLevel) for 2026 clients. `level` is one of
+  // debug/info/notice/warning/error/critical/alert/emergency; the message is
+  // DROPPED when its severity ranks below the request's _meta logLevel (if
+  // the client sent one) or the server's configured threshold (Builder::
+  // logLevel / legacy logging/setLevel). Unknown levels pass unfiltered.
+  // Best-effort like notify().
+  std::function<void(const std::string& level, const std::string& message)> log;
+
   // Builds an InputRequiredResult (MRTR, basic/patterns/mrtr.md) for this
   // request. `inputRequests` maps server-assigned ids to request objects
   // (elicitation/create, sampling/createMessage, roots/list); `requestState` is
@@ -336,6 +346,9 @@ class Builder {
   // On by default with ttlMs 0 (required by 2026-07-28); pass a positive ttlMs
   // to let clients cache, or -1 to omit the fields entirely.
   Builder& listCache(long ttlMs, std::string cacheScope = "public");
+  // Default severity threshold for Ctx::log (debug..emergency). A client may
+  // raise or lower it per request via _meta io.modelcontextprotocol/logLevel.
+  Builder& logLevel(std::string level);
 
   // Dual-era server: also accept LEGACY clients (initialize handshake, no
   // per-request _meta - e.g. Claude Code / VS Code on protocol revisions

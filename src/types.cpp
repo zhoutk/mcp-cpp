@@ -128,6 +128,8 @@ McpResult<RequestMeta> decodeRequestMeta(const Json& params) {
   if (info.isObject()) m.clientInfo = decodeImplementation(info);
   const Json token = member(meta, kMetaProgressToken);
   if (token.isString() || token.isNumber()) m.progressToken = decodeRequestId(token);
+  const Json level = member(meta, kMetaLogLevel);
+  if (level.isString()) m.logLevel = std::string(level.toString());
   return Ok(std::move(m));
 }
 
@@ -177,6 +179,8 @@ McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params,
   if (info.isObject()) m.clientInfo = decodeImplementation(info);
   const Json token = member(meta, kMetaProgressToken);
   if (token.isString() || token.isNumber()) m.progressToken = decodeRequestId(token);
+  const Json level = member(meta, kMetaLogLevel);
+  if (level.isString()) m.logLevel = std::string(level.toString());
   return Ok(std::move(m));
 }
 

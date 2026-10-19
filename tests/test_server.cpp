@@ -1048,6 +1048,84 @@ TEST(ServerProgress, SilentWithoutToken) {
   // Exactly one message (the result) - serveOnce already asserts output size 1.
 }
 
+// ---- Ctx::log (utilities/logging) --------------------------------------------------
+
+// Ctx::log emits notifications/message with level/data/logger and the level
+// echoed in _meta (io.modelcontextprotocol/logLevel) for 2026 clients.
+TEST(ServerLogging, LogEmitsMessageWithMetaLevel) {
+  Builder b;
+  b.name("logger-server");
+  b.simpleTool("emit", "logs", [](Ctx& c) -> McpResult<Json> {
+    c.log("warning", "disk nearly full");
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+  MemTransport t({});
+  server->processLine(
+      makeRequest("1", "tools/call", Json(R"({"name":"emit","arguments":{}})")), t);
+  ASSERT_EQ(t.output_.size(), 2u);
+  const ParsedMessage parsed = parseMessage(t.output_[0]);
+  const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
+  ASSERT_NE(notif, nullptr);
+  EXPECT_EQ(notif->method, "notifications/message");
+  EXPECT_EQ(member(notif->params, "level").toString(), "warning");
+  EXPECT_EQ(member(notif->params, "data").toString(), "disk nearly full");
+  EXPECT_EQ(member(notif->params, "logger").toString(), "logger-server");
+  const Json meta = member(notif->params, "_meta");
+  EXPECT_EQ(member(meta, std::string(kMetaLogLevel)).toString(), "warning");
+}
+
+// The request's _meta logLevel is the threshold: below it, messages are
+// dropped; at or above it, they pass.
+TEST(ServerLogging, RequestMetaLogLevelFilters) {
+  Builder b;
+  b.simpleTool("emit", "logs", [](Ctx& c) -> McpResult<Json> {
+    c.log("info", "chatty");
+    c.log("error", "important");
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+
+  // The client asks for "error" and up: the info line is filtered out.
+  // Built by hand: encodeRequestMeta has no logLevel parameter, and mutating
+  // a fetched copy would not stick.
+  Json meta = Json(R"({})");
+  meta.add(std::string(kMetaProtocolVersion), Json::str("2026-07-28"));
+  meta.add(std::string(kMetaClientCapabilities), Json(R"({})"));
+  meta.add(std::string(kMetaLogLevel), Json::str("error"));
+  Json params = Json(R"({})");
+  params.add("_meta", std::move(meta));
+  params.add("name", Json::str("emit"));
+  params.add("arguments", Json(R"({})"));
+  MemTransport t({});
+  server->processLine(encodeRequest(RequestId("1"), "tools/call", params), t);
+  ASSERT_EQ(t.output_.size(), 2u);  // one error log + the result
+  const ParsedMessage parsed = parseMessage(t.output_[0]);
+  const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
+  ASSERT_NE(notif, nullptr);
+  EXPECT_EQ(member(notif->params, "level").toString(), "error");
+}
+
+// Without a request _meta level, the server's configured threshold applies.
+TEST(ServerLogging, ServerLogLevelFilters) {
+  Builder b;
+  b.logLevel("warning");
+  b.simpleTool("emit", "logs", [](Ctx& c) -> McpResult<Json> {
+    c.log("info", "chatty");     // below the threshold -> dropped
+    c.log("critical", "boom");
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+  MemTransport t({});
+  server->processLine(
+      makeRequest("1", "tools/call", Json(R"({"name":"emit","arguments":{}})")), t);
+  ASSERT_EQ(t.output_.size(), 2u);
+  const ParsedMessage parsed = parseMessage(t.output_[0]);
+  const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
+  ASSERT_NE(notif, nullptr);
+  EXPECT_EQ(member(notif->params, "level").toString(), "critical");
+}
+
 TEST(ServerProgress, ArbitraryNotificationReachesTransport) {
   Builder b;
   b.simpleTool("log", "logs", [](Ctx& c) -> McpResult<Json> {

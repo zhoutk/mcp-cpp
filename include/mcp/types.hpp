@@ -122,6 +122,10 @@ struct RequestMeta {
   // this request (basic/patterns/progress.md: string or integer, unique across
   // active requests). Empty when the client did not opt in.
   std::optional<RequestId> progressToken;
+  // params._meta.io.modelcontextprotocol/logLevel: the minimum severity the
+  // client wants for this request's notifications/message events (utilities/
+  // logging). Empty when the client did not send one.
+  std::string logLevel;
   // True when _meta carried the modern-required fields (protocolVersion +
   // clientCapabilities). Strict callers reject !complete; relaxed callers
   // (legacy mode) serve such requests with defaults.

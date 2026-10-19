@@ -167,6 +167,7 @@ Server::Server(Server&& other) noexcept
       listTtlMs_(other.listTtlMs_),
       acceptLegacy_(other.acceptLegacy_),
       listCacheScope_(std::move(other.listCacheScope_)),
+      logLevel_(std::move(other.logLevel_)),
       name_(std::move(other.name_)),
       version_(std::move(other.version_)),
       completionsHandler_(std::move(other.completionsHandler_)),
@@ -217,8 +218,36 @@ int64_t unixNowSeconds() {
 Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
                     const std::function<bool()>& cancelled, const NotifyFn& notify,
                     std::string stateContext) const {
-  Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}};
+  Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}, {}};
   ctx.notify = notify;
+  // Structured logging (see Ctx::log in server.hpp). Threshold: the request's
+  // _meta logLevel when the client sent one, else the server's configured
+  // level (Builder::logLevel / legacy logging/setLevel).
+  ctx.log = [notify, logger = name_, serverLevel = logLevel_, requestLevel = meta.logLevel](
+                const std::string& level, const std::string& message) {
+    static constexpr std::string_view kLevels[] = {"debug",    "info",     "notice",
+                                                   "warning",  "error",    "critical",
+                                                   "alert",    "emergency"};
+    const auto rank = [&](std::string_view l) -> int {
+      for (int i = 0; i < 8; ++i)
+        if (kLevels[i] == l) return i;
+      return -1;
+    };
+    const int have = rank(level);
+    const std::string& threshold = !requestLevel.empty() ? requestLevel : serverLevel;
+    const int max = rank(threshold);
+    if (have >= 0 && max >= 0 && have < max) return;  // below the threshold
+    Json p;
+    p.add("level", Json::str(level));
+    p.add("data", Json::str(message));
+    if (!logger.empty()) p.add("logger", Json::str(logger));
+    // 2026 clients read the level from _meta; the root member stays for
+    // pre-2026 clients.
+    Json m = Json(R"({})");
+    m.add(std::string(kMetaLogLevel), Json::str(level));
+    p.add("_meta", std::move(m));
+    notify("notifications/message", std::move(p));
+  };
   ctx.progress = [notify, token = meta.progressToken](double value, double total,
                                                       const std::string& message) {
     if (!token) return;  // client did not opt in to progress for this request
@@ -901,6 +930,11 @@ Builder& Builder::requestStateCodec(RequestStateCodec codec) {
 Builder& Builder::listCache(long ttlMs, std::string cacheScope) {
   server_.listTtlMs_ = ttlMs;
   server_.listCacheScope_ = std::move(cacheScope);
+  return *this;
+}
+
+Builder& Builder::logLevel(std::string level) {
+  server_.logLevel_ = std::move(level);
   return *this;
 }
 
