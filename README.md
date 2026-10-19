@@ -31,6 +31,12 @@ official conformance suite (v0.2.0-alpha.12) it passes **100% of the scored
 mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
 [ROADMAP.md](ROADMAP.md).
 
+Post-0.2.0 hardening (see `CHANGELOG.md` → Unreleased): HTTP dispatch is now
+serialized across httplib's worker pool, subscriptions survive idle periods and
+reconnect, and the installed CMake package carries its platform link
+dependencies. **v0.3.0** is the next release; the remaining P1 items are tracked
+in [docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md).
+
 ---
 
 ## Why mcp-cpp

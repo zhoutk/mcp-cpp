@@ -16,6 +16,7 @@
 #include <set>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace mcp {
 namespace http {
@@ -369,9 +370,13 @@ struct HttpServerTransport::Impl {
                                       });
 
           // Pump until the client disconnects or the server is stopped.
+          // The keep-alive comment also bounds how long a client can take to
+          // notice a closure: httplib's Client::stop() does not always
+          // interrupt a blocked read on Windows, so the client wakes on the
+          // next keep-alive. 5 s keeps shutdown responsive without chattering.
           while (running.load()) {
             std::string line;
-            const int got = pump->waitPop(line, 15000);  // keep-alive cadence
+            const int got = pump->waitPop(line, 5000);  // keep-alive cadence
             if (got == 1) {
               std::string event = "data: ";
               event += line;
@@ -451,7 +456,7 @@ void HttpServerTransport::stop() {
   // threads, and is_running() only clears after that join - the providers
   // would deadlock waiting on it. Each open subscription's pump is closed
   // first so its chunked_content_provider exits its waitPop immediately
-  // instead of idling up to the 15s keep-alive cadence.
+  // instead of idling up to the keep-alive cadence.
   impl_->running = false;
   {
     std::lock_guard<std::mutex> lock(impl_->pumpMutex);
@@ -580,6 +585,48 @@ struct HttpClientTransport::Impl {
     return any ? out : std::string();
   }
 
+  // SSE retry advice is peer-controlled. Clamp it so a hostile or buggy peer
+  // cannot make a reconnect wait for weeks (the old atoi path could overflow
+  // and sleep for INT_MAX ms). Applies to both the listening stream and a
+  // subscription reconnect.
+  static int clampRetryMs(int ms) {
+    constexpr int kMinMs = 100;
+    constexpr int kMaxMs = 30000;
+    if (ms <= 0) return kMinMs;
+    return ms > kMaxMs ? kMaxMs : ms;
+  }
+
+  // Splits every complete event ("\n\n" or "\r\n\r\n" terminated) out of
+  // `acc`, returning the concatenated data payload of each event. Used by the
+  // subscription reconnect loop; drainSseIntoQueue does the same while also
+  // tracking id/retry.
+  static void extractSseEvents(std::string& acc, std::vector<std::string>& out) {
+    static const std::string kEndLf = "\n\n";
+    static const std::string kEndCrLf = "\r\n\r\n";
+    for (;;) {
+      const size_t a = acc.find(kEndLf);
+      const size_t b = acc.find(kEndCrLf);
+      size_t pos, size;
+      if (a == std::string::npos && b == std::string::npos) return;
+      if (b == std::string::npos || (a != std::string::npos && a < b)) {
+        pos = a;
+        size = kEndLf.size();
+      } else {
+        pos = b;
+        size = kEndCrLf.size();
+      }
+      std::string event = acc.substr(0, pos);
+      acc.erase(0, pos + size);
+      std::string data = sseEventData(event);
+      if (!data.empty()) out.push_back(std::move(data));
+    }
+  }
+
+  bool subscriptionShutdown() {
+    std::lock_guard<std::mutex> lock(subMutex);
+    return subscriptionsClosed;
+  }
+
   // Returns true when at least one message was queued.
   bool drainSseIntoQueue(std::string& acc) {
     static const std::string kEndLf = "\n\n";
@@ -620,16 +667,6 @@ struct HttpClientTransport::Impl {
     return acc.rfind("data:", 0) == 0 || acc.rfind("event:", 0) == 0 ||
            acc.rfind("retry:", 0) == 0 || acc.rfind("id:", 0) == 0 ||
            (acc.size() > 1 && acc[0] == ':');
-  }
-
-  void registerSubscription(httplib::Client* c) {
-    std::lock_guard<std::mutex> lock(subMutex);
-    activeSubscriptions.insert(c);
-  }
-  void unregisterSubscription(httplib::Client* c) {
-    std::lock_guard<std::mutex> lock(subMutex);
-    activeSubscriptions.erase(c);
-    if (--subscriptionThreads == 0) subCv.notify_all();
   }
 
   Impl(std::string host, int port, std::string ep)
@@ -705,8 +742,10 @@ void HttpClientTransport::closeSubscriptions() {
     impl_->subscriptionsClosed = true;
     toStop.assign(impl_->activeSubscriptions.begin(), impl_->activeSubscriptions.end());
   }
-  // Stop() forces the blocked Post to return promptly; each background
-  // thread then unregisters itself and signals completion.
+  // Stop() forces the blocked Post to return promptly; the reconnect wait is
+  // woken by the notification. Each background thread then decrements the
+  // count and signals completion.
+  impl_->subCv.notify_all();
   for (httplib::Client* c : toStop) c->stop();
   std::unique_lock<std::mutex> lock(impl_->subMutex);
   impl_->subCv.wait(lock, [&] { return impl_->subscriptionThreads == 0; });
@@ -819,17 +858,17 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
   }
 
   // subscriptions/listen: the response is a long-lived SSE stream. Serve it
-  // on a background thread with a dedicated connection so the client loop
+  // on one background thread with a dedicated connection so the client loop
   // stays responsive; the acknowledgment is queued like any other message.
+  // The thread RECONNECTS while the transport is alive: a subscription is a
+  // durable channel, not a single HTTP request.
   if (request != nullptr && request->method == "subscriptions/listen") {
     std::string body(message);
     auto headersCopy = headers;
-    auto stream = std::make_unique<httplib::Client>(impl_->cli.host(), impl_->cli.port());
-    stream->set_connection_timeout(5);
-    stream->set_read_timeout(1, 0);  // 1s cadence so closeSubscriptions() can break in
-    httplib::Client* raw = stream.get();
+    const std::string host = impl_->cli.host();
+    const int port = impl_->cli.port();
 
-    // Register the handle BEFORE the thread starts so a racing
+    // Register the thread slot BEFORE it starts so a racing
     // closeSubscriptions() sees it (or the thread's already-stopped flag).
     {
       std::lock_guard<std::mutex> lock(impl_->subMutex);
@@ -837,51 +876,91 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
         return Ok();  // transport already shut down; don't start a stream
       }
       ++impl_->subscriptionThreads;
-      impl_->activeSubscriptions.insert(raw);
     }
 
-    std::thread([this, stream = std::move(stream), body = std::move(body),
-                 headersCopy = std::move(headersCopy), raw]() mutable {
-      std::string acc;
-      auto receiver = [this, &acc](const char* data, size_t len) -> bool {
-        acc.append(data, len);
-        // Events end with a blank line: "\n\n" or "\r\n\r\n" (spec allows both).
-        std::deque<std::string> events;
-        {
-          static const std::string kEndLf = "\n\n";
-          static const std::string kEndCrLf = "\r\n\r\n";
-          for (;;) {
-            const size_t a = acc.find(kEndLf);
-            const size_t b = acc.find(kEndCrLf);
-            size_t pos, size;
-            if (a == std::string::npos && b == std::string::npos) break;
-            if (b == std::string::npos || (a != std::string::npos && a < b)) {
-              pos = a; size = kEndLf.size();
-            } else {
-              pos = b; size = kEndCrLf.size();
-            }
-            const std::string event = acc.substr(0, pos);
-            acc.erase(0, pos + size);
-            std::string data = Impl::sseEventData(event);
-            if (!data.empty()) events.push_back(std::move(data));
+    std::thread([this, host, port, body = std::move(body),
+                 headersCopy = std::move(headersCopy)]() mutable {
+      // A reconnect re-sends the subscribe request, so the server
+      // acknowledges it again; the caller must still see exactly one ack.
+      // A graceful closure (a result carrying the subscriptionId) also ends
+      // the loop: re-subscribing after the server closed the subscription
+      // would resurrect a channel the peer deliberately terminated.
+      bool firstAck = true;
+      bool closedByPeer = false;
+      auto emit = [this, &firstAck, &closedByPeer](std::string data) {
+        const ParsedMessage parsed = parseMessage(data);
+        if (const auto* notification = std::get_if<JsonRpcNotification>(&parsed)) {
+          if (notification->method == "notifications/subscriptions/acknowledged") {
+            if (!firstAck) return;  // duplicate acknowledgment from a reconnect
+            firstAck = false;
           }
+        } else if (std::get_if<JsonRpcResult>(&parsed) != nullptr) {
+          closedByPeer = true;  // graceful closure result for this subscription
         }
-        for (auto& e : events) impl_->pushQueue(std::move(e));
-        // Returning false aborts the connection; stop() also forces a short
-        // read-timeout wakeup so a blocking Post returns here promptly.
-        return !impl_->subscriptionsClosed;
+        impl_->pushQueue(std::move(data));
       };
-      // Blocks until the server closes the stream (graceful closure, stop,
-      // or transport drop), closeSubscriptions() stops the connection, or
-      // the 1s read timeout elapses while subscriptionsClosed is set.
-      (void)stream->Post(impl_->endpoint.c_str(), headersCopy, body, "application/json",
-                         receiver);
-      // Tail flush: whatever is left is at most one unterminated event.
-      {
-        std::string data = Impl::sseEventData(acc);
-        if (!data.empty()) impl_->pushQueue(std::move(data));
+
+      while (true) {
+        {
+          std::lock_guard<std::mutex> lock(impl_->subMutex);
+          if (impl_->subscriptionsClosed) break;
+        }
+        auto stream = std::make_unique<httplib::Client>(host, port);
+        stream->set_connection_timeout(5);
+        // The server sends an SSE keep-alive comment every 5 s; the read
+        // timeout MUST exceed that cadence or an idle subscription is torn
+        // down between keep-alives (the old 1 s value did exactly that).
+        // Shutdown latency is bounded by the keep-alive cadence: httplib's
+        // Client::stop() does not reliably interrupt a blocked read here, so
+        // the loop wakes on the next keep-alive comment.
+        stream->set_read_timeout(30, 0);
+        httplib::Client* raw = stream.get();
+        {
+          std::lock_guard<std::mutex> lock(impl_->subMutex);
+          if (impl_->subscriptionsClosed) break;
+          impl_->activeSubscriptions.insert(raw);
+        }
+
+        std::string acc;
+        auto receiver = [this, &acc, &emit](const char* data, size_t len) -> bool {
+          acc.append(data, len);
+          std::vector<std::string> events;
+          Impl::extractSseEvents(acc, events);
+          for (auto& event : events) emit(std::move(event));
+          return !impl_->subscriptionShutdown();
+        };
+        (void)stream->Post(impl_->endpoint.c_str(), headersCopy, body,
+                           "application/json", receiver);
+        // Tail flush: whatever is left is at most one unterminated event.
+        {
+          std::vector<std::string> events;
+          Impl::extractSseEvents(acc, events);
+          for (auto& event : events) emit(std::move(event));
+        }
+        {
+          std::lock_guard<std::mutex> lock(impl_->subMutex);
+          impl_->activeSubscriptions.erase(raw);
+        }
+
+        if (closedByPeer || impl_->subscriptionShutdown()) break;
+        // The stream dropped (network error, server restart, read timeout):
+        // honour the server's retry advice when it gave one, then re-subscribe.
+        int delayMs = 1000;
+        {
+          std::lock_guard<std::mutex> lock(impl_->listenMutex);
+          if (impl_->retryMs > 0) delayMs = Impl::clampRetryMs(impl_->retryMs);
+        }
+        std::unique_lock<std::mutex> lock(impl_->subMutex);
+        if (impl_->subCv.wait_for(lock, std::chrono::milliseconds(delayMs),
+                                  [&] { return impl_->subscriptionsClosed; })) {
+          break;
+        }
       }
-      impl_->unregisterSubscription(raw);
+      {
+        std::lock_guard<std::mutex> lock(impl_->subMutex);
+        if (impl_->subscriptionThreads > 0) --impl_->subscriptionThreads;
+      }
+      impl_->subCv.notify_all();
     }).detach();
     return Ok();
   }
@@ -1031,7 +1110,7 @@ void HttpClientTransport::openListenStreamOnce() {
         int waitMs = 100;
         {
           std::lock_guard<std::mutex> lock(impl_->listenMutex);
-          if (impl_->retryMs > 0) waitMs = impl_->retryMs + 250;
+          if (impl_->retryMs > 0) waitMs = Impl::clampRetryMs(impl_->retryMs) + 250;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
         std::lock_guard<std::mutex> lock(impl_->listenMutex);
@@ -1094,7 +1173,7 @@ void HttpClientTransport::openListenStreamOnce() {
         delay = 100;
         {
           std::lock_guard<std::mutex> lock(impl_->listenMutex);
-          if (impl_->retryMs > 0) delay = impl_->retryMs + 250;
+          if (impl_->retryMs > 0) delay = Impl::clampRetryMs(impl_->retryMs) + 250;
         }
       } else {
         delay = 250;  // connection error backoff

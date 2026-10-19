@@ -31,7 +31,11 @@ CI. Strategy/process documents (adoption, promotion, session reviews) live in `d
 **Packaging:** `CMakeLists.txt` has `install()`/export rules behind `MCP_INSTALL` (ON); `cmake/mcpConfig.cmake.in`
 produces `find_package(mcp CONFIG)` with the `mcp::mcp` target. httplib is linked via
 `$<BUILD_INTERFACE:httplib>` so it stays out of the installed export — do not "simplify" it back to a
-plain PUBLIC link or the installed target will reference a target consumers don't have.
+plain PUBLIC link or the installed target will reference a target consumers don't have. Because
+`BUILD_INTERFACE` also swallows httplib's own interface dependencies, the platform libraries the compiled
+HTTP code needs are propagated explicitly as `INTERFACE` (`ws2_32` on Windows, `Threads::Threads` on
+POSIX); `cmake/mcpConfig.cmake.in` resolves `Threads` for consumers. `tests/consumer/` is the CI smoke
+test for exactly that.
 
 ## Build & test
 
@@ -66,6 +70,11 @@ Benchmarks
 When embedded in the zorm root project, mcp-cpp's tests are picked up by the root build; run them with
 `ctest -R mcp_test` from the repo root.
 
+`version.txt` is the only place the release version is written: `CMakeLists.txt` reads it for
+`project(... VERSION ...)`, `mcp_test_version` asserts `kSdkVersion` against that value, and CI builds
+`tests/consumer` against an installed package to prove `find_package(mcp 0.2 CONFIG)` + HTTP linking work
+(`ws2_32` / `Threads::Threads` are propagated as INTERFACE).
+
 ## Architecture
 
 Layering (each layer depends only on those before it): `error` → `version` → `json` → `jsonrpc` → `types`
@@ -89,9 +98,12 @@ aggregate include; use it in examples/tests.
 
 Key runtime facts:
 
-- **Single-threaded dispatch.** `Server::run()` reads one line, calls `processLine()`, writes the reply.
-  `Server` members are plain (no locking) *except* `subscriptions_` (guarded by `subscriptionsMutex_`,
-  because notification fan-out may be called from another thread). Handlers run synchronously.
+- **Serialized dispatch.** `Server::run()` reads one line, calls `processLine()`, writes the reply.
+  `processLine()` holds `dispatchMutex_` for the whole dispatch, so the HTTP transport's httplib
+  worker pool (64 threads) is safe and handlers still run one at a time. Handlers must not re-enter
+  `processLine()` (the mutex is not recursive). Other members are plain except `subscriptions_`
+  (`subscriptionsMutex_`, notification fan-out from any thread) and `cancellations_`
+  (`cancellationsMutex_`).
 - **Stateless protocol.** Every request carries `params._meta` with `protocolVersion` +
   `clientCapabilities` (required). `decodeRequestMeta` (strict) rejects missing/ill-typed `_meta` with
   `-32602`; `decodeRequestMetaRelaxed` is the legacy path. Unknown/unsupported version → `-32022` with
@@ -101,7 +113,9 @@ Key runtime facts:
   (`-32601`); an unknown *tool name* is `InvalidParams` (`-32602`). Keep new methods in `kRoutes`.
 - **The server never initiates requests.** Server-to-client interaction travels only inside an
   `input_required` result (MRTR). A response arriving at the server is ignored. `notifications/cancelled`
-  sets a queryable per-id flag (exposed to handlers as `Ctx::isCancelled`).
+  sets a queryable per-id flag (exposed to handlers as `Ctx::isCancelled`). Cancellation is handled
+  **before** the dispatch lock and flips an existing flag in place, so a cancel reaches a running
+  handler over HTTP; a cancel that arrives first parks a set flag for the request to adopt.
 - **`resultType` is injected.** `processLine` adds `"complete"` to any object result that omits it; a
   handler returning `input_required` (MRTR) must set it itself.
 - **CacheableResult is on by default.** `*/list`, `resources/read`, and `server/discover` emit `ttlMs` +
@@ -118,7 +132,11 @@ Key runtime facts:
   argument with an empty string value still mirrors a header (`setHeader` stores; `removeHeader` deletes —
   they are distinct). Subscriptions upgrade the response to an SSE stream pumped on its own thread;
   `closeSubscriptions()` must be called (or the destructor) to terminate those threads — see the P0 fix in
-  `docs/mcp-cpp-review.md`.
+  `docs/CODE-REVIEW-2026-10.md`.
+- **A client subscription is a durable stream.** The server sends an SSE keep-alive comment every 5 s, so
+  the subscription read timeout is 30 s (a shorter one kills an idle subscription between keep-alives).
+  After a drop the client re-subscribes, applies the peer's `retry:` advice clamped to 100 ms–30 s, and
+  suppresses duplicate acknowledgments. Peer-controlled `retry:` values are always clamped.
 - **`HttpClientTransport` runs background threads.** Each request POST streams its response on a worker
   (a response may be a long-lived SSE stream, and the client must stay free to answer a mid-call
   elicitation), and the GET listening stream owns a reconnect loop; `read()` gets messages only through
@@ -155,6 +173,9 @@ Key runtime facts:
 
 - Unit tests use googletest and an **in-memory `ITransport`** (`tests/MemTransport.h`) to drive
   `Server::processLine` without real IO. Add new server behaviour tests in `tests/test_server.cpp`.
+- Concurrency coverage lives in `tests/test_server.cpp` (`ServerConcurrency.*`: 16 threads through
+  `processLine`, plus cancel-visibility) and `tests/test_http_e2e.cpp` (64 concurrent HTTP clients mixing
+  `tools/call` and `notifications/cancelled`). CI runs both under TSan; keep them race-free.
 - `tests/test_stdio_e2e.cpp` owns its `main()` and doubles as the child server: it re-execs itself with
   `--mcp-serve-child` and talks newline-framed JSON-RPC over OS pipes (Windows + POSIX branches).
 - `tests/test_http_e2e.cpp` runs a real httplib server + client on a loopback ephemeral port (only built

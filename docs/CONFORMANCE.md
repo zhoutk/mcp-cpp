@@ -132,8 +132,9 @@ fails the job, so regressions are caught while the known four stay baselined.
 
 ## 3b. The in-repo 2026-07-28 suite
 
-Because the official suite has no 2026-07-28 scenarios, the repository carries
-its own: **`tests/test_conformance_2026.cpp`** (`mcp_test_conformance_2026`,
+Because the official suite's 2026-07-28 scenarios are still unscored (the
+*pending* set noted at the top), the repository carries its own:
+**`tests/test_conformance_2026.cpp`** (`mcp_test_conformance_2026`,
 registered with CTest and run by CI). It is written as named scenarios, one per
 spec requirement, so the 2026 surface is covered the way the official suite will
 cover it once it catches up.

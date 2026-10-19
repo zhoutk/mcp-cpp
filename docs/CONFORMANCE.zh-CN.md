@@ -128,8 +128,8 @@ npx @modelcontextprotocol/conformance tier-check \
 
 ## 3b. 仓库内的 2026-07-28 套件
 
-由于官方套件没有 2026-07-28 场景，本仓库自带了一套：
-**`tests/test_conformance_2026.cpp`**（`mcp_test_conformance_2026`，已注册到
+由于官方套件的 2026-07-28 场景仍处于未计分的 *pending* 状态（见文首说明），
+本仓库自带了一套：**`tests/test_conformance_2026.cpp`**（`mcp_test_conformance_2026`，已注册到
 CTest 并由 CI 运行）。它以具名场景的形式编写，每个场景对应一条规范要求，因此
 2026 接口面能像官方套件将来补齐后那样得到覆盖。
 

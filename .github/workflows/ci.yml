@@ -46,6 +46,60 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure -C RelWithDebInfo
 
+  # P0-3 / P0-4: the package must be usable through find_package() alone.
+  # Configure + install, then build tests/consumer (which uses the HTTP
+  # transport, so ws2_32/Threads must be in the exported target).
+  install-consumer:
+    name: ubuntu / install + consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure + build
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMCP_BUILD_TESTS=OFF -DMCP_BUILD_EXAMPLES=OFF
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+      - run: cmake --build build -j 4
+      - run: cmake --install build
+      - name: Check the package version
+        run: |
+          grep -q 'PACKAGE_VERSION "0\.2' install/lib/cmake/mcp/mcpConfigVersion.cmake
+      - name: Build and run the consumer
+        run: |
+          cmake -S tests/consumer -B build-consumer -G Ninja \
+            -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake --build build-consumer -j 4
+          ctest --test-dir build-consumer --output-on-failure
+
+  # P0-1 acceptance: concurrent POSTs must be race-free. The server suite
+  # drives processLine from 16 threads and the HTTP e2e suite from 64.
+  tsan:
+    name: ubuntu / TSan (server + HTTP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMCP_BUILD_EXAMPLES=OFF
+          -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Test (dispatch concurrency)
+        run: >
+          ctest --test-dir build --output-on-failure
+          -R "mcp_test_server|mcp_test_http_e2e"
+
   sanitizers:
     name: ubuntu / ASan + UBSan
     runs-on: ubuntu-latest

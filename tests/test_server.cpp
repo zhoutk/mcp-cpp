@@ -8,8 +8,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <string>
+#include <thread>
 #include <variant>
+#include <vector>
 
 using namespace mcp;
 using namespace mcp::server;
@@ -157,6 +160,93 @@ TEST(ServerGates, InvalidMessageGetsParseErrorWithoutId) {
   ASSERT_NE(err, nullptr);
   EXPECT_EQ(err->error.code, -32700);
   EXPECT_FALSE(err->id.has_value());
+}
+
+// ---- concurrency -----------------------------------------------------------------
+// processLine() is documented as single-threaded dispatch, but the HTTP
+// transport calls it from an httplib worker pool. These tests drive it from
+// many threads at once; without dispatchMutex_ this is a data race on
+// cancellations_ (and TSan flags it), even though each response is per-thread.
+TEST(ServerConcurrency, ParallelDispatchIsSerialized) {
+  auto server = makeToolServer();
+  constexpr int kThreads = 16;
+  constexpr int kIterations = 40;
+  std::atomic<int> failures{0};
+
+  std::vector<std::thread> workers;
+  workers.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    workers.emplace_back([&server, &failures, t] {
+      for (int i = 0; i < kIterations; ++i) {
+        const std::string id = std::to_string(t) + "-" + std::to_string(i);
+        if (i % 4 == 3) {
+          // Interleave cancellation notifications: they mutate cancellations_
+          // and closeSubscription(), i.e. exactly the state the lock guards.
+          Json params;
+          params.add("requestId", Json::str("cancel-" + id));
+          MemTransport n({});
+          server->processLine(encodeNotification("notifications/cancelled", params), n);
+          continue;
+        }
+        MemTransport out({});
+        const std::string line = makeRequest(
+            id, "tools/call", Json(R"({"name":"echo","arguments":{"text":"x"}})"));
+        server->processLine(line, out);
+        if (out.output_.size() != 1u) {
+          ++failures;
+          continue;
+        }
+        const ParsedMessage parsed = parseMessage(out.output_[0]);
+        const auto* result = std::get_if<JsonRpcResult>(&parsed);
+        if (result == nullptr || result->result["echoed"].toString() != "x") ++failures;
+      }
+    });
+  }
+  for (auto& worker : workers) worker.join();
+  EXPECT_EQ(failures.load(), 0);
+}
+
+TEST(ServerConcurrency, CancellationIsObservedByTheMatchingRequest) {
+  // A cancellation arriving for an id that a concurrent dispatch is running
+  // must be visible to that request (the flag map is shared across threads).
+  Builder b;
+  std::atomic<bool> entered{false};
+  b.simpleTool("wait", "waits for cancellation", [&](Ctx& c) -> McpResult<Json> {
+    entered = true;
+    for (int i = 0; i < 400 && !c.isCancelled(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    Json result;
+    result.add("cancelled", Json(c.isCancelled()));
+    return Ok(std::move(result));
+  });
+  auto server = b.build();
+
+  MemTransport requestOut({});
+  std::thread request([&] {
+    server->processLine(makeRequest("race-1", "tools/call", Json(R"({"name":"wait"})")),
+                        requestOut);
+  });
+  for (int i = 0; i < 5000 && !entered.load(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  if (!entered.load()) {
+    request.join();
+    for (const auto& line : requestOut.output_) ADD_FAILURE() << "response: " << line;
+    FAIL() << "tool handler was never entered";
+  }
+
+  Json params;
+  params.add("requestId", Json::str("race-1"));
+  MemTransport cancelOut({});
+  server->processLine(encodeNotification("notifications/cancelled", params), cancelOut);
+  request.join();
+
+  ASSERT_EQ(requestOut.output_.size(), 1u);
+  const ParsedMessage parsed = parseMessage(requestOut.output_[0]);
+  const auto* result = std::get_if<JsonRpcResult>(&parsed);
+  ASSERT_NE(result, nullptr);
+  EXPECT_TRUE(result->result["cancelled"].isTrue());
 }
 
 // ---- tools --------------------------------------------------------------------------

@@ -22,11 +22,15 @@ CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
 **状态：** v0.2.0，按 [PLAN.md](PLAN.md) §5 功能已完备。针对官方一致性测试套件
-（v0.1.16），它通过了 **26/30 个计分的服务端场景（86.7%）**；其余四个需要服务器
-在调用中途向客户端*请求*某些东西，而 2026-07-28 已用 MRTR 取代了该机制——参见
-[docs/CONFORMANCE.md](docs/CONFORMANCE.md) 和
-[`conformance/report.json`](conformance/report.json)。注意该套件目前尚无
-2026-07-28 场景。公开的路线图见 [ROADMAP.md](ROADMAP.md)。
+（v0.2.0-alpha.12），它通过了 **100% 的计分 2026-07-28 服务端场景（42/42 项检查）**——参见
+[`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) 和
+[docs/CONFORMANCE.md](docs/CONFORMANCE.md)。2025-11-25 套件为 26/30；其余四个需要服务器
+在调用中途向客户端*请求*某些东西，而 2026-07-28 已用 MRTR 取代了该机制。公开路线图见
+[ROADMAP.md](ROADMAP.md)。
+
+0.2.0 之后的加固（见 `CHANGELOG.md` 的 Unreleased 段）：HTTP 派发在 httplib worker 池上
+串行化，订阅能熬过空闲期并自动重连，安装后的 CMake 包带上了平台链接依赖。下一个版本为
+**v0.3.0**；剩余 P1 项记录在 [docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md)。
 
 ---
 

@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <string>
 
 using namespace mcp;
 
@@ -41,6 +42,12 @@ TEST(Version, UnknownStrings) {
   EXPECT_FALSE(fromString(" 2024-11-05").has_value());
 }
 
-TEST(Version, SdkVersionMacro) {
+TEST(Version, SdkVersionMatchesVersionTxt) {
   EXPECT_FALSE(kSdkVersion.empty());
+  EXPECT_EQ(kSdkVersion.find(' '), std::string_view::npos);
+#ifdef MCP_EXPECTED_SDK_VERSION
+  // MCP_EXPECTED_SDK_VERSION is the stripped content of version.txt, injected
+  // by CMake, so this locks the two sources together (AGENTS.md, VERSIONING.md).
+  EXPECT_EQ(std::string(kSdkVersion), std::string(MCP_EXPECTED_SDK_VERSION));
+#endif
 }

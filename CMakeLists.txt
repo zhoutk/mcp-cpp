@@ -14,7 +14,18 @@
 # ---------------------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.18)
-project(mcp-cpp VERSION 0.1.0 LANGUAGES CXX)
+
+# Single source of truth for the release version: version.txt. Keeping the
+# project version here (rather than a hand-maintained literal) makes
+# find_package(mcp <same version> CONFIG) work and keeps the installed
+# package version aligned with include/mcp/version.hpp's kSdkVersion - the
+# mcp_test_version suite asserts that constant against this value.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" MCP_VERSION_FILE)
+string(STRIP "${MCP_VERSION_FILE}" MCP_PROJECT_VERSION)
+if(MCP_PROJECT_VERSION STREQUAL "")
+  message(FATAL_ERROR "mcp-cpp: version.txt is empty")
+endif()
+project(mcp-cpp VERSION ${MCP_PROJECT_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -104,6 +115,17 @@ if(NOT MCP_DISABLE_HTTP)
     # it through BUILD_INTERFACE keeps it out of the installed export, so a
     # consumer of the mcp package needs nothing but mcp::mcp.
     target_link_libraries(mcp PRIVATE $<BUILD_INTERFACE:httplib>)
+    # ...but BUILD_INTERFACE also hides httplib's own INTERFACE link
+    # libraries, and those are real platform dependencies of the code compiled
+    # into libmcp: consumers of the INSTALLED package would otherwise fail to
+    # link (WSAAccept/freeaddrinfo on Windows, pthread_* / std::thread on
+    # POSIX). Propagate them as INTERFACE so they land in mcpTargets.cmake.
+    if(WIN32)
+      target_link_libraries(mcp INTERFACE ws2_32)
+    elseif(UNIX)
+      find_package(Threads REQUIRED)
+      target_link_libraries(mcp INTERFACE Threads::Threads)
+    endif()
     message(STATUS "mcp-cpp: HTTP transport enabled (httplib)")
   else()
     message(WARNING "mcp-cpp: httplib not found, building without HTTP transport")
@@ -180,6 +202,10 @@ if(MCP_BUILD_TESTS)
   enable_testing()
 
   add_executable(mcp_test_version tests/test_version.cpp)
+  # Lets the suite assert that kSdkVersion matches version.txt (the value
+  # project() was configured with) instead of merely checking it is non-empty.
+  target_compile_definitions(mcp_test_version PRIVATE
+    MCP_EXPECTED_SDK_VERSION="${MCP_PROJECT_VERSION}")
   add_executable(mcp_test_error tests/test_error.cpp)
   add_executable(mcp_test_jsonrpc tests/test_jsonrpc.cpp)
   add_executable(mcp_test_types tests/test_types.cpp)

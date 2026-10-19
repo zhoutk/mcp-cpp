@@ -34,14 +34,26 @@ that one.
 
 **No project header includes another project header** — cross-module use happens
 only inside `.cpp` files, which is what keeps the flat `include/` directory
-viable. A meta-test enforces the include direction.
+viable. The direction is a review convention (there is no automated check yet).
 
 ## Threading model
 
-- **Single-threaded dispatch.** `Server::run()` reads one message, processes it,
-  writes the reply. Handlers are synchronous; `Server` members are plain except
-  `subscriptions_`, which is mutex-guarded because notification fan-out may be
-  published from another thread (HTTP SSE pumps).
+- **Serialized dispatch.** `Server::run()` reads one message, processes it and
+  writes the reply; handlers run synchronously, one at a time. `processLine()`
+  holds `dispatchMutex_` for the whole dispatch, so a transport with its own
+  worker pool is safe without handlers locking anything.
+- **The HTTP server transport dispatches from httplib's pool** (64 threads by
+  default). Concurrency therefore changes latency, not handler ordering; a
+  handler must not re-enter `processLine()` (the mutex is not recursive).
+- **Cancellation bypasses the dispatch lock.** `notifications/cancelled` flips a
+  per-request `shared_ptr<atomic_bool>` under `cancellationsMutex_`, so it takes
+  effect while a long handler still holds the dispatch lock. This is required
+  for correctness, not just latency: the request being cancelled is the one
+  holding the lock, so a cancel that queued behind dispatch would deadlock.
+  A cancellation that arrives before its request parks a pre-set flag for the
+  request to adopt.
+- `subscriptions_` has its own mutex (`subscriptionsMutex_`) because notification
+  fan-out may be published from another thread (HTTP SSE pumps).
 - **The server never initiates requests.** Server-to-client interaction travels
   inside an `input_required` result (MRTR). A response arriving at a server is
   ignored.
@@ -49,8 +61,9 @@ viable. A meta-test enforces the include direction.
   the peer initiated (sampling/elicitation/roots) is handed to
   `Client::onServerRequest`, and the answer goes back as a fresh message; the
   client loop then keeps waiting for its own response.
-- A blocking handler blocks the whole connection. For long work, poll
-  `Ctx::isCancelled` and emit `Ctx::progress` so the client can watch.
+- A blocking handler blocks every connection, not just its own: dispatch is
+  serialized. For long work, poll `Ctx::isCancelled` and emit `Ctx::progress`
+  so the client can watch (and so a cancel can take effect).
 - **The HTTP client transport runs its own threads.** Every request POST streams
   its response on a worker thread (a response may be a long-lived SSE stream, so
   a synchronous read would block the client loop from answering a mid-call
@@ -66,6 +79,12 @@ viable. A meta-test enforces the include direction.
 - **`HttpClientTransport::setAuthChallengeHandler` reports 401/403
   `WWW-Authenticate` challenges**; the transport never authenticates itself.
   That is the hook `mcp::oauth` (and the conformance fixture) drives.
+- **A subscription is a durable stream, not one HTTP request.** The server emits
+  an SSE keep-alive comment every 5 s, so the client's read timeout is 30 s (a
+  shorter timeout tears down an idle subscription between keep-alives). After a
+  dropped stream the client re-subscribes, honours the server's `retry:` advice
+  clamped to 100 ms–30 s, and suppresses duplicate acknowledgments from the
+  reconnect, so the caller sees exactly one acknowledgment per subscribe.
 
 ## Request lifecycle (2026-07-28)
 
@@ -96,7 +115,14 @@ viable. A meta-test enforces the include direction.
   argument must be sent as a header (and validated as such server-side);
   `setHeader(name, "")` stores, and only `removeHeader(name)` deletes. This is
   why the two are distinct operations.
-- **`version.txt` and `kSdkVersion` stay in sync.**
+- **`version.txt` and `kSdkVersion` stay in sync.** `version.txt` is the single
+  source: `CMakeLists.txt` reads it for `project(VERSION)`, and `mcp_test_version`
+  asserts `kSdkVersion` against the value CMake was configured with.
+- **The installed package carries its platform link dependencies.** httplib is a
+  `BUILD_INTERFACE` link (so it stays out of the export), but its platform
+  libraries are propagated explicitly as `INTERFACE` (`ws2_32` on Windows,
+  `Threads::Threads` on POSIX). Do not drop them: a `find_package(mcp)` consumer
+  would fail to link the HTTP transport.
 - **`thirds/` headers never appear in public headers** (only `mcp::Json`
   reaches the API surface), and httplib stays behind the pimpl wall.
 - Conformance suites (official, both spec versions + the in-repo 2026-07-28
@@ -104,8 +130,11 @@ viable. A meta-test enforces the include direction.
 
 ## Deliberate simplifications
 
-- Single-threaded, no async runtime. Multi-worker remains a possible
-  compile-time option if a workload demands it.
+- Serialized dispatch, no async runtime. `processLine()` serializes through
+  `dispatchMutex_`, so the HTTP worker pool adds transport concurrency while
+  handlers still run one at a time. A true multi-worker model (per-request
+  `Server` instances, like the official SDK factories) remains a possible
+  future option if a workload demands it.
 - Long-lived server instance (per-request state is the handler's business;
   MRTR state is carried by `requestState`, which `RequestStateCodec` seals with
   HMAC-SHA256 bound to the method and target, so an echoed state cannot be
@@ -113,4 +142,6 @@ viable. A meta-test enforces the include direction.
   Horizontal scaling therefore requires stateful routing, unlike the official
   SDKs' per-request factory model — a documented trade-off, revisit if a
   workload demands it.
-- No OAuth yet (see `ROADMAP.md`); terminate auth in front of an HTTP server.
+- OAuth is **client-side only** (`mcp::oauth`, used by the conformance fixture).
+  A server still terminates authentication in front of the HTTP endpoint; the
+  SDK does not validate bearer tokens.

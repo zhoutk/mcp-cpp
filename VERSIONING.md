@@ -2,7 +2,12 @@
 
 mcp-cpp follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
 `MAJOR.MINOR.PATCH`, with the version sourced from `version.txt` and mirrored by
-`mcp::kSdkVersion` (the two must stay in sync; CI checks it).
+`mcp::kSdkVersion` (the two must stay in sync).
+
+`version.txt` is the only value a release edits: `CMakeLists.txt` reads it for
+`project(... VERSION ...)`, the installed `mcpConfigVersion.cmake` derives from
+that, and `mcp_test_version` asserts `kSdkVersion` against the CMake value in CI.
+Editing one without the other fails the build's test run.
 
 ## What counts as a breaking (MAJOR) change
 

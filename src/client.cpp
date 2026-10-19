@@ -331,10 +331,15 @@ McpResult<void> Client::cancel(const RequestId& requestId, const std::string& re
   if (transport_ == nullptr) {
     return Err(McpErrorCode::InternalError, "client is not connected");
   }
-  Json params;
-  params.add("requestId", encodeRequestId(requestId));
-  if (!reason.empty()) params.add("reason", Json::str(reason));
-  const std::string line = encodeNotification("notifications/cancelled", params);
+  // buildParams() adds params._meta (protocolVersion + clientCapabilities).
+  // The HTTP transport mirrors protocolVersion into MCP-Protocol-Version, and
+  // a strict 2026 server rejects a POST without that header (-32020) - so a
+  // notification built without _meta could never cancel anything over HTTP.
+  Json extra;
+  extra.add("requestId", encodeRequestId(requestId));
+  if (!reason.empty()) extra.add("reason", Json::str(reason));
+  const std::string line =
+      encodeNotification("notifications/cancelled", buildParams(extra, std::nullopt));
   return transport_->write(line);
 }
 

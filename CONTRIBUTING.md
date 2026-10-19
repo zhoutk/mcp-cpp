@@ -88,6 +88,8 @@ Rules:
 ## Releasing
 
 1. Update `version.txt`, `include/mcp/version.hpp` (`kSdkVersion`) and `CHANGELOG.md`.
+   `CMakeLists.txt` reads `version.txt`, so no CMake edit is needed; the version
+   test fails if `kSdkVersion` drifts.
 2. Tag `vX.Y.Z`; the CI release job builds and attaches artifacts.
 3. Run the conformance suite and record the score in the changelog.
 

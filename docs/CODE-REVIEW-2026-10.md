@@ -168,3 +168,70 @@
 
 *评审：四个独立子评审 + 主评审复现。所有 P0/P1 均给出文件行号与触发条件；标记"已复现"
 的项由主评审或子评审实际编译/运行验证。*
+
+---
+
+## 六、修复进展（2026-10-19）
+
+### 阶段 A（P0）—— 已全部完成
+
+| # | 结论 | 实现 | 验证 |
+| --- | --- | --- | --- |
+| A1 — HTTP 并发 | **定案：给 `processLine` 加互斥**（每请求实例需要重构 handler 生命周期与注册表，代价高于本轮收益；互斥保留了"handler 单线程"的既有承诺） | `Server::dispatchMutex_`，`processLine()` 全程持锁；`cancellations_` 独立 `cancellationsMutex_`；取消通知在锁**之前**处理并原地置位已有 flag | `ServerConcurrency.*`（16 线程 + 取消可见性）、`HttpE2E.ConcurrentPostsAreSerializedSafely`（64 并发客户端混发 `tools/call` + `notifications/cancelled`）；CI 新增 `tsan` job |
+| A2 — 订阅流 | 读超时 1s → **30s**（> keep-alive 节奏，现为 5s）；断流后**自动重订阅**；`retry:` 钳制 100ms–30s；重连 ack 去重 | `src/transport_http.cpp` 订阅循环：`stream->set_read_timeout(30, 0)`，`receiver` 拆事件 → 队列，失败后按 `retry` 等待再发 `subscriptions/listen` | `HttpE2E.SubscriptionSurvivesIdlePeriod`（静默 5s 后仍收到通知）、`HttpE2E.SubscriptionStreamDeliversNotifications` |
+| A3 — 安装包链接 | `mcp` 显式 `INTERFACE` 传播 `ws2_32`（Windows）/`Threads::Threads`（POSIX）；`mcpConfig.cmake.in` 解析 `Threads` | `CMakeLists.txt` HTTP 分支；`cmake/mcpConfig.cmake.in` | 本机 `cmake --install` + `tests/consumer`（`find_package(mcp 0.2 CONFIG)`，使用 `HttpServerTransport`）配置、编译、运行全部通过；CI 新增 `install-consumer` job |
+| A4 — 版本 | `project(VERSION)` 改为读取 `version.txt`（唯一事实来源） | `CMakeLists.txt` 顶部 `file(READ)/string(STRIP)`；`mcp_test_version` 注入 `MCP_EXPECTED_SDK_VERSION` 做真实断言 | 安装包 `mcpConfigVersion.cmake` 为 `0.2.0`；`mcp_test_version` 通过 |
+
+**回归结果**：13/13 CTest 全绿；`-std=c++17`（默认）与安装后消费者均通过。
+
+### 阶段 B（P1）—— 进度
+
+已随本轮一并修复：
+
+- B5 数值边界（id / 错误码范围），B8 的 `retry:` 上限，B9 之外的取消语义缺口
+  （`Client::cancel` 缺 `_meta` 导致 HTTP 400）。
+
+尚未开始：B1 的 CI `-std=c++23` 任务、B2–B4（legacy 版本门 / HTTP 400 / `-32021` 数据）、
+B6–B11（Origin 精确匹配、订阅 POST 结果检查、`read()` 空闲语义、base64 空值、OAuth 端口与
+TLS、schema 的计数/`prefixItems`/`size()`/NUL 键/`$ref` 兄弟）。这些问题不会在默认路径上
+崩溃，但仍是发布 v0.3.0 前必须清掉的清单。
+
+### 本轮发现并修复的新缺陷
+
+- **取消只会"预登记"，不会"生效"。** 原实现把 `cancellations_[id]` **替换**为新 flag，而已在
+  运行的请求持有的是旧 flag，因此并发取消永远观察不到（单线程顺序测试无法暴露）。
+  现改为：存在则 `store(true)`，不存在才插入预置 flag。
+- **`Client::cancel()` 缺少 `_meta`。** HTTP 传输无法镜像 `MCP-Protocol-Version`，严格 2026
+  服务器回 400，取消在 HTTP 上完全不可用。
+- **订阅重连的 ack 重复。** 重连会重发 `subscriptions/listen`，服务器再回一次 ack；
+  客户端现只入队首次 ack，避免调用方认为有多条订阅。
+
+### 复核结论与下一步计划（2026-10-19 审核后）
+
+**复核结论：阶段 A 全部属实、实现正确。** 逐项对照了 `server.cpp`/`server.hpp`/`transport_http.cpp`/
+`client.cpp`/CMake/CI 的 diff：
+
+- A1 的"取消先于 dispatch 锁 + 原地翻转 flag"顺序正确；`cancellationsMutex_` 与 `dispatchMutex_`
+  无嵌套，`subscriptionsMutex_` 单独持有，无锁序环。锁注释与 AGENTS.md/ARCHITECTURE.md 已同步。
+- A2 的订阅重连循环：注册/注销均在 `subMutex` 内，`closeSubscriptions()` 的 `notify_all` 补齐了
+  "线程正处在重连等待" 的唤醒缺口；ack 去重与服务端行为吻合（ack=notification，关闭=result）。
+- A3/A4 的 `INTERFACE` 传播、`find_dependency(Threads)`、`version.txt` 事实源与
+  `MCP_EXPECTED_SDK_VERSION` 断言均正确；`tests/consumer` 与 `install-consumer`/`tsan` CI job 就位。
+- **本机验证：13/13 CTest 全绿**（含 `ServerConcurrency.*` 与三个新 HTTP e2e 用例）。
+- 复核中仅发现一处失效注释（`SubscriptionSurvivesIdlePeriod` 仍写"keep-alive 15s"，实际已改 5s），
+  已顺手修正，无代码问题。
+
+**下一步计划（阶段 B 收尾 → C → D）：**
+
+| 序 | 任务 | 说明 | 预估 |
+| --- | --- | --- | --- |
+| 1 | B7 + B8 收尾 | 订阅 POST 结果检查、错误入队；`read()` 空闲超时与 EOF 区分；`cancellations_` 遗留 flag 清理（请求完成后到达的 cancel 会在 map 里**永久驻留一个 parked flag**——长寿命 HTTP 服务器上缓慢累积，复核确认本轮未覆盖） | ~1 天 |
+| 2 | B3 + B4 | `-32022`/`-32021`/缺 `_meta` 的 `-32602` 映射 HTTP 400；`-32021` 携带 `data.requiredCapabilities`。改动小、协议合规收益直接 | ~半天 |
+| 3 | B6 + B9 | Origin 精确匹配（host 解析后比较）；空头值 base64 编解码 | ~1 天 |
+| 4 | B10 + B11 | OAuth 加固（端口范围、`is_valid()`、构造异常、强制 HTTPS、PKCE 降级）；schema 加固（计数、`prefixItems`、`size()`、NUL 键、`$ref` 兄弟、Pointer、正则异常）——量大但机械，可并行拆分 | ~2~3 天 |
+| 5 | B1 收尾 + B2 | `Ok(lvalue)` decay 已随 57f5c38 落地，剩 CI `-std=c++23` 编译检查；legacy 版本门 | ~半天 |
+| 6 | 阶段 C | C3 剩余矩阵（`MCP_DISABLE_HTTP=ON`、`-std=c++23`）；C4 `TIMEOUT`；C5 并发模型文档章节 | ~1~2 天 |
+| 7 | 阶段 D | 全绿后发 v0.3.0（线程安全承诺变化写入 release note），更新"生产就绪"表述 | ~半天 |
+
+顺序理由：1–3 都是"真实部署先踩到"的行为/安全问题；4 是加固清单，量最大但不阻塞对外表述；
+B1/B2 是编译门槛与 legacy 兼容，放最后不影响主线。全程约 **5~8 个工作日** 到 v0.3.0。

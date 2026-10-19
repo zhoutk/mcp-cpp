@@ -6,6 +6,46 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **HTTP concurrency (P0).** `Server::processLine()` is now serialized by
+  `dispatchMutex_`. The HTTP transport dispatches from httplib's 64-thread worker
+  pool, and unsynchronized `cancellations_`/`logLevel_` were a data race on every
+  concurrent deployment. Handlers still run one at a time; re-entrant
+  `processLine()` is not supported.
+- **Cancellation now reaches a running request.** `notifications/cancelled` is
+  handled before the dispatch lock and sets the existing per-request flag instead
+  of replacing the map slot, which previously left an in-flight handler looking at
+  a stale `false` flag. `Client::cancel()` now includes `params._meta`, so the
+  HTTP transport mirrors `MCP-Protocol-Version` and a strict 2026 server accepts
+  the notification (it used to answer 400).
+- **Idle subscriptions no longer die (P0).** The subscription read timeout was 1 s
+  while the server sent an SSE keep-alive only every 15 s, so a silent
+  subscription was always torn down. The timeout is now 30 s, the keep-alive
+  cadence is 5 s (which also bounds how long a client takes to notice a
+  closure), and a dropped stream is re-subscribed (honouring `retry:` clamped to
+  100 ms–30 s, suppressing duplicate acknowledgments).
+- **Peer-controlled SSE `retry:` values are clamped** to 30 s, so a hostile value
+  can no longer overflow `sleep_for` or stall shutdown for weeks.
+- **Installed package links (P0).** `mcp::mcp` now propagates `ws2_32` (Windows)
+  and `Threads::Threads` (POSIX) as INTERFACE dependencies, and
+  `mcpConfig.cmake` resolves `Threads`; a `find_package(mcp)` consumer using the
+  HTTP transport links again.
+- **Package version (P0).** `CMakeLists.txt` reads `version.txt` for
+  `project(VERSION)` instead of the stale `0.1.0` literal, so
+  `find_package(mcp 0.2)` succeeds. `mcp_test_version` asserts `kSdkVersion`
+  against the CMake value.
+
+### Added
+
+- Concurrency coverage: `ServerConcurrency.*` (16 threads through `processLine`
+  plus cancel visibility) and `HttpE2E.ConcurrentPostsAreSerializedSafely`
+  (64 concurrent HTTP clients mixing `tools/call` and cancellation), run under
+  TSan in CI.
+- `HttpE2E.SubscriptionSurvivesIdlePeriod` (5 s of silence, then a delivered
+  notification).
+- `tests/consumer/` + CI jobs `install-consumer` and `tsan`.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added

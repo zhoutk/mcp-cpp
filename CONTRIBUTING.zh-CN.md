@@ -84,6 +84,7 @@ mcp-cpp 刻意保持极小的依赖面，以便能直接放进任何 C++17 项�
 ## 发布
 
 1. 更新 `version.txt`、`include/mcp/version.hpp`（`kSdkVersion`）和 `CHANGELOG.md`。
+   `CMakeLists.txt` 直接读取 `version.txt`，无需改 CMake；两者不一致时版本测试会失败。
 2. 打 `vX.Y.Z` 标签；CI 的发布任务会构建并附加产物。
 3. 运行一致性套件，并将得分记录在 changelog 中。
 

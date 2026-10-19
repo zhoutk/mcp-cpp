@@ -302,24 +302,46 @@ McpResult<void> Server::run(ITransport& transport) {
 void Server::processLine(const std::string& line, ITransport& out) {
   const ParsedMessage parsed = parseMessage(line);
 
-  if (const auto* invalid = std::get_if<InvalidMessage>(&parsed)) {
-    JsonRpcErrorValue v = toErrorValue(invalid->code, invalid->message);
-    (void)out.write(encodeErrorResponse(invalid->id, v));
-    return;
-  }
-
+  // Cancellation is handled BEFORE the dispatch lock: the HTTP transport
+  // delivers it on another worker thread and it must take effect while the
+  // named request is still running. It only touches cancellations_ (own
+  // mutex) and the already-thread-safe subscription map.
   if (const auto* notification = std::get_if<JsonRpcNotification>(&parsed)) {
     if (notification->method == "notifications/cancelled") {
       const Json requestId = member(notification->params, "requestId");
       auto id = decodeRequestId(requestId);
       if (id) {
         const std::string key = idToString(*id);
-        auto flag = std::make_shared<std::atomic_bool>(true);
-        cancellations_[key] = flag;
+        {
+          std::lock_guard<std::mutex> lock(cancellationsMutex_);
+          auto it = cancellations_.find(key);
+          if (it != cancellations_.end()) {
+            // The request is IN FLIGHT: it already holds this flag, so it must
+            // be flipped - replacing the map entry would leave the running
+            // handler looking at the old (false) flag forever.
+            it->second->store(true);
+          } else {
+            // Cancellation arrived before the request (out-of-order delivery):
+            // park a set flag for the request to pick up.
+            cancellations_[key] = std::make_shared<std::atomic_bool>(true);
+          }
+        }
         closeSubscription(key);  // cancelled subscription ends with a closure result
       }
+      return;
     }
-    // Notifications MUST NOT be answered; unknown ones are ignored.
+    // Other notifications MUST NOT be answered; unknown ones are ignored.
+    return;
+  }
+
+  // The HTTP transport calls this from its worker pool; serialize the dispatch
+  // (logLevel_, handler invocation, per-request bookkeeping). See the member
+  // comment in server.hpp. Cancellation deliberately bypasses this lock.
+  std::lock_guard<std::mutex> dispatchLock(dispatchMutex_);
+
+  if (const auto* invalid = std::get_if<InvalidMessage>(&parsed)) {
+    JsonRpcErrorValue v = toErrorValue(invalid->code, invalid->message);
+    (void)out.write(encodeErrorResponse(invalid->id, v));
     return;
   }
 
@@ -415,8 +437,13 @@ void Server::processLine(const std::string& line, ITransport& out) {
   // Cancellation flag for this request. Reuse an existing slot: if a
   // notifications/cancelled arrived before the request itself (out-of-order
   // delivery), the request must observe cancelled=true, not a fresh flag.
-  std::shared_ptr<std::atomic_bool>& cancelFlag = cancellations_[idToString(req.id)];
-  if (!cancelFlag) cancelFlag = std::make_shared<std::atomic_bool>(false);
+  std::shared_ptr<std::atomic_bool> cancelFlag;
+  {
+    std::lock_guard<std::mutex> lock(cancellationsMutex_);
+    auto& slot = cancellations_[idToString(req.id)];
+    if (!slot) slot = std::make_shared<std::atomic_bool>(false);
+    cancelFlag = slot;
+  }
   const std::function<bool()> cancelled = [cancelFlag] { return cancelFlag->load(); };
 
   // Server-to-client notifications for this request (progress, logging).
@@ -445,7 +472,10 @@ void Server::processLine(const std::string& line, ITransport& out) {
   } else {
     (void)out.write(encodeErrorResponse(req.id, toErrorValue(result.error())));
   }
-  cancellations_.erase(idToString(req.id));
+  {
+    std::lock_guard<std::mutex> lock(cancellationsMutex_);
+    cancellations_.erase(idToString(req.id));
+  }
 }
 
 McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const RequestMeta& meta,

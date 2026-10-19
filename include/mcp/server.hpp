@@ -13,8 +13,11 @@
 //    capability is MethodNotFound (-32601) per the schema's
 //    MethodNotFoundError documentation; an unknown TOOL is InvalidParams
 //    (-32602)
-//  - single-threaded dispatch loop for now (PLAN.md Update 1); cancellation
-//    is a queryable flag keyed by request id, set by notifications/cancelled
+//  - single-threaded dispatch (PLAN.md Update 1): every processLine() call is
+//    serialized by dispatchMutex_, so a stream transport with a worker pool
+//    (the HTTP transport) is safe and handlers still run one at a time;
+//    cancellation is a queryable flag keyed by request id, set by
+//    notifications/cancelled
 //  - handlers own their result object; the server injects
 //    resultType:"complete" when the handler forgot it (spec requires it on
 //    every result)
@@ -251,12 +254,19 @@ class Server {
   std::string listCacheScope_ = "public";
   std::string logLevel_;  // legacy logging/setLevel value (informational)
   std::string name_ = "mcp-cpp-server";
-  std::string version_ = "0.1.0";
+  // Default serverInfo.version tracks the SDK release, so a server that does
+  // not call Builder::version() still reports a real version.
+  std::string version_ = std::string(kSdkVersion);
   Handler completionsHandler_;
   std::shared_ptr<const RequestStateCodec> stateCodec_;  // null: requestState unsupported
 
-  // request id (string form) -> cancel flag
+  // request id (string form) -> cancel flag. Guarded by cancellationsMutex_
+  // rather than dispatchMutex_: a cancellation must flip the flag WHILE the
+  // request it names is running, so its notification cannot wait for the
+  // dispatch lock (a long handler would otherwise make cancel useless over
+  // HTTP, where the notification arrives on another worker thread).
   std::map<std::string, std::shared_ptr<std::atomic_bool>> cancellations_;
+  std::mutex cancellationsMutex_;
 
   struct Subscription {
     SubscriptionFilter filter;
@@ -265,6 +275,14 @@ class Server {
   };
   std::map<std::string, Subscription> subscriptions_;
   std::mutex subscriptionsMutex_;  // guards subscriptions_ (publish from any thread)
+
+  // Serializes processLine(). The HTTP transport dispatches from an httplib
+  // worker pool (64 threads by default), so the per-request state that is not
+  // otherwise synchronized - cancellations_ above all - must be protected.
+  // This keeps the documented "single-threaded dispatch" model (handlers run
+  // one at a time, no handler locking required) while making concurrent HTTP
+  // POSTs correct. Re-entering processLine() from a handler is not supported.
+  std::mutex dispatchMutex_;
 };
 
 // ---- builder ---------------------------------------------------------------------

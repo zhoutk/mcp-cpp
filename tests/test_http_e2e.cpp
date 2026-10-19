@@ -13,8 +13,10 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace mcp;
 using namespace mcp::server;
@@ -191,6 +193,74 @@ TEST(HttpE2E, SubscriptionStreamDeliversNotifications) {
   // Close the subscription stream so the background SSE thread exits and the
   // test process can terminate cleanly. Without this the long-lived stream
   // keeps the transport (and the fixture's server thread) alive forever.
+  client->closeSubscriptions();
+}
+
+// The HTTP server transport dispatches POSTs from httplib's worker pool (64
+// threads by default). Every worker calls Server::processLine, so this test
+// hammers that path with concurrent tools/call + notifications/cancelled
+// requests - the exact mix the review's P0-1 called out. Without the dispatch
+// lock this races on Server::cancellations_ (and TSan reports it).
+TEST(HttpE2E, ConcurrentPostsAreSerializedSafely) {
+  Fixture f;
+  constexpr int kThreads = 64;
+  constexpr int kIterations = 4;
+  std::atomic<int> failures{0};
+
+  std::vector<std::thread> workers;
+  workers.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    workers.emplace_back([&f, &failures, t] {
+      HttpClientTransport transport("127.0.0.1", f.port);
+      Client client("worker-" + std::to_string(t), "1.0");
+      client.connect(transport);
+      for (int i = 0; i < kIterations; ++i) {
+        if (i % 2 == 1) {
+          // Cancellation for an id this worker never sent: it still exercises
+          // the cancellations_ map on a different worker thread.
+          auto cancelled =
+              client.cancel(RequestId(int64_t(t * 1000 + i)), "concurrency");
+          if (!cancelled.has_value()) ++failures;
+          continue;
+        }
+        const std::string text = std::to_string(t) + ":" + std::to_string(i);
+        Json arguments;
+        arguments.add("text", Json::str(text));
+        auto result = client.callTool("echo", arguments);
+        if (!result.has_value() || (*result)["echoed"].toString() != text) ++failures;
+      }
+    });
+  }
+  for (auto& worker : workers) worker.join();
+  EXPECT_EQ(failures.load(), 0);
+}
+
+// A subscription must survive silence longer than the old 1 s read timeout.
+// The server emits an SSE keep-alive comment every 5 s, so the client's read
+// timeout has to be larger than that cadence (30 s) and the stream must not be
+// treated as "closed" simply because nothing was said.
+TEST(HttpE2E, SubscriptionSurvivesIdlePeriod) {
+  Fixture f;
+  auto client = f.makeClient();
+
+  std::atomic<int> listChanged{0};
+  client->onNotification([&](const JsonRpcNotification& n) {
+    if (n.method == "notifications/tools/list_changed") listChanged++;
+  });
+
+  Json filter = Json(R"({"notifications":{"toolsListChanged":true}})");
+  auto ack = client->subscribe(filter);
+  ASSERT_TRUE(ack.has_value());
+
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  f.server->notifyListChanged("tools");
+
+  for (int i = 0; i < 200 && listChanged.load() < 1; ++i) {
+    (void)client->listTools();  // drains queued notifications
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_EQ(listChanged.load(), 1);
+
   client->closeSubscriptions();
 }
 
