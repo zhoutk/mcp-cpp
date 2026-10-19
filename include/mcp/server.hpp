@@ -34,6 +34,7 @@
 #include <mcp/types.hpp>
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -260,12 +261,19 @@ class Server {
   Handler completionsHandler_;
   std::shared_ptr<const RequestStateCodec> stateCodec_;  // null: requestState unsupported
 
-  // request id (string form) -> cancel flag. Guarded by cancellationsMutex_
-  // rather than dispatchMutex_: a cancellation must flip the flag WHILE the
-  // request it names is running, so its notification cannot wait for the
-  // dispatch lock (a long handler would otherwise make cancel useless over
-  // HTTP, where the notification arrives on another worker thread).
+  // request id (typed form, see cancelKey in server.cpp) -> cancel flag.
+  // Guarded by cancellationsMutex_ rather than dispatchMutex_: a cancellation
+  // must flip the flag WHILE the request it names is running, so its
+  // notification cannot wait for the dispatch lock (a long handler would
+  // otherwise make cancel useless over HTTP, where the notification arrives
+  // on another worker thread).
   std::map<std::string, std::shared_ptr<std::atomic_bool>> cancellations_;
+  // FIFO of keys parked by a cancellation whose request has not arrived yet
+  // (out-of-order delivery). Capped: cancels for arbitrary never-sent ids must
+  // not grow the map without bound. Guarded by cancellationsMutex_; entries
+  // are removed when a request adopts its flag, so eviction below can only
+  // reclaim still-unadopted (parked) flags.
+  std::deque<std::string> parkedCancels_;
   std::mutex cancellationsMutex_;
 
   struct Subscription {

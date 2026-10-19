@@ -264,6 +264,73 @@ TEST(HttpE2E, SubscriptionSurvivesIdlePeriod) {
   client->closeSubscriptions();
 }
 
+// A 4xx answer to the subscriptions/listen POST must reach subscribe() as a
+// normal error instead of leaving it to wait for an ack that never comes (the
+// old code dropped the POST result entirely).
+TEST(HttpClientTransport, SubscriptionRejectionSurfacesAsAnError) {
+  httplib::Server svr;
+  svr.Post("/mcp", [](const httplib::Request&, httplib::Response& res) { res.status = 403; });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  while (!svr.is_running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  Client client("reject-e2e", "1.0");
+  client.connect(transport);
+
+  const auto started = std::chrono::steady_clock::now();
+  auto subscribed = client.subscribe(Json(R"({"notifications":{"toolsListChanged":true}})"));
+  const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - started)
+                             .count();
+
+  EXPECT_FALSE(subscribed.has_value());
+  if (!subscribed.has_value()) {
+    EXPECT_NE(subscribed.error().message.find("subscription rejected"), std::string::npos);
+  }
+  EXPECT_LT(elapsedMs, 5000);  // must not wait for an ack that never comes
+
+  svr.stop();
+  runner.join();
+}
+
+// read() has no idle timeout: a quiet connection must NOT look closed (the old
+// 30s idle return made a >30s request look like "connection closed by peer").
+// Only orderly transport shutdown ends the read - with EOF, not an error.
+TEST(HttpClientTransport, ReadBlocksWhileIdleAndReturnsEofOnShutdown) {
+  Fixture f;
+  auto transport = std::make_unique<HttpClientTransport>("127.0.0.1", f.port, "/mcp");
+  Client client("idle-e2e", "1.0");
+  client.connect(*transport);
+  auto tools = client.listTools();
+  ASSERT_TRUE(tools.has_value());
+
+  std::atomic<bool> done{false};
+  bool eof = false;
+  std::thread reader([&] {
+    auto received = transport->read();
+    // Reached only on shutdown: orderly EOF, not an idle timeout.
+    eof = received.has_value() && !received->has_value();
+    done = true;
+  });
+
+  // Still blocked after 1s of silence: idleness is not EOF.
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  EXPECT_FALSE(done.load());
+
+  transport.reset();  // orderly teardown wakes the reader
+  for (int i = 0; i < 10000 && !done.load(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_TRUE(done.load());
+  if (done.load()) {
+    reader.join();
+  } else {
+    reader.detach();  // already failed; avoid blocking the suite on teardown
+  }
+  EXPECT_TRUE(eof);
+}
+
 TEST(HttpClientTransport, PostFailureSurfacesAsAnError) {
   // Grab an ephemeral port, then release it: connecting to it is refused.
   int deadPort = 0;

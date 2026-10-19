@@ -2,6 +2,7 @@
 
 #include <mcp/schema.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <utility>
@@ -40,6 +41,21 @@ std::string idToString(const RequestId& id) {
   if (const auto* i = std::get_if<int64_t>(&id)) return std::to_string(*i);
   return std::get<std::string>(id);
 }
+
+// Key for the cancellations_ map: idToString renders the NUMBER 1 and the
+// STRING "1" identically, so a cancel for one type would set (or adopt) the
+// other type's flag. The type tag keeps the two apart. The subscription map
+// keeps idToString - its ids come from the same request that created them, so
+// a collision merges one client's own subscriptions, not state across ids.
+std::string cancelKey(const RequestId& id) {
+  if (const auto* i = std::get_if<int64_t>(&id)) return "n:" + std::to_string(*i);
+  return "s:" + std::get<std::string>(id);
+}
+
+// Upper bound for parked cancel flags (cancellations whose request has not
+// arrived). A client can cancel arbitrary ids that never name a request;
+// without a cap that grows the map without bound (memory DoS).
+constexpr size_t kMaxParkedCancels = 1024;
 
 JsonRpcErrorValue toErrorValue(McpErrorCode code, std::string message) {
   JsonRpcErrorValue v;
@@ -311,7 +327,7 @@ void Server::processLine(const std::string& line, ITransport& out) {
       const Json requestId = member(notification->params, "requestId");
       auto id = decodeRequestId(requestId);
       if (id) {
-        const std::string key = idToString(*id);
+        const std::string key = cancelKey(*id);
         {
           std::lock_guard<std::mutex> lock(cancellationsMutex_);
           auto it = cancellations_.find(key);
@@ -322,11 +338,21 @@ void Server::processLine(const std::string& line, ITransport& out) {
             it->second->store(true);
           } else {
             // Cancellation arrived before the request (out-of-order delivery):
-            // park a set flag for the request to pick up.
+            // park a set flag for the request to pick up. Parked entries are
+            // capped: cancels for arbitrary never-sent ids must not grow the
+            // map without bound. Eviction drops the OLDEST still-parked flag -
+            // the only loss is a cancel for a request that never arrived.
             cancellations_[key] = std::make_shared<std::atomic_bool>(true);
+            parkedCancels_.push_back(key);
+            while (cancellations_.size() > kMaxParkedCancels && !parkedCancels_.empty()) {
+              const std::string oldest = parkedCancels_.front();
+              parkedCancels_.pop_front();
+              cancellations_.erase(oldest);  // no-op if adopted-and-completed
+            }
           }
         }
-        closeSubscription(key);  // cancelled subscription ends with a closure result
+        // The subscription map keeps the plain id string (see cancelKey).
+        closeSubscription(idToString(*id));  // cancelled subscription ends with a closure result
       }
       return;
     }
@@ -439,10 +465,15 @@ void Server::processLine(const std::string& line, ITransport& out) {
   // delivery), the request must observe cancelled=true, not a fresh flag.
   std::shared_ptr<std::atomic_bool> cancelFlag;
   {
+    const std::string key = cancelKey(req.id);
     std::lock_guard<std::mutex> lock(cancellationsMutex_);
-    auto& slot = cancellations_[idToString(req.id)];
+    auto& slot = cancellations_[key];
     if (!slot) slot = std::make_shared<std::atomic_bool>(false);
     cancelFlag = slot;
+    // The flag now belongs to this request: remove it from the parked queue
+    // so a later eviction can never reclaim an IN-FLIGHT cancel flag.
+    parkedCancels_.erase(std::remove(parkedCancels_.begin(), parkedCancels_.end(), key),
+                         parkedCancels_.end());
   }
   const std::function<bool()> cancelled = [cancelFlag] { return cancelFlag->load(); };
 
@@ -474,7 +505,7 @@ void Server::processLine(const std::string& line, ITransport& out) {
   }
   {
     std::lock_guard<std::mutex> lock(cancellationsMutex_);
-    cancellations_.erase(idToString(req.id));
+    cancellations_.erase(cancelKey(req.id));
   }
 }
 

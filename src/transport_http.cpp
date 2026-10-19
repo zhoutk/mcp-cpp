@@ -481,6 +481,18 @@ struct HttpClientTransport::Impl {
   std::mutex queueMutex;          // guards queue
   std::condition_variable queueCv;
   std::deque<std::string> queue;  // completed message lines for read()
+  // Set by the destructor: read() returns orderly EOF. Guarded by queueMutex.
+  bool transportClosed = false;
+  // Threads currently inside read(). The destructor waits for this to drop to
+  // zero before impl_ is destroyed: waking a blocked reader is asynchronous,
+  // and destroying the mutex/cv under it would be a use-after-free.
+  size_t readers = 0;
+  // Set when the listening stream could not reconnect (peer unreachable):
+  // read() reports a lost connection instead of blocking on a dead server.
+  // Cleared on any successful (re)connect and when the peer turns out to be a
+  // 405 no-GET server (POST streams then carry the liveness signals).
+  // Guarded by queueMutex.
+  bool peerGone = false;
 
   void pushQueue(std::string line) {
     {
@@ -488,6 +500,14 @@ struct HttpClientTransport::Impl {
       queue.push_back(std::move(line));
     }
     queueCv.notify_one();
+  }
+
+  void setPeerGone(bool gone) {
+    {
+      std::lock_guard<std::mutex> lock(queueMutex);
+      peerGone = gone;
+    }
+    if (gone) queueCv.notify_all();  // wake a reader blocked on an empty queue
   }
 
   // ---- subscription lifecycle --------------------------------------------
@@ -680,6 +700,16 @@ HttpClientTransport::HttpClientTransport(std::string host, int port, std::string
 }
 
 HttpClientTransport::~HttpClientTransport() {
+  // Wake a reader blocked on an empty queue BEFORE tearing down, so read()
+  // returns orderly EOF instead of waiting on a queue that is about to die.
+  {
+    std::unique_lock<std::mutex> lock(impl_->queueMutex);
+    impl_->transportClosed = true;
+    impl_->queueCv.notify_all();
+    // The wake-up is asynchronous: hold impl_ alive until every reader has
+    // left read() (the wait below releases the mutex while waiting).
+    impl_->queueCv.wait(lock, [&] { return impl_->readers == 0; });
+  }
   // Stop any live streams so their background threads do not outlive the
   // transport (they would push into a destroyed queue).
   closeSubscriptions();
@@ -753,15 +783,30 @@ void HttpClientTransport::closeSubscriptions() {
 
 McpResult<std::optional<std::string>> HttpClientTransport::read() {
   // Blocking read: SSE lines arrive asynchronously on the background stream
-  // thread, so a momentarily empty queue is not EOF.
+  // threads, so a momentarily empty queue is not EOF. There is deliberately
+  // NO idle timeout - a quiet connection is alive, and a result may
+  // legitimately take longer than any fixed timeout (the old 30s idle return
+  // made Client misjudge a slow request as "closed by peer"). nullopt means
+  // orderly teardown (destructor); a lost connection surfaces as an error as
+  // soon as the listen loop fails to reconnect.
   std::unique_lock<std::mutex> lock(impl_->queueMutex);
-  if (!impl_->queueCv.wait_for(lock, std::chrono::seconds(30),
-                               [&] { return !impl_->queue.empty(); })) {
-    return Ok(std::optional<std::string>(std::nullopt));  // idle timeout
+  ++impl_->readers;
+  impl_->queueCv.wait(lock, [&] {
+    return !impl_->queue.empty() || impl_->transportClosed || impl_->peerGone;
+  });
+  const bool haveLine = !impl_->queue.empty();
+  std::string line;
+  if (haveLine) {
+    line = std::move(impl_->queue.front());
+    impl_->queue.pop_front();
   }
-  std::string line = std::move(impl_->queue.front());
-  impl_->queue.pop_front();
-  return Ok(std::optional<std::string>(std::move(line)));
+  const bool closed = impl_->transportClosed;
+  --impl_->readers;
+  lock.unlock();
+  impl_->queueCv.notify_all();  // wake the destructor waiting for readers
+  if (haveLine) return Ok(std::optional<std::string>(std::move(line)));
+  if (closed) return Ok(std::optional<std::string>(std::nullopt));
+  return Err(McpErrorCode::InternalError, "connection lost");
 }
 
 McpResult<void> HttpClientTransport::write(std::string_view message) {
@@ -929,8 +974,8 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
           for (auto& event : events) emit(std::move(event));
           return !impl_->subscriptionShutdown();
         };
-        (void)stream->Post(impl_->endpoint.c_str(), headersCopy, body,
-                           "application/json", receiver);
+        auto post = stream->Post(impl_->endpoint.c_str(), headersCopy, body,
+                                 "application/json", receiver);
         // Tail flush: whatever is left is at most one unterminated event.
         {
           std::vector<std::string> events;
@@ -940,6 +985,20 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
         {
           std::lock_guard<std::mutex> lock(impl_->subMutex);
           impl_->activeSubscriptions.erase(raw);
+        }
+
+        // The server REJECTED the subscribe request (4xx): re-sending it
+        // cannot succeed, and silently waiting for an ack that never comes
+        // leaves subscribe() hanging until its own timeout. Surface it as a
+        // normal JSON-RPC error for the listen request instead. 408/429 mean
+        // "later", not "no" - those stay on the reconnect path.
+        if (post && post->status >= 400 && post->status != 408 && post->status != 429) {
+          JsonRpcErrorValue v;
+          v.code = static_cast<int32_t>(McpErrorCode::InternalError);
+          v.message =
+              "subscription rejected by server (HTTP " + std::to_string(post->status) + ")";
+          this->queueSyntheticError(body, v);
+          break;
         }
 
         if (closedByPeer || impl_->subscriptionShutdown()) break;
@@ -1160,7 +1219,21 @@ void HttpClientTransport::openListenStreamOnce() {
         }
         forced = impl_->listenForced.exchange(false);
       }
-      if (unsupported) break;
+      if (unsupported) {
+        // 405 no-GET server: this loop is done, and POST streams carry the
+        // liveness signals. Clear the flag so read() keeps blocking quietly.
+        impl_->setPeerGone(false);
+        break;
+      }
+      // Connection-level failure (refused, reset, timeout): the peer is
+      // unreachable RIGHT NOW - read() must surface that instead of blocking
+      // forever on a dead server. A completed response means the peer was
+      // reachable: re-arm read() for blocking.
+      if (!result) {
+        impl_->setPeerGone(true);
+      } else if (result->status < 400) {
+        impl_->setPeerGone(false);
+      }
       // Honour the server's SSE retry advice (sse-retry scenario: reconnecting
       // earlier than the advised delay is a conformance failure). The advice
       // applies to the connection, so the last known value is kept. The margin

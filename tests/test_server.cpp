@@ -40,16 +40,23 @@ Out serveOnce(const std::shared_ptr<Server>& server, const std::string& requestL
   return o;
 }
 
-// Builds a modern request line with the required _meta.
-std::string makeRequest(const std::string& id, const std::string& method,
-                        const Json& extraParams, const std::string& version = "2026-07-28") {
+// Builds a modern request line with the required _meta (typed id overload:
+// lets a test use a numeric id, which the string overload cannot express).
+std::string makeRequestTyped(const RequestId& id, const std::string& method,
+                             const Json& extraParams,
+                             const std::string& version = "2026-07-28") {
   Json params = encodeRequestMeta(version, Json(R"({})"), std::nullopt);
   if (extraParams.isObject()) {
     for (const auto& item : extraParams.getAllKeys().toVector()) {
       params.add(item.toString(), extraParams[item.toString()]);
     }
   }
-  return encodeRequest(RequestId(id), method, params);
+  return encodeRequest(id, method, params);
+}
+
+std::string makeRequest(const std::string& id, const std::string& method,
+                        const Json& extraParams, const std::string& version = "2026-07-28") {
+  return makeRequestTyped(RequestId(id), method, extraParams, version);
 }
 
 std::shared_ptr<Server> makeToolServer() {
@@ -247,6 +254,93 @@ TEST(ServerConcurrency, CancellationIsObservedByTheMatchingRequest) {
   const auto* result = std::get_if<JsonRpcResult>(&parsed);
   ASSERT_NE(result, nullptr);
   EXPECT_TRUE(result->result["cancelled"].isTrue());
+}
+
+// Server for the cancel-key tests: a tool that blocks until cancelled (or
+// 400 ms) and reports whether it observed the cancellation.
+std::shared_ptr<Server> makeWaitServer(std::atomic<bool>& entered) {
+  Builder b;
+  b.simpleTool("wait", "waits for cancellation", [&](Ctx& c) -> McpResult<Json> {
+    entered = true;
+    for (int i = 0; i < 400 && !c.isCancelled(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    Json result;
+    result.add("cancelled", Json(c.isCancelled()));
+    return Ok(std::move(result));
+  });
+  return b.build();
+}
+
+// The cancel map keys ids by TYPE: idToString renders the number 1 and the
+// string "1" identically, so a cancel for one type must not reach the other.
+TEST(ServerCancellation, CancelKeyIdTypesDoNotCollide) {
+  std::atomic<bool> entered{false};
+  auto server = makeWaitServer(entered);
+
+  MemTransport requestOut({});
+  std::thread request([&] {
+    server->processLine(
+        makeRequestTyped(RequestId(int64_t(1)), "tools/call", Json(R"({"name":"wait"})")),
+        requestOut);
+  });
+  for (int i = 0; i < 5000 && !entered.load(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_TRUE(entered.load());
+
+  // Cancel the STRING "1" while the NUMERIC request 1 is in flight.
+  Json params;
+  params.add("requestId", Json::str("1"));
+  MemTransport cancelOut({});
+  server->processLine(encodeNotification("notifications/cancelled", params), cancelOut);
+  request.join();
+
+  ASSERT_EQ(requestOut.output_.size(), 1u);
+  const ParsedMessage parsed = parseMessage(requestOut.output_[0]);
+  const auto* result = std::get_if<JsonRpcResult>(&parsed);
+  ASSERT_NE(result, nullptr);
+  EXPECT_FALSE(result->result["cancelled"].isTrue());
+}
+
+// Cancels for ids that never name a request park flags; without a cap the map
+// grows without bound (memory DoS). Flood past the cap, then the OLDEST parked
+// flag must be evicted while fresh parking still works.
+TEST(ServerCancellation, ParkedCancelsAreCapped) {
+  std::atomic<bool> entered{false};
+  auto server = makeWaitServer(entered);
+
+  Json old;
+  old.add("requestId", Json::str("old"));
+  MemTransport noise({});
+  server->processLine(encodeNotification("notifications/cancelled", old), noise);
+  for (int i = 0; i < 1100; ++i) {
+    Json flood;
+    flood.add("requestId", Json::str("flood-" + std::to_string(i)));
+    server->processLine(encodeNotification("notifications/cancelled", flood), noise);
+  }
+
+  // The evicted id no longer cancels: its request observes a fresh flag.
+  MemTransport oldOut({});
+  server->processLine(makeRequest("old", "tools/call", Json(R"({"name":"wait"})")), oldOut);
+  ASSERT_EQ(oldOut.output_.size(), 1u);
+  const ParsedMessage oldParsed = parseMessage(oldOut.output_[0]);
+  const auto* oldResult = std::get_if<JsonRpcResult>(&oldParsed);
+  ASSERT_NE(oldResult, nullptr);
+  EXPECT_FALSE(oldResult->result["cancelled"].isTrue());
+
+  // Parking still works after eviction: a fresh cancel precedes its request.
+  Json fresh;
+  fresh.add("requestId", Json::str("fresh"));
+  server->processLine(encodeNotification("notifications/cancelled", fresh), noise);
+  entered = false;
+  MemTransport freshOut({});
+  server->processLine(makeRequest("fresh", "tools/call", Json(R"({"name":"wait"})")), freshOut);
+  ASSERT_EQ(freshOut.output_.size(), 1u);
+  const ParsedMessage freshParsed = parseMessage(freshOut.output_[0]);
+  const auto* freshResult = std::get_if<JsonRpcResult>(&freshParsed);
+  ASSERT_NE(freshResult, nullptr);
+  EXPECT_TRUE(freshResult->result["cancelled"].isTrue());
 }
 
 // ---- tools --------------------------------------------------------------------------
