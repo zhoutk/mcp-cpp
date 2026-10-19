@@ -49,6 +49,16 @@ class ITransport {
   // multiple times; after it returns, no further notification lines are
   // delivered to read().
   virtual void closeSubscriptions() {}
+
+  // Asks a blocked read() to return promptly with an error, WITHOUT tearing
+  // the transport down (closeSubscriptions()/the destructor do that). One
+  // shot: the next read() consumes the request. Base no-op: a transport
+  // whose read is not wakeable (stdio streams) ignores it, which means
+  // Client request timeouts cannot fire on it.
+  virtual void interruptRead() {}
+  // Clears a pending, unconsumed interrupt. Client calls this before each
+  // request so a stale interrupt cannot fail an unrelated read.
+  virtual void clearReadInterrupt() {}
 };
 
 // Framing over arbitrary C++ streams. Skips empty/blank input lines (the

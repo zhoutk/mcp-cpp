@@ -20,9 +20,13 @@
 #include <mcp/transport.hpp>
 #include <mcp/types.hpp>
 
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace mcp {
@@ -142,6 +146,23 @@ class Client {
   // cancellation; on HTTP closing the stream is the cancellation signal).
   McpResult<void> cancel(const RequestId& requestId, const std::string& reason = "");
 
+  // --- request timeout / cancellation (client side) --------------------------
+  // Bounds each request/response exchange. 0 (the default) waits forever. When
+  // the deadline passes, the blocked read() is interrupted and the in-flight
+  // call fails with "request timed out". Requires a transport that implements
+  // interruptRead() (HttpClientTransport does; blocking stdio streams cannot
+  // honor a deadline). The timeout covers ONE round trip - callToolWithInput
+  // re-arms it per round.
+  void setRequestTimeout(std::chrono::milliseconds timeout);
+  std::chrono::milliseconds requestTimeout() const;
+  // Fails the in-flight request promptly (the same interrupt mechanism as the
+  // timeout). The client is sequential, so there is at most one request in
+  // flight; with none, the interrupt is consumed by the next request's first
+  // read - which is why exchange() clears stale interrupts on entry.
+  void cancelCurrentRequest();
+
+  ~Client();
+
  private:
   Json buildParams(const Json& extraParams, const std::optional<RequestId>& progressToken) const;
   // One request/response exchange with the params already final. Callers pick
@@ -165,6 +186,19 @@ class Client {
   std::map<std::string, Json> toolSchemas_;
   std::vector<std::string> lastParamHeaders_;  // cleared before each call
   void mirrorHeaderParams(const std::string& toolName, const Json& arguments);
+
+  // Request timeout. A watchdog thread (lazily started by setRequestTimeout)
+  // fires transport_->interruptRead() when the in-flight exchange passes its
+  // deadline; the blocked read() then fails and exchange() reports the
+  // timeout. Guarded by watchdogMutex_.
+  std::chrono::milliseconds requestTimeout_{0};
+  std::thread watchdog_;
+  std::mutex watchdogMutex_;
+  std::condition_variable watchdogCv_;
+  bool watchdogStop_ = false;
+  bool requestActive_ = false;
+  std::chrono::steady_clock::time_point deadline_;
+  void watchdogLoop();
 };
 
 }  // namespace client

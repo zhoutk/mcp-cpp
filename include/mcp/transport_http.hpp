@@ -119,6 +119,12 @@ class HttpClientTransport final : public ITransport {
   // no further notification lines will be queued.
   void closeSubscriptions() override;
 
+  // Makes the next (or a currently blocked) read() return promptly with an
+  // error, without closing anything. One shot; the read consumes it. This is
+  // what Client request timeouts and cancelCurrentRequest() drive.
+  void interruptRead() override;
+  void clearReadInterrupt() override;
+
  private:
   // Stops in-flight request streams and waits for their threads. Destructor
   // only: closing these mid-call would drop the response the caller waits for.

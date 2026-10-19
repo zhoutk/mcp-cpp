@@ -7,9 +7,12 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <deque>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace mcp;
@@ -502,4 +505,129 @@ TEST(ClientHeaderMirror, SendsEmptyValueAndDropsStaleHeader) {
   EXPECT_EQ(t.headers.count("Mcp-Param-X-B"), 0);
   ASSERT_TRUE(t.headers.count("Mcp-Param-X-A") == 1);
   EXPECT_EQ(t.headers["Mcp-Param-X-A"], "x");
+}
+
+// ---- request timeout / cancellation -----------------------------------------------
+
+// A transport whose read() blocks until a response arrives or the client's
+// interrupt fires - the shape needed to exercise the request timeout.
+class BlockingTransport final : public ITransport {
+ public:
+  McpResult<std::optional<std::string>> read() override {
+    std::unique_lock<std::mutex> lock(m_);
+    cv_.wait(lock, [&] { return interrupted_ || !responses_.empty(); });
+    if (!responses_.empty()) {
+      std::string r = responses_.front();
+      responses_.pop_front();
+      return Ok(std::optional<std::string>(std::move(r)));
+    }
+    interrupted_ = false;  // one-shot consume, like HttpClientTransport
+    return Err(McpErrorCode::InternalError, "read interrupted");
+  }
+  McpResult<void> write(std::string_view message) override {
+    {
+      std::lock_guard<std::mutex> lock(m_);
+      lastWrite_ = std::string(message);
+    }
+    cv_.notify_all();
+    return Ok();
+  }
+  McpResult<void> flush() override { return Ok(); }
+  void interruptRead() override {
+    {
+      std::lock_guard<std::mutex> lock(m_);
+      interrupted_ = true;
+    }
+    cv_.notify_all();
+  }
+  void clearReadInterrupt() override {
+    std::lock_guard<std::mutex> lock(m_);
+    interrupted_ = false;
+  }
+
+  void deliver(const std::string& line) {
+    {
+      std::lock_guard<std::mutex> lock(m_);
+      responses_.push_back(line);
+    }
+    cv_.notify_all();
+  }
+
+ private:
+  std::mutex m_;
+  std::condition_variable cv_;
+  std::deque<std::string> responses_;
+  bool interrupted_ = false;
+  std::string lastWrite_;
+};
+
+TEST(ClientTimeout, DeadlineFailsTheInFlightRequest) {
+  BlockingTransport t;
+  Client c("c", "1");
+  c.connect(t);
+  c.setRequestTimeout(std::chrono::milliseconds(100));
+
+  const auto started = std::chrono::steady_clock::now();
+  auto result = c.listTools();
+  const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - started)
+                             .count();
+  ASSERT_FALSE(result.has_value());
+  EXPECT_NE(result.error().message.find("timed out"), std::string::npos);
+  EXPECT_LT(elapsedMs, 5000);  // fired by the watchdog, not by any 10s fallback
+
+  // The client stays usable: a later exchange is not poisoned by the interrupt.
+  t.deliver(encodeResultResponse(RequestId(int64_t(2)), Json(R"({"resultType":"complete","tools":[]})")));
+  auto next = c.listTools();
+  ASSERT_TRUE(next.has_value());
+  EXPECT_EQ(c.requestTimeout(), std::chrono::milliseconds(100));
+}
+
+TEST(ClientTimeout, ResponseBeforeTheDeadlineWins) {
+  BlockingTransport t;
+  Client c("c", "1");
+  c.connect(t);
+  c.setRequestTimeout(std::chrono::milliseconds(5000));
+
+  std::thread responder([&t] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    t.deliver(encodeResultResponse(RequestId(int64_t(1)),
+                                   Json(R"({"resultType":"complete","tools":[]})")));
+  });
+  auto result = c.listTools();
+  responder.join();
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE((*result)["tools"].isArray());
+}
+
+TEST(ClientTimeout, CancelCurrentRequestUnblocksTheCaller) {
+  BlockingTransport t;
+  Client c("c", "1");
+  c.connect(t);
+  c.setRequestTimeout(std::chrono::milliseconds(60000));  // arms the watchdog
+
+  std::thread canceller([&c] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    c.cancelCurrentRequest();
+  });
+  const auto started = std::chrono::steady_clock::now();
+  auto result = c.listTools();
+  const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - started)
+                             .count();
+  canceller.join();
+  ASSERT_FALSE(result.has_value());
+  EXPECT_NE(result.error().message.find("interrupted"), std::string::npos);
+  EXPECT_LT(elapsedMs, 5000);  // not the 60 s deadline
+}
+
+// A transport without interruptRead() cannot honor a deadline: the call must
+// still WORK (never fail just because a timeout was configured).
+TEST(ClientTimeout, NonInterruptibleTransportIgnoresTheDeadline) {
+  ScriptedTransport t({encodeResultResponse(RequestId(int64_t(1)), Json(R"({"resultType":"complete","tools":[]})"))}, {});
+  Client c("c", "1");
+  c.connect(t);
+  c.setRequestTimeout(std::chrono::milliseconds(10));  // would fire if honored
+  auto result = c.listTools();
+  ASSERT_TRUE(result.has_value());
 }

@@ -521,6 +521,9 @@ struct HttpClientTransport::Impl {
   std::deque<std::string> queue;  // completed message lines for read()
   // Set by the destructor: read() returns orderly EOF. Guarded by queueMutex.
   bool transportClosed = false;
+  // One-shot read interrupt (see ITransport::interruptRead). Consumed by the
+  // next read(). Guarded by queueMutex.
+  bool readInterrupt = false;
   // Threads currently inside read(). The destructor waits for this to drop to
   // zero before impl_ is destroyed: waking a blocked reader is asynchronous,
   // and destroying the mutex/cv under it would be a use-after-free.
@@ -830,7 +833,8 @@ McpResult<std::optional<std::string>> HttpClientTransport::read() {
   std::unique_lock<std::mutex> lock(impl_->queueMutex);
   ++impl_->readers;
   impl_->queueCv.wait(lock, [&] {
-    return !impl_->queue.empty() || impl_->transportClosed || impl_->peerGone;
+    return !impl_->queue.empty() || impl_->transportClosed || impl_->peerGone ||
+           impl_->readInterrupt;
   });
   const bool haveLine = !impl_->queue.empty();
   std::string line;
@@ -839,12 +843,28 @@ McpResult<std::optional<std::string>> HttpClientTransport::read() {
     impl_->queue.pop_front();
   }
   const bool closed = impl_->transportClosed;
+  const bool interrupted = impl_->readInterrupt;
+  impl_->readInterrupt = false;  // one-shot: consume the interrupt
   --impl_->readers;
   lock.unlock();
   impl_->queueCv.notify_all();  // wake the destructor waiting for readers
   if (haveLine) return Ok(std::optional<std::string>(std::move(line)));
   if (closed) return Ok(std::optional<std::string>(std::nullopt));
+  if (interrupted) return Err(McpErrorCode::InternalError, "read interrupted");
   return Err(McpErrorCode::InternalError, "connection lost");
+}
+
+void HttpClientTransport::interruptRead() {
+  {
+    std::lock_guard<std::mutex> lock(impl_->queueMutex);
+    impl_->readInterrupt = true;
+  }
+  impl_->queueCv.notify_all();  // wake a reader blocked on an empty queue
+}
+
+void HttpClientTransport::clearReadInterrupt() {
+  std::lock_guard<std::mutex> lock(impl_->queueMutex);
+  impl_->readInterrupt = false;
 }
 
 McpResult<void> HttpClientTransport::write(std::string_view message) {

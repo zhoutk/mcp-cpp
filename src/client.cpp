@@ -18,7 +18,60 @@ Client::Client(std::string clientName, std::string clientVersion, Json clientCap
       clientVersion_(std::move(clientVersion)),
       clientCapabilities_(std::move(clientCapabilities)) {}
 
+Client::~Client() {
+  {
+    std::lock_guard<std::mutex> lock(watchdogMutex_);
+    watchdogStop_ = true;
+  }
+  watchdogCv_.notify_all();
+  if (watchdog_.joinable()) watchdog_.join();
+}
+
 void Client::connect(ITransport& transport) { transport_ = &transport; }
+
+void Client::setRequestTimeout(std::chrono::milliseconds timeout) {
+  {
+    std::lock_guard<std::mutex> lock(watchdogMutex_);
+    requestTimeout_ = timeout;
+  }
+  if (timeout > std::chrono::milliseconds(0) && !watchdog_.joinable()) {
+    watchdog_ = std::thread([this] { watchdogLoop(); });
+  }
+  watchdogCv_.notify_all();  // re-evaluate the (changed) deadline
+}
+
+std::chrono::milliseconds Client::requestTimeout() const { return requestTimeout_; }
+
+void Client::cancelCurrentRequest() {
+  if (transport_ != nullptr) transport_->interruptRead();
+}
+
+void Client::watchdogLoop() {
+  std::unique_lock<std::mutex> lock(watchdogMutex_);
+  for (;;) {
+    if (watchdogStop_) return;
+    if (!requestActive_) {
+      // Idle: wait for the next exchange to arm a deadline.
+      watchdogCv_.wait(lock, [&] { return watchdogStop_ || requestActive_; });
+      continue;
+    }
+    // A round is in flight: wait UNTIL its deadline (time advances without
+    // anyone notifying). The predicate covers an early end of the round or a
+    // re-armed deadline.
+    watchdogCv_.wait_until(lock, deadline_, [&] {
+      return watchdogStop_ || !requestActive_ ||
+             std::chrono::steady_clock::now() >= deadline_;
+    });
+    if (watchdogStop_) return;
+    if (!requestActive_) continue;  // the round ended before its deadline
+    if (std::chrono::steady_clock::now() < deadline_) continue;  // re-armed later
+    // Deadline genuinely passed with the round still in flight: one interrupt,
+    // then wait for the exchange to end (its RAII scope clears requestActive_)
+    // before looking at the next round.
+    if (transport_ != nullptr) transport_->interruptRead();
+    watchdogCv_.wait(lock, [&] { return watchdogStop_ || !requestActive_; });
+  }
+}
 
 void Client::closeSubscriptions() {
   if (transport_ != nullptr) transport_->closeSubscriptions();
@@ -102,11 +155,48 @@ McpResult<Json> Client::exchange(std::string_view method, const Json& params) {
   auto wrote = transport_->write(line);
   if (!wrote.has_value()) return Err(wrote.error());
 
+  // Request timeout (see setRequestTimeout): clear stale interrupts, arm the
+  // watchdog, and disarm on every exit path via the RAII guard below.
+  const bool bounded = requestTimeout_ > std::chrono::milliseconds(0);
+  const std::chrono::steady_clock::time_point deadline =
+      std::chrono::steady_clock::now() + requestTimeout_;
+  if (bounded) {
+    transport_->clearReadInterrupt();
+    {
+      std::lock_guard<std::mutex> lock(watchdogMutex_);
+      deadline_ = deadline;
+      requestActive_ = true;
+    }
+    watchdogCv_.notify_all();
+  }
+  struct Disarm {
+    Client* c;
+    bool armed;
+    ~Disarm() {
+      if (!armed) return;
+      {
+        std::lock_guard<std::mutex> lock(c->watchdogMutex_);
+        c->requestActive_ = false;
+      }
+      c->watchdogCv_.notify_all();  // the watchdog stops waiting for this round
+    }
+  } disarm{this, bounded};
+
   // Read until the response with our id arrives; notifications en route are
   // delivered to the callback, never swallowed.
   while (true) {
     auto raw = transport_->read();
-    if (!raw.has_value()) return Err(raw.error());
+    if (!raw.has_value()) {
+      if (bounded && std::chrono::steady_clock::now() >= deadline) {
+        return Err(McpErrorCode::InternalError,
+                   "request timed out after " +
+                       std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          requestTimeout_)
+                                          .count()) +
+                       " ms");
+      }
+      return Err(raw.error());
+    }
     if (!raw->has_value()) {
       return Err(McpErrorCode::InternalError, "connection closed by peer before response");
     }
