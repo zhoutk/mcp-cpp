@@ -1,0 +1,72 @@
+# Doxygen configuration for mcp-cpp (run: doxygen Doxyfile).
+# The public API lives in include/mcp/; src/ and tests/ are implementation
+# detail and excluded. EXTRACT_ALL keeps undocumented members visible in the
+# generated reference instead of silently dropping them.
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = "mcp-cpp"
+PROJECT_NUMBER         = 0.3.1
+PROJECT_BRIEF          = "Standalone MCP (Model Context Protocol) C++17 SDK"
+PROJECT_LOGO           =
+OUTPUT_DIRECTORY       = build-docs
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+
+# What to document: the public headers plus the README as the main page.
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.hpp *.h
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */thirds/*
+EXCLUDE_SYMBOLS        = std::*
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+
+# C++17: support concepts-less sources, and document namespaces.
+OPTIMIZE_OUTPUT_FOR_C  = NO
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+BUILTIN_STL_SUPPORT    = YES
+CPP_CLI_SUPPORT        = NO
+SIP_SUPPORT            = NO
+SORT_MEMBERS_CTORS_1ST = YES
+SORT_GROUP_NAMES       = YES
+SHOW_INCLUDE_FILES     = YES
+SHOW_FILES             = YES
+SHOW_NAMESPACES        = YES
+INLINE_INFO            = YES
+SORT_MEMBER_DOCS       = NO
+
+# HTML output only (no LaTeX: keeps the CI job at seconds).
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+HTML_COLORSTYLE_HUE    = 220
+HTML_DYNAMIC_SECTIONS  = YES
+GENERATE_TREEVIEW      = YES
+SEARCHENGINE           = YES
+GENERATE_LATEX         = NO
+
+# Documentation comments use the Qt/Javadoc style used in the headers (///).
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MULTILINE_CPP_IS_BRIEF = NO
+INHERIT_DOCS           = YES
+SEPARATE_MEMBER_PAGES  = NO
+TAB_SIZE               = 4
+ALIASES                =
+TCL_SUBST              =
+
+# Reference the README as the main page.
+USE_MDFILE_AS_MAINPAGE = README.md
+INPUT                  = include README.md
+
+# Quiet-ish: fail on undocumented *files* only in a stricter follow-up.
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+WARN_FORMAT            = "$file:$line: $text"
+
+# Diagrams: off by default (no graphviz dependency in CI).
+HAVE_DOT               = NO

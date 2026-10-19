@@ -146,6 +146,26 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  # Doxygen API reference: the generated HTML is uploaded as an artifact so
+  # reviewers can browse the public API without checking the repo out.
+  docs:
+    name: ubuntu / Doxygen API reference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: sudo apt-get update && sudo apt-get install -y doxygen
+      - name: Generate
+        run: doxygen Doxyfile
+      - name: Check the reference is non-trivial
+        run: test -f build-docs/html/index.html && test "$(grep -c '<tr' build-docs/html/index.html)" -gt 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-reference
+          path: build-docs/html/
+          retention-days: 14
+
   sanitizers:
     name: ubuntu / ASan + UBSan
     runs-on: ubuntu-latest
