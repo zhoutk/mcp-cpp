@@ -89,7 +89,10 @@ jobs:
       - run: cmake --install build
       - name: Check the package version
         run: |
-          grep -q 'PACKAGE_VERSION "0\.2' install/lib/cmake/mcp/mcpConfigVersion.cmake
+          # The real version assertion lives in mcp_test_version (against
+          # version.txt); here a well-formed version line is enough, so the
+          # job stops breaking on every release bump.
+          grep -qE 'PACKAGE_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' install/lib/cmake/mcp/mcpConfigVersion.cmake
       - name: Build and run the consumer
         run: |
           cmake -S tests/consumer -B build-consumer -G Ninja \

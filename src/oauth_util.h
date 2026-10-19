@@ -10,6 +10,15 @@
 #include "sha256.h"
 
 #if defined(_WIN32)
+// LEAN_AND_MEAN keeps windows.h from pulling in winsock.h: translation units
+// include this header alongside httplib.h (winsock2.h), and the two socket
+// headers cannot be mixed. Order-independent, unlike the plain include.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 

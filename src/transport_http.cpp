@@ -559,10 +559,9 @@ struct HttpClientTransport::Impl {
   }
 
   void setPeerGone(bool gone) {
-    {
-      std::lock_guard<std::mutex> lock(queueMutex);
-      peerGone = gone;
-    }
+    // Notify under the lock, like every other cv wake here.
+    std::lock_guard<std::mutex> lock(queueMutex);
+    peerGone = gone;
     if (gone) queueCv.notify_all();  // wake a reader blocked on an empty queue
   }
 
@@ -861,8 +860,12 @@ McpResult<std::optional<std::string>> HttpClientTransport::read() {
   const bool interrupted = impl_->readInterrupt;
   impl_->readInterrupt = false;  // one-shot: consume the interrupt
   --impl_->readers;
+  // Notify WHILE STILL HOLDING the lock: the destructor waits for readers==0
+  // and then destroys this cv - if the notify happened after unlocking, it
+  // could fire on a destroyed cv (TSan: pthread_cond_broadcast after
+  // pthread_cond_destroy).
+  impl_->queueCv.notify_all();
   lock.unlock();
-  impl_->queueCv.notify_all();  // wake the destructor waiting for readers
   if (haveLine) return Ok(std::optional<std::string>(std::move(line)));
   if (closed) return Ok(std::optional<std::string>(std::nullopt));
   if (interrupted) return Err(McpErrorCode::InternalError, "read interrupted");
@@ -870,10 +873,10 @@ McpResult<std::optional<std::string>> HttpClientTransport::read() {
 }
 
 void HttpClientTransport::interruptRead() {
-  {
-    std::lock_guard<std::mutex> lock(impl_->queueMutex);
-    impl_->readInterrupt = true;
-  }
+  // Notify under the lock, like every other cv wake here: the caller can be
+  // the Client watchdog, which may race transport destruction.
+  std::lock_guard<std::mutex> lock(impl_->queueMutex);
+  impl_->readInterrupt = true;
   impl_->queueCv.notify_all();  // wake a reader blocked on an empty queue
 }
 
@@ -1121,10 +1124,14 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
         }
       }
       {
+        // The count decrement AND the notify stay under the lock: the joiner
+        // (closeSubscriptions) wakes on threads==0 and destroys this cv right
+        // after - a notify released from the lock could fire on a destroyed
+        // cv (TSan).
         std::lock_guard<std::mutex> lock(impl_->subMutex);
         if (impl_->subscriptionThreads > 0) --impl_->subscriptionThreads;
+        impl_->subCv.notify_all();
       }
-      impl_->subCv.notify_all();
     }).detach();
     return Ok();
   }
@@ -1210,11 +1217,13 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       }
     }
     {
+      // Same as the subscription tail: decrement + notify under the lock, so
+      // the joiner cannot destroy the cv before this notify has happened.
       std::lock_guard<std::mutex> lock(impl_->reqMutex);
       impl_->activeRequestStreams.erase(raw);
       --impl_->requestThreads;
+      impl_->reqCv.notify_all();
     }
-    impl_->reqCv.notify_all();
     // A gracefully closed POST stream means the server dropped the connection
     // (SEP-1699): force the listening stream to reconnect - a pending result
     // may be delivered on the reconnected stream. The listen loop applies the
@@ -1359,11 +1368,15 @@ void HttpClientTransport::openListenStreamOnce() {
       std::this_thread::sleep_for(std::chrono::milliseconds(delay));
     }
     {
+      // Same as the subscription/request tails: decrement + notify under the
+      // lock, so closeListenStreams() (which joins on threads==0) cannot
+      // destroy this cv before the notify has happened (the exact race TSan
+      // flagged on this line).
       std::lock_guard<std::mutex> lock(impl_->listenMutex);
       impl_->listenOpen = false;
       --impl_->listenThreads;
+      impl_->listenCv.notify_all();
     }
-    impl_->listenCv.notify_all();
   }).detach();
 }
 

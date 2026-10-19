@@ -28,6 +28,19 @@ a build-system fix (N7).
   directory kept the old project version after a release bump, which surfaced
   as a stale `MCP_EXPECTED_SDK_VERSION` and a failing `mcp_test_version`.
 
+### Fixed
+
+- **MSVC build.** `oauth_util.h` included `<windows.h>` without
+  `WIN32_LEAN_AND_MEAN` before httplib's `winsock2.h`, so the two socket
+  headers collided (the first error was a `sockaddr` redefinition). The
+  header now defines the guard macros itself, in include-order-independent
+  fashion.
+- **Destructor/notify race (TSan).** Background-stream threads ran their
+  final `notify_all()` after releasing the mutex that guards the join
+  counter, so the joiner could proceed to destroy the condition variable
+  before the notify landed. All cv wakes (listen/subscription/request tails,
+  `read()`, `interruptRead`, `setPeerGone`) now happen under the lock.
+
 ### Added
 
 - **`mcp::oauth::AuthorizationServer`** (`oauth_server.hpp` / `src/oauth_server.cpp`):
