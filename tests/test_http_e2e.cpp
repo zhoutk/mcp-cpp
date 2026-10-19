@@ -473,9 +473,130 @@ TEST(HttpClientTransport, SubscriptionAuthChallengeIsReported) {
   runner.join();
 }
 
-// read() has no idle timeout: a quiet connection must NOT look closed (the old
+// 408/429 on the subscription POST mean "later", not "no": the client must
+// retry and succeed on a subsequent attempt instead of giving up.
+TEST(HttpClientTransport, SubscriptionRetryableStatusRetriesAndSucceeds) {
+  httplib::Server svr;
+  std::atomic<int> posts{0};
+  svr.Post("/mcp", [&](const httplib::Request&, httplib::Response& res) {
+    if (posts.fetch_add(1) == 0) {
+      res.status = 429;  // "later": the client must come back
+      return;
+    }
+    // Second attempt: acknowledge and hold the stream open with keep-alives.
+    res.status = 200;
+    res.set_header("Cache-Control", "no-cache");
+    res.set_chunked_content_provider(
+        "text/event-stream",
+        [&, done = std::make_shared<std::atomic<bool>>(false)](size_t, httplib::DataSink& sink) {
+          if (!done->exchange(true)) {
+            static const std::string ack =
+                "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/"
+                "subscriptions/acknowledged\",\"params\":{\"_meta\":{"
+                "\"io.modelcontextprotocol/subscriptionId\":\"1\"}}}\n\n";
+            sink.write(ack.data(), ack.size());
+          }
+          // Keep the stream open so the subscription is live.
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+          return !done->load() || true;  // ends when svr.stop() closes it
+        });
+  });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  Client client("retry-sub", "1.0");
+  client.connect(transport);
+
+  auto subscribed = client.subscribe(Json(R"({"notifications":{"toolsListChanged":true}})"));
+  ASSERT_TRUE(subscribed.has_value()) << "429 must be retried, not treated as a rejection";
+  EXPECT_EQ(posts.load(), 2);
+
+  transport.closeSubscriptions();
+  svr.stop();
+  runner.join();
+}
+
+// A graceful closure (a result carrying the subscriptionId in _meta) ends the
+// subscription for good: the client must not re-subscribe behind the server's
+// back, and onSubscriptionClosed must fire exactly once.
+TEST(HttpClientTransport, GracefulClosureStopsReconnecting) {
+  httplib::Server svr;
+  std::atomic<int> posts{0};
+  std::atomic<bool> closureSent{false};
+  svr.Post("/mcp", [&](const httplib::Request& req, httplib::Response& res) {
+    // Only subscriptions/listen is a subscription stream; anything else gets a
+    // plain JSON answer (the test drains the queue with tools/list).
+    if (req.get_header_value("Mcp-Method") != "subscriptions/listen") {
+      res.status = 200;
+      res.set_content(R"({"jsonrpc":"2.0","id":2,"result":{"resultType":"complete","tools":[]}})",
+                      "application/json");
+      return;
+    }
+    posts.fetch_add(1);
+    res.status = 200;
+    res.set_header("Cache-Control", "no-cache");
+    res.set_chunked_content_provider(
+        "text/event-stream",
+        [&](size_t, httplib::DataSink& sink) -> bool {
+          if (!closureSent.exchange(true)) {
+            static const std::string ack =
+                "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/"
+                "subscriptions/acknowledged\",\"params\":{\"_meta\":{"
+                "\"io.modelcontextprotocol/subscriptionId\":\"1\"}}}\n\n";
+            sink.write(ack.data(), ack.size());
+            return true;
+          }
+          // Second provider call (after the test arms the closure): the
+          // server-initiated graceful closure, then end the stream.
+          static const std::string closure =
+              "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{"
+              "\"resultType\":\"complete\",\"_meta\":{"
+              "\"io.modelcontextprotocol/subscriptionId\":\"1\"}}}\n\n";
+          sink.write(closure.data(), closure.size());
+          return false;
+        });
+  });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  Client client("closure-sub", "1.0");
+  client.connect(transport);
+  std::atomic<int> closedCount{0};
+  std::string closedId;
+  client.onSubscriptionClosed([&](const std::string& id) {
+    closedCount.fetch_add(1);
+    closedId = id;
+  });
+
+  ASSERT_TRUE(client.subscribe(Json(R"({"notifications":{"toolsListChanged":true}})")).has_value());
+  ASSERT_EQ(posts.load(), 1);
+
+  // Arm the closure, then give the client ample time to wrongly re-subscribe.
+  closureSent = true;
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  EXPECT_EQ(posts.load(), 1);  // no reconnect after a graceful closure
+  // The closure event is queued; onSubscriptionClosed fires when an exchange
+  // reads past it. Drain with an unrelated request.
+  auto drained = client.listTools();
+  ASSERT_TRUE(drained.has_value());
+  EXPECT_EQ(closedCount.load(), 1);
+  EXPECT_EQ(closedId, "1");
+
+  transport.closeSubscriptions();
+  svr.stop();
+  runner.join();
+}
 // 30s idle return made a >30s request look like "connection closed by peer").
 // Only orderly transport shutdown ends the read - with EOF, not an error.
+// read() has no idle timeout: a quiet connection must NOT look closed (the
+// old 30s idle return made a >30s request look like "closed by peer"). Only
+// orderly transport shutdown ends the read - with EOF, not an error.
 TEST(HttpClientTransport, ReadBlocksWhileIdleAndReturnsEofOnShutdown) {
   Fixture f;
   auto transport = std::make_unique<HttpClientTransport>("127.0.0.1", f.port, "/mcp");
