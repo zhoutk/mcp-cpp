@@ -63,7 +63,7 @@ bin/mcp_test_server.exe --gtest_filter=ServerTest.DiscoverAdvertisesCapabilities
 
 The `mcp_test_*` names are exactly the CTest registration names (`mcp_test_version`, `_error`, `_jsonrpc`,
 `_types`, `_transport`, `_server`, `_client`, `_schema`, `_request_state`, `_stdio_e2e`, `_http_e2e`,
-`_oauth`, `_conformance_2026`).
+`_oauth`, `_oauth_server`, `_conformance_2026`).
 Benchmarks
 (`mcp_bench_parse|dispatch|e2e`) are **not** registered with CTest — run them manually from `bin/`.
 
@@ -95,6 +95,7 @@ aggregate include; use it in examples/tests.
 | `include/mcp/schema.hpp` / `src/schema.cpp` | JSON Schema 2020-12 validator (local `$ref` only) |
 | `include/mcp/transport_http.hpp` / `src/transport_http.cpp` | Streamable HTTP + SSE (httplib), both sides |
 | `include/mcp/oauth.hpp` / `src/oauth.cpp` | `mcp::oauth::OAuthClient` — OAuth 2.1 client for remote HTTP servers: PRM/AS metadata discovery, DCR/CIMD/pre-registration, PKCE (S256), RFC 8707 `resource`, RFC 9207 `iss`, scope step-up, SEP-2352 migration. HTTP-only, like `transport_http` |
+| `include/mcp/oauth_server.hpp` / `src/oauth_server.cpp` | `mcp::oauth::AuthorizationServer` — in-memory OAuth 2.1 authorization-server core (loopback/dev/test): DCR (RFC 7591), authorization code + mandatory PKCE S256, RFC 8707 resource binding, RFC 8414 metadata. HTTP-free; `tests/test_oauth_server.cpp` has the reference httplib wiring |
 
 Key runtime facts:
 
@@ -193,5 +194,8 @@ Key runtime facts:
   transport is on, so a pure-stdio configure must not name it unconditionally.
 - `tests/test_oauth.cpp` (`mcp_test_oauth`, HTTP-only) runs `mcp::oauth` against a real loopback
   authorization server: discovery, registration, PKCE, `iss`, scope selection, token auth and migration.
+- `tests/test_oauth_server.cpp` (`mcp_test_oauth_server`, HTTP-only) tests the authorization-server
+  core and drives `mcp::oauth` end to end against it (discovery -> DCR -> PKCE -> token). Shared
+  OAuth internals live in `src/oauth_util.h` (CSPRNG tokens, PKCE challenge, base64url).
 - `bench/bench_e2e.cpp` uses the same self-spawn trick with `--bench-child`.
 - `include/mcp/version.hpp`'s `kSdkVersion` and the repo-root `version.txt` must stay in sync.

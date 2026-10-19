@@ -2,8 +2,7 @@
 
 #include <mcp/oauth.hpp>
 
-#include "base64.h"
-#include "sha256.h"
+#include "oauth_util.h"
 
 #if defined(MCP_HAS_HTTP)
 
@@ -26,6 +25,9 @@
 
 namespace mcp {
 namespace oauth {
+
+using namespace oauth_detail;  // base64Url/pkceChallenge/randomToken/secureRandomBytes
+
 namespace {
 
 // ---- URL handling -----------------------------------------------------------
@@ -175,68 +177,11 @@ std::multimap<std::string, std::string> parseQuery(std::string_view query) {
   return out;
 }
 
-std::string base64Url(std::string_view raw) {
-  std::string text = detail::base64Encode(raw);
-  std::string out;
-  out.reserve(text.size());
-  for (const char ch : text) {
-    if (ch == '+') out.push_back('-');
-    else if (ch == '/') out.push_back('_');
-    else if (ch != '=') out.push_back(ch);
-  }
-  return out;
-}
-
-std::string pkceChallenge(std::string_view verifier) {
-  const detail::Digest256 digest = detail::sha256(verifier);
-  const std::string_view bytes(reinterpret_cast<const char*>(digest.data()), digest.size());
-  return base64Url(bytes);
-}
-
 // Cryptographically secure random bytes. The PKCE verifier and the state
 // parameter are security tokens - RFC 7636 requires the verifier to come from
 // a CSPRNG, and std::random_device provides no such guarantee (its quality is
 // implementation-defined). Windows resolves RtlGenRandom dynamically (no link
 // dependency); POSIX reads /dev/urandom; std::random_device is the last resort.
-std::string secureRandomBytes(size_t n) {
-  std::string out(n, '\0');
-#if defined(_WIN32)
-  using RtlGenRandomFn = BOOLEAN(WINAPI*)(PVOID, ULONG);
-  static const RtlGenRandomFn rtlGenRandom = []() -> RtlGenRandomFn {
-    HMODULE adv = GetModuleHandleA("advapi32.dll");
-    if (adv == nullptr) adv = LoadLibraryA("advapi32.dll");
-    return adv != nullptr
-               ? reinterpret_cast<RtlGenRandomFn>(GetProcAddress(adv, "SystemFunction036"))
-               : nullptr;
-  }();
-  if (rtlGenRandom != nullptr && rtlGenRandom(out.data(), static_cast<ULONG>(n))) {
-    return out;
-  }
-  // fall through to std::random_device
-#endif
-  {
-    std::ifstream urandom("/dev/urandom", std::ios::binary);
-    if (urandom.read(out.data(), static_cast<std::streamsize>(n))) return out;
-  }
-  std::random_device device;
-  for (size_t i = 0; i < n; ++i) out[i] = static_cast<char>(device());
-  return out;
-}
-
-std::string randomToken(size_t length) {
-  // RFC 7636 unreserved set minus the three characters the 6-bit mask below
-  // cannot reach: 64 remain, so one CSPRNG byte maps to one character.
-  static const char* kAlphabet =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.";
-  const std::string randomness = secureRandomBytes(length);
-  std::string out;
-  out.reserve(length);
-  for (size_t i = 0; i < length; ++i) {
-    out.push_back(kAlphabet[static_cast<unsigned char>(randomness[i]) & 63]);
-  }
-  return out;
-}
-
 // ---- HTTP -------------------------------------------------------------------
 
 struct HttpResponse {

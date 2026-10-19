@@ -47,7 +47,7 @@ implements; the suite has no 2026 scenario to score instead.
 
 | Item | Status |
 | --- | --- |
-| OAuth 2.1 client + Client ID Metadata Documents (remote HTTP) | ✅ client side (PRM/AS discovery, DCR/CIMD/pre-registration, PKCE, scope step-up, SEP-2352) · ⏳ server side |
+| OAuth 2.1 client + Client ID Metadata Documents (remote HTTP) | ✅ client side (PRM/AS discovery, DCR/CIMD/pre-registration, PKCE, scope step-up, SEP-2352) · ✅ server side: `mcp::oauth::AuthorizationServer` (in-memory core for loopback/dev/test: DCR, code + PKCE S256, RFC 8707 binding, metadata) |
 | Typed MRTR / elicitation helpers (`Ctx::elicit`, `Ctx::inputRequired`, client `retry`) | ✅ |
 | Signed `requestState` codec (HMAC-SHA256, context-bound, TTL) + server binding + client auto-fulfil | ✅ |
 | Logging helper (`Ctx::log`) + `_meta` log-level plumbing | ⏳ |

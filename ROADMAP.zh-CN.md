@@ -46,7 +46,7 @@
 
 | 事项 | 状态 |
 | --- | --- |
-| OAuth 2.1 客户端 + Client ID Metadata Documents（远程 HTTP） | ✅ 客户端侧（PRM/AS 发现、DCR/CIMD/预注册、PKCE、scope 升级、SEP-2352）· ⏳ 服务端侧 |
+| OAuth 2.1 客户端 + Client ID Metadata Documents（远程 HTTP） | ✅ 客户端侧（PRM/AS 发现、DCR/CIMD/预注册、PKCE、scope 升级、SEP-2352）· ✅ 服务端侧：`mcp::oauth::AuthorizationServer`（面向本地回环/开发/测试的内存核心：DCR、授权码 + PKCE S256、RFC 8707 绑定、元数据） |
 | 强类型 MRTR / elicitation 辅助工具（`Ctx::elicit`、`Ctx::inputRequired`、客户端 `retry`） | ✅ |
 | 签名 `requestState` 编解码（HMAC-SHA256、绑定上下文、TTL）+ 服务端绑定 + 客户端自动履行 | ✅ |
 | 日志辅助工具（`Ctx::log`）+ `_meta` 日志级别打通 | ⏳ |

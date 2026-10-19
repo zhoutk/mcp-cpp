@@ -30,6 +30,15 @@ a build-system fix (N7).
 
 ### Added
 
+- **`mcp::oauth::AuthorizationServer`** (`oauth_server.hpp` / `src/oauth_server.cpp`):
+  an in-memory OAuth 2.1 authorization-server core for loopback, development
+  and conformance-style test fixtures — Dynamic Client Registration (RFC 7591),
+  the authorization-code flow with mandatory PKCE S256 (plain is refused),
+  single-use codes, RFC 8707 `resource` binding, bearer-token verification and
+  the RFC 8414 metadata document. HTTP-free; `tests/test_oauth_server.cpp`
+  carries the reference httplib wiring and runs the `mcp::oauth` client end to
+  end against it. OAuth internals (CSPRNG tokens, PKCE challenge, base64url)
+  moved to the shared `src/oauth_util.h`.
 - Regression tests: `HttpClientTransport.SubscriptionJsonRpcErrorSurfacesAndStopsReconnecting`
   and `HttpClientTransport.SubscriptionAuthChallengeIsReported`.
 

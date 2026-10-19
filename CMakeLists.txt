@@ -83,6 +83,7 @@ add_library(mcp STATIC
   src/sha256.cpp
   src/request_state.cpp
   src/oauth.cpp
+  src/oauth_server.cpp
   src/transport_http.cpp)
 add_library(mcp::mcp ALIAS mcp)
 
@@ -236,6 +237,15 @@ if(MCP_BUILD_TESTS)
     target_compile_options(mcp_test_http_e2e PRIVATE ${MCP_CXX_WARNINGS})
     add_test(NAME mcp_test_http_e2e COMMAND mcp_test_http_e2e)
     list(APPEND MCP_TEST_EXECUTABLES mcp_test_http_e2e)
+
+    add_executable(mcp_test_oauth_server tests/test_oauth_server.cpp)
+    target_link_libraries(mcp_test_oauth_server PRIVATE mcp gtest gtest_main httplib)
+    # The tests compute PKCE challenges with the same primitive the server
+    # core uses: src/oauth_util.h (private; not part of the installed API).
+    target_include_directories(mcp_test_oauth_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_options(mcp_test_oauth_server PRIVATE ${MCP_CXX_WARNINGS})
+    add_test(NAME mcp_test_oauth_server COMMAND mcp_test_oauth_server)
+    list(APPEND MCP_TEST_EXECUTABLES mcp_test_oauth_server)
 
     add_executable(mcp_test_oauth tests/test_oauth.cpp)
     target_link_libraries(mcp_test_oauth PRIVATE mcp gtest gtest_main httplib)
