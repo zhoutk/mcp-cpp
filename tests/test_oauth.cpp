@@ -205,6 +205,7 @@ class OAuthMock {
   bool cimdSupported = false;
   bool issuerParameterSupported = true;
   bool issuerParameterAdvertised = true;
+  bool pkceAdvertised = true;        // advertise code_challenge_methods_supported: S256
   std::string asIssuerOverride;
   std::string redirectUri = "http://localhost:3000/callback";
 
@@ -257,6 +258,11 @@ class OAuthMock {
     Json methods = Json("[]");
     for (const auto& m : authMethods) methods.push_back(Json::str(m));
     body.add("token_endpoint_auth_methods_supported", std::move(methods));
+    if (pkceAdvertised) {
+      Json challenges = Json("[]");
+      challenges.push_back(Json::str("S256"));
+      body.add("code_challenge_methods_supported", std::move(challenges));
+    }
     if (!asScopes.empty()) {
       Json scopes = Json("[]");
       for (const auto& s : asScopes) scopes.push_back(Json::str(s));
@@ -356,6 +362,18 @@ TEST(OAuthDiscovery, RejectsAuthorizationServerMetadataWithForeignIssuer) {
   const auto result = client.discover(mock.challenge());
   ASSERT_FALSE(result.has_value());
   EXPECT_EQ(result.error().code, McpErrorCode::InvalidParams);
+}
+
+// PKCE downgrade protection: an AS that does not advertise S256 in
+// code_challenge_methods_supported is refused - a missing list must not
+// silently downgrade the flow to plain PKCE.
+TEST(OAuthDiscovery, RejectsAuthorizationServerWithoutPkceS256) {
+  OAuthMock mock;
+  mock.pkceAdvertised = false;
+  OAuthClient client(baseConfig(mock));
+  const auto result = client.discover(mock.challenge());
+  ASSERT_FALSE(result.has_value());
+  EXPECT_NE(result.error().message.find("S256"), std::string::npos);
 }
 
 TEST(OAuthDiscovery, FallsBackToServerOriginWhenProtectedResourceMetadataIsAbsent) {

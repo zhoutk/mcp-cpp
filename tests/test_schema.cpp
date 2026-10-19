@@ -162,3 +162,91 @@ TEST(Schema, McpToolSchemaShape) {
   EXPECT_FALSE(validateSchema(J(R"({})"), toolSchema).has_value());
   EXPECT_FALSE(validateSchema(J(R"({"query":42})"), toolSchema).has_value());
 }
+
+// ---- hardening (CODE-REVIEW-2026-10 B11) ------------------------------------------
+
+// maxChecks must be a GLOBAL ceiling: the anyOf/oneOf/not probes used to each
+// start their own counter at 0, so N branches meant N full budgets.
+TEST(SchemaHardening, MaxChecksIsGlobalAcrossProbes) {
+  // Ten trivial anyOf branches; a 5-check budget cannot cover them all with a
+  // shared counter. An instance that matches NOTHING makes every probe run,
+  // and the blown budget must surface as a bounds error, not as
+  // "matches none of anyOf".
+  const Json schema = Json(R"({"anyOf":[
+      {"type":"string"},{"type":"string"},{"type":"string"},{"type":"string"},
+      {"type":"string"},{"type":"string"},{"type":"string"},{"type":"string"},
+      {"type":"string"},{"type":"string"}]})");
+  SchemaLimits tiny;
+  tiny.maxChecks = 5;
+  auto r = validateSchema(J(R"(42)"), schema, schema, tiny);
+  ASSERT_FALSE(r.has_value());
+  EXPECT_NE(r.error().message.find("resource bounds"), std::string::npos);
+}
+
+// 2020-12: $ref is evaluated TOGETHER with its sibling keywords.
+TEST(SchemaHardening, RefSiblingsAreEvaluated) {
+  const Json schema = Json(
+      R"({"$defs":{"str":{"type":"string"}},
+          "$ref":"#/$defs/str",
+          "maxLength":2})");
+  EXPECT_TRUE(validateSchema(J(R"("ab")"), schema).has_value());
+  // Sibling maxLength applies: under the old ignore-siblings rule "abc" passed.
+  EXPECT_FALSE(validateSchema(J(R"("abc")"), schema).has_value());
+}
+
+// 2020-12 tuple form: prefixItems fixes the first N elements, items governs
+// everything after them.
+TEST(SchemaHardening, PrefixItemsAndTrailingItems) {
+  const Json schema = Json(
+      R"({"prefixItems":[{"type":"string"},{"type":"integer"}],
+          "items":{"type":"boolean"}})");
+  EXPECT_TRUE(validateSchema(J(R"(["x", 1, true, false])"), schema).has_value());
+  EXPECT_FALSE(validateSchema(J(R"(["x", 1, "nope"])"), schema).has_value());
+  EXPECT_FALSE(validateSchema(J(R"([1, 2])"), schema).has_value());
+}
+
+// minProperties/maxProperties used Json::size(), which returns -1 for objects
+// - both keywords were silently inert.
+TEST(SchemaHardening, MinMaxPropertiesCountRealProperties) {
+  const Json schema = J(R"({"minProperties":1,"maxProperties":2})");
+  EXPECT_FALSE(validateSchema(J(R"({})"), schema).has_value());
+  EXPECT_TRUE(validateSchema(J(R"({"a":1})"), schema).has_value());
+  EXPECT_FALSE(validateSchema(J(R"({"a":1,"b":2,"c":3})"), schema).has_value());
+}
+
+// Property keys are compared as full strings: a key with an embedded NUL used
+// to be truncated by c_str() and could spoof the property "a", bypassing
+// additionalProperties:false.
+TEST(SchemaHardening, NulInPropertyKeyCannotSpoofADeclaredProperty) {
+  const Json schema = J(
+      R"({"properties":{"a":{"type":"string"}},"additionalProperties":false})");
+  Json instance = J(R"({"a":"v"})");
+  instance.add(std::string("a\0evil", 6), J(R"("spoof")"));
+  EXPECT_FALSE(validateSchema(instance, schema).has_value());
+}
+
+// $ref tokens resolve by DIRECT member lookup: an unresolvable token must not
+// be found by operator[]'s deep search in unrelated nested data.
+TEST(SchemaHardening, RefPointerDoesNotDeepSearch) {
+  const Json schema = Json(
+      R"({"anyOf":[{"type":"object","properties":{"type":{"type":"string"}}}],
+          "$ref":"#/no/such/type"})");
+  auto r = validateSchema(J(R"({})"), schema);
+  ASSERT_FALSE(r.has_value());
+  EXPECT_NE(r.error().message.find("unresolvable $ref token"), std::string::npos);
+}
+
+// An overlong $ref array index must fail cleanly, not throw std::out_of_range.
+TEST(SchemaHardening, RefArrayIndexOutOfRangeDoesNotThrow) {
+  const Json schema = J(R"({"$ref":"#/arr/99999999999999999999"})");
+  const Json root = J(R"({"arr":["x"]})");
+  EXPECT_FALSE(validateSchema(J(R"("x")"), schema, root, SchemaLimits{}).has_value());
+}
+
+// A malformed pattern regex is a schema error, not a crash.
+TEST(SchemaHardening, InvalidPatternRegexIsAnError) {
+  EXPECT_FALSE(validateSchema(J(R"("x")"), J(R"({"pattern":"(["})")).has_value());
+  EXPECT_FALSE(
+      validateSchema(J(R"({"k":1})"), J(R"({"patternProperties":{"([":{"type":"string"}}})"))
+          .has_value());
+}

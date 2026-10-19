@@ -11,8 +11,10 @@ namespace {
 // zjson operator[] falls back to a DEEP search when the direct member is
 // missing - fatal for schema keyword extraction (direct(schema, "type") on an
 // anyOf-only object would find a nested "type"). Use direct members only.
-Json direct(const Json& obj, const char* key) {
-  const Json* p = obj.directMemberPtr(std::string_view(key));
+// Takes the key by string_view: a c_str() would truncate a key at an
+// embedded NUL, letting {"a\0..."} spoof the property "a".
+Json direct(const Json& obj, std::string_view key) {
+  const Json* p = obj.directMemberPtr(key);
   return p ? *p : Json(nullptr);  // Null doubles as "absent"
 }
 
@@ -40,8 +42,15 @@ bool typeMatches(const Json& v, const std::string& expected) {
 struct Validator {
   const Json& root;
   const SchemaLimits limits;
-  int checks = 0;
+  // SHARED across anyOf/oneOf/not probes: each probe used to start its own
+  // counter at 0, so N branches meant N full budgets and a pathological
+  // nested schema could burn minutes of CPU (measured 11 s). maxChecks is a
+  // GLOBAL ceiling over the whole validation run.
+  int* checks;
   std::string error;
+
+  Validator(const Json& r, const SchemaLimits& l, int* counter)
+      : root(r), limits(l), checks(counter) {}
 
   bool fail(const std::string& path, const std::string& message) {
     if (error.empty()) error = path.empty() ? message : path + ": " + message;
@@ -49,12 +58,17 @@ struct Validator {
   }
 
   bool budget() {
-    if (++checks > limits.maxChecks) {
+    if (++*checks > limits.maxChecks) {
       if (error.empty()) error = "schema validation exceeded resource bounds";
       return false;
     }
     return true;
   }
+
+  // True when the SHARED counter ran past the ceiling inside a probe: the
+  // probe's own error text does not carry the bounds message over, so the
+  // composition keywords re-check after their probes.
+  bool boundsExceeded() const { return *checks > limits.maxChecks; }
 
   // Resolves a local $ref ("#/x/y" JSON Pointer form). Remote/anchor forms
   // are rejected (never dereferenced, never silently permissive).
@@ -83,18 +97,27 @@ struct Validator {
       }
       if (!unescaped.empty()) {
         if (node->isArray()) {
-          // array index
+          // array index - parsed by hand with a bound check: std::stoi throws
+          // out_of_range on an overlong digit string, and validate() must not
+          // throw.
+          if (unescaped.size() > 1 && unescaped[0] == '0') {
+            return fail("", "invalid $ref array index '" + unescaped + "'");
+          }
+          long long idx = 0;
           for (const char ch : unescaped) {
             if (ch < '0' || ch > '9') return fail("", "invalid $ref array index '" + unescaped + "'");
+            idx = idx * 10 + (ch - '0');
+            if (idx > 2147483647LL) return fail("", "$ref index out of range: " + unescaped);
           }
-          const int idx = std::stoi(unescaped);
-          Json child = (*node)[idx];
+          Json child = (*node)[static_cast<int>(idx)];
           if (child.isError()) return fail("", "$ref index out of range: " + unescaped);
           out = child;
           node = &out;
         } else {
-          const Json child = (*node)[unescaped];
-          if (child.isError()) return fail("", "unresolvable $ref token: " + unescaped);
+          // direct() - NOT operator[], whose deep search would resolve a
+          // $ref token from accidentally-nested data elsewhere in the schema.
+          const Json child = direct(*node, unescaped);
+          if (child.isNull()) return fail("", "unresolvable $ref token: " + unescaped);
           out = child;
           node = &out;
         }
@@ -176,13 +199,14 @@ struct Validator {
     if (!schema.isObject()) return fail(path, "schema must be an object or boolean");
     if (depth > limits.maxDepth) return fail(path, "schema nesting exceeds resource bounds");
 
-    // $ref: validate against the target; sibling keywords are ignored
-    // (2020-12 behavior).
+    // $ref: 2020-12 evaluates the resolved target AND any sibling keywords
+    // (draft-07 ignored siblings). Check the target first, then FALL THROUGH
+    // to the local keywords below. Cycles are bounded by budget().
     const Json ref = direct(schema, "$ref");
     if (ref.isString()) {
       Json target;
       if (!resolveRef(ref, target)) return false;
-      return check(value, target, path, depth + 1);
+      if (!check(value, target, path, depth + 1)) return false;
     }
 
     // type
@@ -244,8 +268,25 @@ struct Validator {
           }
         }
       }
+      const Json prefixItems = direct(schema, "prefixItems");
       const Json items = direct(schema, "items");
-      if (items.isObject() || items.isTrue() || items.isFalse()) {
+      if (prefixItems.isArray()) {
+        // 2020-12 tuple form: prefixItems fixes the first N elements; items
+        // (when present) applies to everything AFTER them.
+        int idx = 0;
+        for (const auto& item : prefixItems.toVector()) {
+          if (idx >= value.size()) break;
+          const std::string itemPath = path + "/" + std::to_string(idx);
+          if (!check(value[idx], item, itemPath, depth + 1)) return false;
+          ++idx;
+        }
+        if (items.isObject() || items.isTrue() || items.isFalse()) {
+          for (int i = idx; i < value.size(); ++i) {
+            const std::string itemPath = path + "/" + std::to_string(i);
+            if (!check(value[i], items, itemPath, depth + 1)) return false;
+          }
+        }
+      } else if (items.isObject() || items.isTrue() || items.isFalse()) {
         int idx = 0;
         for (const auto& item : value.toVector()) {
           const std::string itemPath = path + "/" + std::to_string(idx);
@@ -253,7 +294,7 @@ struct Validator {
           ++idx;
         }
       } else if (items.isArray()) {
-        // tuple form
+        // draft-07 tuple form (kept for schemas written against it)
         int idx = 0;
         for (const auto& item : items.toVector()) {
           if (idx >= value.size()) break;
@@ -263,14 +304,17 @@ struct Validator {
         }
       }
     } else if (value.isObject()) {
+      // zjson's size() returns -1 for objects - count the real properties.
+      const int64_t propertyCount =
+          static_cast<int64_t>(value.getAllKeys().toVector().size());
       const Json minProperties = direct(schema, "minProperties");
       if (minProperties.isNumber() &&
-          value.size() < minProperties.toInt64()) {
+          propertyCount < minProperties.toInt64()) {
         return fail(path, "object has fewer than minProperties");
       }
       const Json maxProperties = direct(schema, "maxProperties");
       if (maxProperties.isNumber() &&
-          value.size() > maxProperties.toInt64()) {
+          propertyCount > maxProperties.toInt64()) {
         return fail(path, "object has more than maxProperties");
       }
 
@@ -292,7 +336,7 @@ struct Validator {
       if (properties.isObject()) {
         for (const auto& key : value.getAllKeys().toVector()) {
           const std::string keyStr(key.toString());
-          const Json prop = direct(properties, keyStr.c_str());
+          const Json prop = direct(properties, keyStr);
           // direct() returns Json(nullptr) for an absent key (null doubles as
           // "absent" here, NOT an error) - use isNull(), not isError().
           if (!prop.isNull()) {
@@ -313,7 +357,7 @@ struct Validator {
             const std::string keyStr(key.toString());
             if (std::regex_search(keyStr, re)) {
               matched.insert(keyStr);
-              if (!check(value[keyStr], direct(patternProperties, patKey.toString().c_str()),
+              if (!check(value[keyStr], direct(patternProperties, patKey.toString()),
                          path + "/" + keyStr, depth + 1)) {
                 return false;
               }
@@ -349,27 +393,34 @@ struct Validator {
     if (anyOf.isArray()) {
       bool any = false;
       for (const auto& sub : anyOf.toVector()) {
-        Validator probe{root, limits, 0, ""};
+        Validator probe{root, limits, checks};
         if (probe.check(value, sub, path, depth + 1)) any = true;
       }
-      if (!any) return fail(path, "value matches none of anyOf");
+      if (!any) {
+        if (boundsExceeded()) return fail(path, "schema validation exceeded resource bounds");
+        return fail(path, "value matches none of anyOf");
+      }
     }
     const Json oneOf = direct(schema, "oneOf");
     if (oneOf.isArray()) {
       int matches = 0;
       for (const auto& sub : oneOf.toVector()) {
-        Validator probe{root, limits, 0, ""};
+        Validator probe{root, limits, checks};
         if (probe.check(value, sub, path, depth + 1)) matches++;
       }
-      if (matches != 1) return fail(path, "value matches " + std::to_string(matches) +
-                                              " of oneOf (expected exactly 1)");
+      if (matches != 1) {
+        if (boundsExceeded()) return fail(path, "schema validation exceeded resource bounds");
+        return fail(path, "value matches " + std::to_string(matches) +
+                              " of oneOf (expected exactly 1)");
+      }
     }
     const Json notSchema = direct(schema, "not");
     if (notSchema.isObject() || notSchema.isTrue() || notSchema.isFalse()) {
-      Validator probe{root, limits, 0, ""};
+      Validator probe{root, limits, checks};
       if (probe.check(value, notSchema, path, depth + 1)) {
         return fail(path, "value matches the 'not' schema");
       }
+      if (boundsExceeded()) return fail(path, "schema validation exceeded resource bounds");
     }
     return true;
   }
@@ -379,7 +430,8 @@ struct Validator {
 
 McpResult<void> validateSchema(const Json& instance, const Json& schema, const Json& root,
                                const SchemaLimits& limits) {
-  Validator v{root, limits, 0, ""};
+  int counter = 0;
+  Validator v{root, limits, &counter};
   if (v.check(instance, schema, "", 0)) return Ok();
   return Err(McpErrorCode::InvalidParams, v.error.empty() ? "schema validation failed" : v.error);
 }

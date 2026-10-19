@@ -52,6 +52,7 @@ struct ServerMetadata {
   std::vector<std::string> scopesSupported;
   std::vector<std::string> tokenEndpointAuthMethods;  // default {"none"}
   std::vector<std::string> grantTypesSupported;
+  std::vector<std::string> codeChallengeMethods;      // PKCE; must contain S256
   bool issuerParameterSupported = false;            // RFC 9207 advertisement
   bool issuerParameterAdvertised = false;           // the field was present
   bool clientIdMetadataDocumentSupported = false;   // SEP-991 / CIMD

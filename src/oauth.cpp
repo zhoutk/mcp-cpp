@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <random>
@@ -68,7 +69,11 @@ ParsedUrl parseUrl(std::string_view url) {
         portText.find_first_not_of("0123456789") != std::string::npos) {
       return out;
     }
-    out.port = std::atoi(portText.c_str());
+    // Bounds matter: an out-of-range port would flow into the httplib origin
+    // string and either throw or silently produce an unusable client.
+    const long port = std::strtol(portText.c_str(), nullptr, 10);
+    if (port < 1 || port > 65535) return out;
+    out.port = static_cast<int>(port);
     authority = authority.substr(0, colon);
   }
   if (authority.empty()) return out;
@@ -250,9 +255,27 @@ struct HttpResponse {
   }
 };
 
+// Loopback hosts are the one exception to the https rule: the conformance
+// fixture and local development authorization servers are plain http.
+bool isLoopbackHost(const std::string& host) {
+  return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1";
+}
+
+// Returns null when the URL cannot yield a usable client: a port outside
+// 1..65535, or httplib refusing the origin. The https constructor THROWS when
+// the build has no TLS backend, and requests on an invalid client would
+// dereference null internals - oauth.hpp promises "nothing throws", so both
+// are caught here and surfaced as a transport error instead.
 std::unique_ptr<httplib::Client> makeClient(const ParsedUrl& url) {
+  if (url.port <= 0 || url.port > 65535) return nullptr;
   std::string origin = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
-  auto client = std::make_unique<httplib::Client>(origin);
+  std::unique_ptr<httplib::Client> client;
+  try {
+    client = std::make_unique<httplib::Client>(origin);
+  } catch (...) {  // https without a TLS backend
+    return nullptr;
+  }
+  if (!client->is_valid()) return nullptr;
   client->set_connection_timeout(5);
   client->set_read_timeout(10, 0);
   client->set_follow_location(false);
@@ -274,7 +297,18 @@ HttpResponse sendRequest(const std::string& method, const std::string& url,
     out.error = "invalid URL: " + url;
     return out;
   }
+  // The token endpoint carries the authorization code, the client secret and
+  // the PKCE verifier: refuse plain http everywhere except loopback.
+  if (parsed.scheme != "https" && !isLoopbackHost(parsed.host)) {
+    out.error = "refusing to send OAuth credentials over plain http to '" + parsed.host +
+                "' (use https or a loopback address)";
+    return out;
+  }
   auto client = makeClient(parsed);
+  if (client == nullptr) {
+    out.error = "cannot create an HTTP client for " + url;
+    return out;
+  }
   httplib::Result result;
   if (method == "GET") {
     result = client->Get(pathWithQuery(parsed).c_str(), headers);
@@ -553,6 +587,8 @@ struct OAuthClient::Impl {
       metadata.tokenEndpointAuthMethods =
           stringArrayMember(**doc, "token_endpoint_auth_methods_supported");
       metadata.grantTypesSupported = stringArrayMember(**doc, "grant_types_supported");
+      metadata.codeChallengeMethods =
+          stringArrayMember(**doc, "code_challenge_methods_supported");
       metadata.clientIdMetadataDocumentSupported =
           member(**doc, "client_id_metadata_document_supported").isTrue();
       const Json issParameter = member(**doc, "authorization_response_iss_parameter_supported");
@@ -570,6 +606,18 @@ struct OAuthClient::Impl {
       if (metadata.authorizationEndpoint.empty() || metadata.tokenEndpoint.empty()) {
         return Err(McpErrorCode::InternalError,
                    "authorization server metadata is missing its endpoints");
+      }
+      // PKCE downgrade protection (OAuth 2.1): the AS must advertise S256.
+      // A missing list, or one without S256, means we cannot confirm the
+      // token endpoint accepts an S256 challenge - refusing beats silently
+      // downgrading to plain PKCE.
+      const bool s256 = std::any_of(metadata.codeChallengeMethods.begin(),
+                                    metadata.codeChallengeMethods.end(),
+                                    [](const std::string& m) { return m == "S256"; });
+      if (!s256) {
+        return Err(McpErrorCode::InvalidParams,
+                   "authorization server does not advertise PKCE S256 "
+                   "(code_challenge_methods_supported)");
       }
       return Ok(std::optional<ServerMetadata>(std::move(metadata)));
     }
