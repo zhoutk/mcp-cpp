@@ -221,17 +221,17 @@ TLS、schema 的计数/`prefixItems`/`size()`/NUL 键/`$ref` 兄弟）。这些�
 - 复核中仅发现一处失效注释（`SubscriptionSurvivesIdlePeriod` 仍写"keep-alive 15s"，实际已改 5s），
   已顺手修正，无代码问题。
 
-**下一步计划（阶段 B 收尾 → C → D）：**
+**下一步计划（阶段 B 收尾 → C → D）—— 已于 2026-10-19 全部完成：**
 
-| 序 | 任务 | 说明 | 预估 |
-| --- | --- | --- | --- |
-| 1 | B7 + B8 收尾 | 订阅 POST 结果检查、错误入队；`read()` 空闲超时与 EOF 区分；`cancellations_` 遗留 flag 清理（请求完成后到达的 cancel 会在 map 里**永久驻留一个 parked flag**——长寿命 HTTP 服务器上缓慢累积，复核确认本轮未覆盖） | ~1 天 |
-| 2 | B3 + B4 | `-32022`/`-32021`/缺 `_meta` 的 `-32602` 映射 HTTP 400；`-32021` 携带 `data.requiredCapabilities`。改动小、协议合规收益直接 | ~半天 |
-| 3 | B6 + B9 | Origin 精确匹配（host 解析后比较）；空头值 base64 编解码 | ~1 天 |
-| 4 | B10 + B11 | OAuth 加固（端口范围、`is_valid()`、构造异常、强制 HTTPS、PKCE 降级）；schema 加固（计数、`prefixItems`、`size()`、NUL 键、`$ref` 兄弟、Pointer、正则异常）——量大但机械，可并行拆分 | ~2~3 天 |
-| 5 | B1 收尾 + B2 | `Ok(lvalue)` decay 已随 57f5c38 落地，剩 CI `-std=c++23` 编译检查；legacy 版本门 | ~半天 |
-| 6 | 阶段 C | C3 剩余矩阵（`MCP_DISABLE_HTTP=ON`、`-std=c++23`）；C4 `TIMEOUT`；C5 并发模型文档章节 | ~1~2 天 |
-| 7 | 阶段 D | 全绿后发 v0.3.0（线程安全承诺变化写入 release note），更新"生产就绪"表述 | ~半天 |
+| 序 | 任务 | 提交 |
+| --- | --- | --- |
+| 1 | B7 + B8 收尾（`read()` 空闲/EOF 语义、订阅拒绝上报、取消键类型化 + parked 上限） | `a021f99` |
+| 2 | B3 + B4（协议级拒绝回 HTTP 400、`-32021` + `data.requiredCapabilities`、`error.data` 不再丢失） | `b54dad8` |
+| 3 | B6 + B9（Origin host 精确匹配、空头值 base64 往返） | `eb0b6d6` |
+| 4 | B10 + B11（OAuth：端口边界/不抛异常/强制 https/PKCE 降级拒绝；schema：全局预算、`$ref` 兄弟、Pointer 安全、`min/maxProperties`、NUL 键、`prefixItems`） | `caf1b83` |
+| 5 | B1 收尾（CI `cxx23` 任务）+ B2（legacy 版本门填入最老支持版本） | `72fbc96` |
+| 6 | 阶段 C（纯 stdio CI 任务、CTest `TIMEOUT`、启动循环加截止时间） | `dbf4d54` |
+| 7 | 阶段 D：**v0.3.0 已发布**（`92518fd`，tag `v0.3.0`），CHANGELOG/README/ROADMAP 已更新 | `92518fd` |
 
-顺序理由：1–3 都是"真实部署先踩到"的行为/安全问题；4 是加固清单，量最大但不阻塞对外表述；
-B1/B2 是编译门槛与 legacy 兼容，放最后不影响主线。全程约 **5~8 个工作日** 到 v0.3.0。
+发布时验证：13/13 CTest（HTTP）、11/11（纯 stdio）、13/13（C++23 `-Werror` 构建）、
+安装包版本 0.3.0。本文档的 P0/P1 清单至此全部收口；后续工作回到 ROADMAP.md。
