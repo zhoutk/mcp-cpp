@@ -10,15 +10,19 @@
 #include "sha256.h"
 
 #if defined(_WIN32)
-// LEAN_AND_MEAN keeps windows.h from pulling in winsock.h: translation units
-// include this header alongside httplib.h (winsock2.h), and the two socket
-// headers cannot be mixed. Order-independent, unlike the plain include.
+// winsock2.h FIRST, then windows.h: winsock2 defines _WINSOCKAPI_, so
+// windows.h skips the old winsock.h - the two socket headers cannot be
+// mixed, and translation units include this header alongside httplib.h
+// (which loads winsock2.h). WIN32_LEAN_AND_MEAN/NOMINMAX additionally keep
+// windows.h from leaking winsock.h and the min/max macros into our code.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #endif
 
