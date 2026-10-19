@@ -290,14 +290,18 @@ TLS、schema 的计数/`prefixItems`/`size()`/NUL 键/`$ref` 兄弟）。这些�
 
 原 P0/P1 清单已全部收口，剩余的都不是"默认路径必现"的问题。按收益排序：
 
-| 序 | 任务 | 理由 | 预估 |
-| --- | --- | --- | --- |
-| 1 | **v0.3.1 补丁发布**：把本节的 N1/N2/N7 修复打 tag（含 CHANGELOG `Unreleased` 转正） | 已发布代码里存在"订阅被 200 拒绝即永久挂起"的缺陷，补丁应尽快对外 | 半天 |
-| 2 | **`Client` 请求超时 / 可取消 API**（N5）：`setRequestTimeout(ms)` 或 `read()` 可被 `close()` 唤醒 | 无空闲超时是正确设计，但调用方失去唯一的兜底手段；真实部署需要 | 1~2 天 |
-| 3 | 订阅语义补测：408/429 重试路径、优雅关闭后不重连 | 本轮把终止条件改成四选一，408/429 分支尚无测试 | 半天 |
-| 4 | ROADMAP 的 Tier-1 剩余项：OAuth **服务端**、`Ctx::log` + log-level、Doxygen、vcpkg/Conan | 对外可用性与分发 | 1~2 周 |
-| 5 | 性能：多 worker 派发（当前串行）、零拷贝解析复测 | 串行派发是 v0.3.0 的有意取舍；有吞吐需求时再开 | 1 周+ |
-| 6 | 可选项（N3/N4/N6）：Origin host 小写归一、SSE 路径 400 映射、淘汰条件语义化 | 低风险清理，可与任意相邻任务合并 | 各 < 1 小时 |
+| 序 | 任务 | 状态 |
+| --- | --- | --- |
+| 1 | **v0.3.1 补丁发布**（N1/N2/N7 + CHANGELOG 转正） | ✅ `d3f5102`，tag `v0.3.1`（本地） |
+| 2 | **`Client` 请求超时 / 可取消 API**（N5）：`ITransport::interruptRead()/clearReadInterrupt()`（一次性唤醒，基类 no-op）、`Client::setRequestTimeout(ms)`（看门狗线程 `wait_until` 截止期——注意不能只 `wait`，无人 notify 时永不触发）、`Client::cancelCurrentRequest()`；`ClientTimeout.*` 4 例 | ✅ `d9323a8` |
+| 3 | 订阅语义补测：429 重试成功（posts==2）、优雅关闭后不重连 + `onSubscriptionClosed` 经排空触发 | ✅ `ce8023c` |
+| 4 | Tier-1 剩余项 | ✅ `0bffae2`（`Ctx::log` + `_meta` logLevel 阈值 + `Builder::logLevel`；顺带修复 Server 移动构造漏移 `logLevel_`）、`7a2ba91`（vcpkg/Conan）、`651c390`（Doxygen + CI docs job）、`1dd3ef1`（`mcp::oauth::AuthorizationServer`：DCR、强制 PKCE S256、单次码、RFC 8707 绑定、元数据；client↔server 全环测试） |
+| 5 | 性能：多 worker 派发、零拷贝解析复测 | ⏳ **按本节"不建议现在做"的结论推迟**：串行派发是 v0.3.0 的有意取舍且已经 TSan 验证，切换模型应等明确吞吐数据（ROADMAP 里程碑 C 仍挂此项） |
+| 6 | 可选项（N3/N4/N6）：Origin host 小写归一、SSE 路径 400 映射、淘汰条件语义化 | ✅ `39ba6fe` |
+
+发布后累计新增：`CHANGELOG` `Unreleased` 段记录 `AuthorizationServer`（新功能，随 **v0.4.0** MINOR 转正）。
+最终验证（本机，全部通过）：14/14 CTest（HTTP，含新 `mcp_test_oauth_server`）、11/11（纯 stdio）、
+13/13（C++23 `-Werror`）、Doxygen 生成无阻塞警告。
 
 不建议现在做的：任何会改变 `Server` 线程承诺的重构（每请求 `Server` 实例）。当前
 "串行派发 + 64 线程传输"已经过并发与 TSan 测试验证，切换模型应等到有明确吞吐数据。
