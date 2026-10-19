@@ -22,7 +22,7 @@ C++ SDK**; this project is offered as one (see [ROADMAP.md](ROADMAP.md)).
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
-**Status:** v0.3.0, feature-complete per [PLAN.md](PLAN.md) §5. Against the
+**Status:** v0.3.1, feature-complete per [PLAN.md](PLAN.md) §5. Against the
 official conformance suite (v0.2.0-alpha.12) it passes **100% of the scored
 2026-07-28 server scenarios (42/42 checks)** — see
 [`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) and
@@ -38,9 +38,9 @@ and the full P1 list from
 [docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) is closed —
 protocol-level rejections answer HTTP 400, OAuth and schema inputs are
 hardened against hostile peers, and the concurrency suites run under TSan in CI.
-The v0.3.0 review found and fixed two residual subscription-transport defects
-(in-band JSON-RPC rejections, auth challenges); they are listed under
-`Unreleased` in `CHANGELOG.md` for the next patch release.
+v0.3.1 (2026-10-19) ships the two subscription-transport defects the v0.3.0
+review found (in-band JSON-RPC rejections, auth challenges) plus a build-system
+fix; see `CHANGELOG.md`.
 
 ---
 

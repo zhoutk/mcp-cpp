@@ -4,7 +4,11 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-10-19
+
+Patch release: two subscription-transport defects found by the v0.3.0 commit
+review ([docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) §七, N1/N2) plus
+a build-system fix (N7).
 
 ### Fixed
 
@@ -300,7 +304,8 @@ cancellation, `completion/complete`, CacheableResult, a JSON Schema 2020-12
 validator, and `x-mcp-header` mirroring. Ten CTest suites, three benchmarks, and the
 zorm integration example.
 
-[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/zhoutk/mcp-cpp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zhoutk/mcp-cpp/releases/tag/v0.1.0
