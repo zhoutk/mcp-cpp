@@ -70,7 +70,8 @@ struct Fixture {
     port = *bound;
     runner = std::thread([this] { (void)http->run(); });
     // Wait for the listener.
-    while (!http->running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    for (int i = 0; i < 10000 && !http->running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // deadline: never wait forever
   }
 
   ~Fixture() {
@@ -170,7 +171,8 @@ TEST(HttpE2E, OriginPolicyRejectsForeignOrigins) {
   auto bound = http.bind("127.0.0.1");
   ASSERT_TRUE(bound.has_value());
   std::thread runner([&] { (void)http.run(); });
-  while (!http.running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // deadline: never wait forever
 
   httplib::Client c("127.0.0.1", *bound);
   httplib::Headers evil{{"Origin", "http://evil.example.com"}};
@@ -193,7 +195,8 @@ TEST(HttpE2E, OriginPolicyHostMatchIsExact) {
   auto bound = http.bind("127.0.0.1");
   ASSERT_TRUE(bound.has_value());
   std::thread runner([&] { (void)http.run(); });
-  while (!http.running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // deadline: never wait forever
 
   httplib::Client c("127.0.0.1", *bound);
   auto postWithOrigin = [&](const char* origin) {
@@ -353,7 +356,8 @@ TEST(HttpClientTransport, SubscriptionRejectionSurfacesAsAnError) {
   svr.Post("/mcp", [](const httplib::Request&, httplib::Response& res) { res.status = 403; });
   const int port = svr.bind_to_any_port("127.0.0.1");
   std::thread runner([&] { (void)svr.listen_after_bind(); });
-  while (!svr.is_running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // deadline: never wait forever
 
   HttpClientTransport transport("127.0.0.1", port, "/mcp");
   Client client("reject-e2e", "1.0");
@@ -507,7 +511,8 @@ TEST(HttpClientTransport, Reports401AuthChallenge) {
   });
   const int port = svr.bind_to_any_port("127.0.0.1");
   std::thread runner([&] { (void)svr.listen_after_bind(); });
-  while (!svr.is_running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // deadline: never wait forever
 
   HttpClientTransport transport("127.0.0.1", port, "/mcp");
   int status = 0;
@@ -542,7 +547,8 @@ TEST(HttpClientTransport, Reports403ScopeChallenge) {
   });
   const int port = svr.bind_to_any_port("127.0.0.1");
   std::thread runner([&] { (void)svr.listen_after_bind(); });
-  while (!svr.is_running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // deadline: never wait forever
 
   HttpClientTransport transport("127.0.0.1", port, "/mcp");
   int status = 0;

@@ -253,6 +253,11 @@ if(MCP_BUILD_TESTS)
   # standalone, host project's root when embedded).
   set_target_properties(${MCP_TEST_EXECUTABLES} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+
+  # C4: a hung suite must fail, not wedge the CI runner. The HTTP e2e and
+  # OAuth suites legitimately take ~20-35 s (idle-subscription and loopback
+  # flows); everything else finishes in seconds. 10 minutes is generous.
+  set_tests_properties(${MCP_TEST_EXECUTABLES} PROPERTIES TIMEOUT 600)
 endif()
 
 # ---- install / package (find_package(mcp CONFIG)) ---------------------------

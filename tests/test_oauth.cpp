@@ -160,7 +160,8 @@ class OAuthMock {
 
     port_ = svr_.bind_to_any_port("127.0.0.1");
     runner_ = std::thread([this] { svr_.listen_after_bind(); });
-    while (!svr_.is_running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    for (int i = 0; i < 10000 && !svr_.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // deadline: never wait forever
   }
 
   ~OAuthMock() {

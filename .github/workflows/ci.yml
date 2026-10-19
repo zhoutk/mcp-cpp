@@ -123,6 +123,29 @@ jobs:
           ctest --test-dir build --output-on-failure
           -R "mcp_test_server|mcp_test_http_e2e"
 
+  # C3: the pure-stdio configure (MCP_DISABLE_HTTP=ON) must build and its
+  # stdio-only tests must pass - and nothing may name the HTTP-only targets
+  # unconditionally (that broke this mode once already, see P0 round).
+  stdio-only:
+    name: ubuntu / pure stdio
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DMCP_DISABLE_HTTP=ON
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   sanitizers:
     name: ubuntu / ASan + UBSan
     runs-on: ubuntu-latest
