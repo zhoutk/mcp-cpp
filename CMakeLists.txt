@@ -22,6 +22,11 @@ cmake_minimum_required(VERSION 3.18)
 # mcp_test_version suite asserts that constant against this value.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" MCP_VERSION_FILE)
 string(STRIP "${MCP_VERSION_FILE}" MCP_PROJECT_VERSION)
+# Re-run configure when version.txt changes. Without this an existing build
+# directory keeps the old project version (and the MCP_EXPECTED_SDK_VERSION
+# define that mcp_test_version asserts against) after a release bump.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/version.txt")
 if(MCP_PROJECT_VERSION STREQUAL "")
   message(FATAL_ERROR "mcp-cpp: version.txt is empty")
 endif()

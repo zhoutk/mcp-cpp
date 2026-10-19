@@ -50,6 +50,7 @@
 | 强类型 MRTR / elicitation 辅助工具（`Ctx::elicit`、`Ctx::inputRequired`、客户端 `retry`） | ✅ |
 | 签名 `requestState` 编解码（HMAC-SHA256、绑定上下文、TTL）+ 服务端绑定 + 客户端自动履行 | ✅ |
 | 日志辅助工具（`Ctx::log`）+ `_meta` 日志级别打通 | ⏳ |
+| 客户端请求超时 / 可取消 API | ⏳ |
 | Doxygen API 参考；客户端 + HTTP 示例 | ⏳ |
 | 零拷贝解析优化（重新测量 B1） | ⏳ |
 | Conan recipe | ⏳ |
@@ -60,7 +61,7 @@
 | --- | --- |
 | Tasks 扩展（`io.modelcontextprotocol/tasks`） | ⏳ |
 | 多 worker 分发（编译期 `MCP_WORKERS`） | ⏳ |
-| 旧版修订语义（选择性启用） | ⏳ |
+| 旧版修订语义（选择性启用） | ✅ 双时代模式：`initialize`、无 `_meta` 请求、`ping`、`logging/setLevel`、资源订阅 |
 | MCP Apps（UI 扩展） | ❌ 超出范围 |
 | Roots / Sampling | ❌ 已被 SEP-2577 弃用 |
 
@@ -70,4 +71,4 @@
 - Issue 分类：≤ 2 个工作日；严重（P0）缺陷：≤ 7 天。
 - 一致性任务在 `main` 上保持绿色。
 
-*最后更新：2026-10-15。*
+*最后更新：2026-10-19。*

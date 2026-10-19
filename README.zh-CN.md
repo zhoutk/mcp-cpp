@@ -32,6 +32,8 @@ v0.3.0 是评审加固版本（见 `CHANGELOG.md`）：HTTP 派发在 httplib wo
 能熬过空闲期并自动重连，安装后的 CMake 包带上了平台链接依赖，
 [docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) 中的全部 P1 项已收口——协议级
 拒绝回 HTTP 400，OAuth 与 schema 输入对恶意对端加固，并发套件在 CI 中跑 TSan。
+v0.3.0 评审又发现并修复了两个订阅传输残余缺陷（200 + JSON-RPC 错误拒绝、认证质询丢失），
+已记入 `CHANGELOG.md` 的 `Unreleased`，随下一个补丁版本发布。
 
 ---
 

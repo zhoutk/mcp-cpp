@@ -3,6 +3,9 @@
 > 评审对象：mcp-cpp `v0.2.0`（提交 `fa074ce`），include+src 6,136 行，13 个 CTest 套件
 > 评审日期：2026-10-19 · 方法：四个并行子评审（协议核心 / 服务器与传输 / schema+crypto+oauth / 测试构建文档）+ 逐项复现
 > 关联：`SESSION-REVIEW.md`（上一轮工作评审）、`PROMOTION-STATUS.md`（推广已暂停）
+>
+> 后续进展：**§六** 记录 P0/P1 的逐项修复（v0.3.0），**§七** 是对 v0.3.0 的 8 次提交
+> 的复核（含发布后新发现的 3 个缺陷及其修复与验证）。
 
 ---
 
@@ -235,3 +238,66 @@ TLS、schema 的计数/`prefixItems`/`size()`/NUL 键/`$ref` 兄弟）。这些�
 
 发布时验证：13/13 CTest（HTTP）、11/11（纯 stdio）、13/13（C++23 `-Werror` 构建）、
 安装包版本 0.3.0。本文档的 P0/P1 清单至此全部收口；后续工作回到 ROADMAP.md。
+
+---
+
+## 七、v0.3.0 提交评审（8 次提交，2026-10-19）
+
+评审范围：`f0313a8..355f2e5`（P0 修复 → M1..M7 → tag `v0.3.0`）。方法：逐提交读 diff，
+对关键路径做代码复核 + 本机复现（构建/测试/安装包/标准模式）。
+
+### 7.1 逐提交核验
+
+| 提交 | 声明 | 复核结论 |
+| --- | --- | --- |
+| `f0313a8` | P0：HTTP 派发串行化、订阅持久化、安装包链接、版本单一事实源 | ✅ 与 §六 一致。`dispatchMutex_` 与 `cancellationsMutex_` **不嵌套**，`subscriptionsMutex_` 独立持有，无锁序环；取消路径确实绕过派发锁并原地置位 |
+| `a021f99` | B7+B8：`read()` 空闲/EOF、订阅拒绝上报、取消键类型化 + parked 上限 | ✅ 语义正确。`read()` 的 reader 计数握手解决了"唤醒是异步的、impl_ 可能先被销毁"的 UAF 窗口；`peerGone` 在重连成功/405 时清除 |
+| `b54dad8` | B3+B4：协议级拒绝回 400、`-32021` + `requiredCapabilities`、`error.data` 保真 | ✅ `toErrorValue(McpError)` 现在复制 `data`；400 判定覆盖 `-32020..-32099` 与带 `_meta` 标记的 `-32602`，工具级 `InvalidParams` 仍为 200 |
+| `eb0b6d6` | B6+B9：Origin host 精确匹配、空头值往返 | ✅ `localhost.evil.example` 被拒；`[::1]`、任意端口通过。base64 空值走明文并在解码端兼容旧哨兵 |
+| `caf1b83` | B10+B11：OAuth 与 schema 加固 | ✅ 端口边界、构造异常捕获、`is_valid()`、明文 http 限定 loopback、PKCE 缺失即拒。schema 的全局预算用共享 `int*` 实现，`$ref` 兄弟关键字改为"先查目标再继续"，`prefixItems` 与 `items` 分工正确 |
+| `72fbc96` | B1+B2：CI `cxx23`、legacy 版本门 | ✅ 填充值取 `supported_.front()`（`build()` 已按枚举序排序，即最老支持版本）；`-Werror` 下三字符序列拆分正确 |
+| `dbf4d54` | C 阶段：stdio-only CI、`TIMEOUT 600`、截止时间 | ✅ `set_tests_properties` 覆盖全部已注册测试；启动循环有界且失败后由后续断言报错 |
+| `92518fd` + `355f2e5` | v0.3.0 发布 + 文档收口 | ✅ `version.txt`/`kSdkVersion`/`CMakeLists` 一致；安装包 `PACKAGE_VERSION` 为 0.3.0；tag 已打在 `92518fd` |
+
+### 7.2 复核中新发现的缺陷
+
+| # | 严重度 | 位置 | 问题 | 状态 |
+| --- | --- | --- | --- | --- |
+| N1 | **P1** | `transport_http.cpp` 订阅循环 | 对端用 `200` + JSON-RPC error（非 SSE）拒绝 `subscriptions/listen` 时：SSE 解析器只按空行切事件，**整段 body 被丢弃**；随后 `!isSse && status<400` 未命中任何终止条件 → 每秒重连一次。叠加 0.3.0 取消的读超时，`subscribe()` **永久阻塞** | ✅ 已修：非 SSE body 作为一条消息入队（空 body 则合成错误）；成功但非 SSE 的应答终止订阅线程。测试 `HttpClientTransport.SubscriptionJsonRpcErrorSurfacesAndStopsReconnecting`（同时断言只发 1 次 POST） |
+| N2 | P2 | 同上 | 订阅 POST 的 `401/403 + WWW-Authenticate` 未上报 `setAuthChallengeHandler`（请求 POST 会上报），OAuth 客户端无法获知 PRM 地址，重授权后无法重订阅 | ✅ 已修 + `SubscriptionAuthChallengeIsReported` |
+| N3 | P3 | `transport_http.cpp` Origin 默认策略 | host 比较大小写敏感：`http://LOCALHOST` 被拒。浏览器按 RFC 6454 始终发送小写，实际影响可忽略 | 记录；如要严格可做 ASCII 小写归一 |
+| N4 | P3 | `statusForResponseLine` | 只有单行响应套用 400 映射；handler 先发 progress、再返回保留错误码时走 SSE 200。协议级门禁都在 handler 之前，故不影响规范合规 | 记录 |
+| N5 | P3（设计权衡） | `HttpClientTransport::read()` | 已无任何空闲超时；对端保持连接但永不回复时 `Client` 永久阻塞，且 `closeSubscriptions()` 不唤醒阻塞读 | 记录，已列入下一步（请求超时/取消 API） |
+| N6 | P3 | `server.cpp` parked 淘汰 | 淘汰条件用 `cancellations_.size()` 而非 `parkedCancels_.size()`；因派发已串行化，在飞条目至多 1 个，当前无实际影响 | 记录 |
+| N7 | P2（工程） | `CMakeLists.txt` | `version.txt` 不是 CMake 依赖：既有构建目录在版本号变更后不重新配置，`MCP_EXPECTED_SDK_VERSION` 仍是旧值，`mcp_test_version` 误报失败（本机 `build-stdio` 实际复现：`kSdkVersion`=0.3.0 vs 期望 0.2.0）。CI 每次全新 configure，故未暴露 | ✅ 已修：`CMAKE_CONFIGURE_DEPENDS version.txt` |
+
+**N1 的重要性**：它不在原 P1 清单里，是"`read()` 取消空闲超时"与"订阅循环只看 HTTP 状态码"
+两个正确改动叠加后的交互缺陷——正是评审要覆盖的那类问题。修复后订阅路径的终止条件现在是显式的
+四选一：**优雅关闭结果**（result 带 `subscriptionId`）、**4xx/408/429 之外的拒绝**、**成功的
+非 SSE 应答**、**传输被关闭**；只有"连接失败/流中断"才重连。
+
+### 7.3 本机复现结果（本轮复核）
+
+| 项 | 结果 |
+| --- | --- |
+| `ctest`（HTTP 全量） | **13/13**，35.4 s |
+| `ctest`（`MCP_DISABLE_HTTP=ON`） | **11/11**，10.7 s |
+| C++23 头/实现（`clang++ -std=c++23 -fsyntax-only`，server/client/http/schema/oauth） | 通过 |
+| `cmake --install` + `tests/consumer`（`find_package(mcp 0.2 CONFIG)` + HTTP 传输） | 通过，`PACKAGE_VERSION 0.3.0` |
+| 新增回归测试 | 3 个（N1 / N2 / 版本重配置由既有 `mcp_test_version` 覆盖） |
+
+### 7.4 下一步计划
+
+原 P0/P1 清单已全部收口，剩余的都不是"默认路径必现"的问题。按收益排序：
+
+| 序 | 任务 | 理由 | 预估 |
+| --- | --- | --- | --- |
+| 1 | **v0.3.1 补丁发布**：把本节的 N1/N2/N7 修复打 tag（含 CHANGELOG `Unreleased` 转正） | 已发布代码里存在"订阅被 200 拒绝即永久挂起"的缺陷，补丁应尽快对外 | 半天 |
+| 2 | **`Client` 请求超时 / 可取消 API**（N5）：`setRequestTimeout(ms)` 或 `read()` 可被 `close()` 唤醒 | 无空闲超时是正确设计，但调用方失去唯一的兜底手段；真实部署需要 | 1~2 天 |
+| 3 | 订阅语义补测：408/429 重试路径、优雅关闭后不重连 | 本轮把终止条件改成四选一，408/429 分支尚无测试 | 半天 |
+| 4 | ROADMAP 的 Tier-1 剩余项：OAuth **服务端**、`Ctx::log` + log-level、Doxygen、vcpkg/Conan | 对外可用性与分发 | 1~2 周 |
+| 5 | 性能：多 worker 派发（当前串行）、零拷贝解析复测 | 串行派发是 v0.3.0 的有意取舍；有吞吐需求时再开 | 1 周+ |
+| 6 | 可选项（N3/N4/N6）：Origin host 小写归一、SSE 路径 400 映射、淘汰条件语义化 | 低风险清理，可与任意相邻任务合并 | 各 < 1 小时 |
+
+不建议现在做的：任何会改变 `Server` 线程承诺的重构（每请求 `Server` 实例）。当前
+"串行派发 + 64 线程传输"已经过并发与 TSan 测试验证，切换模型应等到有明确吞吐数据。

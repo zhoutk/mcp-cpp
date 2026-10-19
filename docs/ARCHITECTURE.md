@@ -80,11 +80,20 @@ viable. The direction is a review convention (there is no automated check yet).
   `WWW-Authenticate` challenges**; the transport never authenticates itself.
   That is the hook `mcp::oauth` (and the conformance fixture) drives.
 - **A subscription is a durable stream, not one HTTP request.** The server emits
-  an SSE keep-alive comment every 5 s, so the client's read timeout is 30 s (a
-  shorter timeout tears down an idle subscription between keep-alives). After a
-  dropped stream the client re-subscribes, honours the server's `retry:` advice
-  clamped to 100 ms–30 s, and suppresses duplicate acknowledgments from the
-  reconnect, so the caller sees exactly one acknowledgment per subscribe.
+  an SSE keep-alive comment every 5 s, so the subscription stream's read timeout
+  is 30 s (a shorter timeout tears down an idle subscription between
+  keep-alives). After a dropped stream the client re-subscribes, honours the
+  server's `retry:` advice clamped to 100 ms–30 s, and suppresses duplicate
+  acknowledgments from the reconnect, so the caller sees exactly one
+  acknowledgment per subscribe. A **successful non-SSE answer** — a `200` body
+  that is not an event stream, usually a JSON-RPC error — is queued as one
+  message and terminates the stream thread: re-subscribing after a refusal
+  would produce a reconnect storm.
+- **`read()` has no idle timeout.** `nullopt` is orderly teardown (the
+  destructor), and an error is a lost connection (the GET listen loop could not
+  reconnect). A quiet connection is alive, so a slow request must not look like
+  EOF. There is no per-request timeout API; a caller that needs one wraps the
+  call. `closeSubscriptions()` does not wake a reader blocked in `read()`.
 
 ## Request lifecycle (2026-07-28)
 

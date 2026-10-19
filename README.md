@@ -38,6 +38,9 @@ and the full P1 list from
 [docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) is closed —
 protocol-level rejections answer HTTP 400, OAuth and schema inputs are
 hardened against hostile peers, and the concurrency suites run under TSan in CI.
+The v0.3.0 review found and fixed two residual subscription-transport defects
+(in-band JSON-RPC rejections, auth challenges); they are listed under
+`Unreleased` in `CHANGELOG.md` for the next patch release.
 
 ---
 

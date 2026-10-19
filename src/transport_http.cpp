@@ -1005,26 +1005,54 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
         }
 
         std::string acc;
-        auto receiver = [this, &acc, &emit](const char* data, size_t len) -> bool {
+        bool isSse = false;  // is the response an event stream at all?
+        auto receiver = [this, &acc, &emit, &isSse](const char* data, size_t len) -> bool {
           acc.append(data, len);
-          std::vector<std::string> events;
-          Impl::extractSseEvents(acc, events);
-          for (auto& event : events) emit(std::move(event));
+          if (!isSse && !acc.empty()) isSse = Impl::looksLikeSse(acc);
+          if (isSse) {
+            std::vector<std::string> events;
+            Impl::extractSseEvents(acc, events);
+            for (auto& event : events) emit(std::move(event));
+          }
           return !impl_->subscriptionShutdown();
         };
         auto post = stream->Post(impl_->endpoint.c_str(), headersCopy, body,
                                  "application/json", receiver);
-        // Tail flush: whatever is left is at most one unterminated event.
-        {
+        if (isSse) {
+          // Tail flush: whatever is left is at most one unterminated event.
           std::vector<std::string> events;
           Impl::extractSseEvents(acc, events);
           for (auto& event : events) emit(std::move(event));
+        } else if (post && post->status < 400) {
+          // A successful response that is not an event stream. It may be the
+          // peer's JSON-RPC error for the listen request (some servers answer
+          // 200 with an error object instead of an SSE stream) - queue it so
+          // subscribe() resolves, and stop: no stream will ever follow. An
+          // empty body queues a synthetic error for the same reason; the
+          // pending subscribe() has no timeout to fall back on.
+          // A 4xx body is not queued here: the rejection path below turns the
+          // status into exactly one error, so two replies never race for the
+          // same request id.
+          if (!acc.empty()) {
+            emit(std::move(acc));
+            acc.clear();
+          } else {
+            JsonRpcErrorValue v;
+            v.code = static_cast<int32_t>(McpErrorCode::InternalError);
+            v.message = "subscription response was not an event stream";
+            this->queueSyntheticError(body, v);
+          }
         }
         {
           std::lock_guard<std::mutex> lock(impl_->subMutex);
           impl_->activeSubscriptions.erase(raw);
         }
 
+        // A 401/403 on the subscription POST carries the same auth challenge
+        // as any other request; report it so an OAuth client can refresh.
+        if (post) {
+          reportAuthChallenge(post->status, post->get_header_value("WWW-Authenticate"));
+        }
         // The server REJECTED the subscribe request (4xx): re-sending it
         // cannot succeed, and silently waiting for an ack that never comes
         // leaves subscribe() hanging until its own timeout. Surface it as a
@@ -1040,6 +1068,10 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
         }
 
         if (closedByPeer || impl_->subscriptionShutdown()) break;
+        // A successful NON-SSE answer is a one-shot reply (usually the
+        // JSON-RPC error queued above): the peer is not going to stream on
+        // this request, so re-subscribing would spin forever.
+        if (!isSse && post && post->status < 400) break;
         // The stream dropped (network error, server restart, read timeout):
         // honour the server's retry advice when it gave one, then re-subscribe.
         int delayMs = 1000;

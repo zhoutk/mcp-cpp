@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <cctype>
 #include <memory>
 #include <string>
 #include <thread>
@@ -375,6 +376,99 @@ TEST(HttpClientTransport, SubscriptionRejectionSurfacesAsAnError) {
   }
   EXPECT_LT(elapsedMs, 5000);  // must not wait for an ack that never comes
 
+  svr.stop();
+  runner.join();
+}
+
+// A peer that answers subscriptions/listen with 200 + a JSON-RPC error (not an
+// SSE stream) is refusing the subscription in-band. The client must surface
+// that error to subscribe() and stop, not drop the body and reconnect forever
+// (which, with the idle timeout removed, would also block the caller for good).
+TEST(HttpClientTransport, SubscriptionJsonRpcErrorSurfacesAndStopsReconnecting) {
+  httplib::Server svr;
+  std::atomic<int> posts{0};
+  svr.Post("/mcp", [&](const httplib::Request& req, httplib::Response& res) {
+    ++posts;
+    // Echo the request's own id: a JSON-RPC error for a different id would be
+    // skipped by the client's sequential read loop.
+    std::string id = "1";
+    const size_t p = req.body.find("\"id\":");
+    if (p != std::string::npos) {
+      size_t start = p + 5;
+      while (start < req.body.size() && req.body[start] == ' ') ++start;
+      size_t end = start;
+      while (end < req.body.size() &&
+             (std::isdigit(static_cast<unsigned char>(req.body[end])) || req.body[end] == '-')) {
+        ++end;
+      }
+      if (end > start) id = req.body.substr(start, end - start);
+    }
+    res.status = 200;
+    res.set_content(R"({"jsonrpc":"2.0","id":)" + id +
+                        R"(,"error":{"code":-32601,"message":"subscriptions unavailable"}})",
+                    "application/json");
+  });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  Client client("json-error-sub", "1.0");
+  client.connect(transport);
+
+  const auto started = std::chrono::steady_clock::now();
+  auto subscribed = client.subscribe(Json(R"({"notifications":{"toolsListChanged":true}})"));
+  const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - started)
+                             .count();
+
+  EXPECT_FALSE(subscribed.has_value());
+  if (!subscribed.has_value()) {
+    EXPECT_NE(subscribed.error().message.find("subscriptions unavailable"), std::string::npos);
+  }
+  EXPECT_LT(elapsedMs, 5000);
+  // One POST for the subscription: no reconnect storm behind the error.
+  EXPECT_EQ(posts.load(), 1);
+
+  transport.closeSubscriptions();
+  svr.stop();
+  runner.join();
+}
+
+// An authentication challenge on the subscription POST must reach the auth
+// handler, exactly like a tools/call 401: otherwise an OAuth client cannot
+// learn where the protected-resource metadata lives before re-subscribing.
+TEST(HttpClientTransport, SubscriptionAuthChallengeIsReported) {
+  httplib::Server svr;
+  svr.Post("/mcp", [](const httplib::Request&, httplib::Response& res) {
+    res.status = 401;
+    res.set_header("WWW-Authenticate",
+                   "Bearer error=\"invalid_token\", resource_metadata=\"http://example.test/prm\"");
+    res.set_content(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"unauthorized"}})",
+                    "application/json");
+  });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  int status = 0;
+  std::string challenge;
+  transport.setAuthChallengeHandler([&](int code, const std::string& value) {
+    status = code;
+    challenge = value;
+  });
+  Client client("sub-auth", "1.0");
+  client.connect(transport);
+
+  auto subscribed = client.subscribe(Json(R"({"notifications":{"toolsListChanged":true}})"));
+  EXPECT_FALSE(subscribed.has_value());
+  EXPECT_EQ(status, 401);
+  EXPECT_NE(challenge.find("resource_metadata="), std::string::npos);
+
+  transport.closeSubscriptions();
   svr.stop();
   runner.join();
 }

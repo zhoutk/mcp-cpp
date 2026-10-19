@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A subscription answered with `200` + a JSON-RPC error no longer hangs.**
+  The body was dropped (the SSE parser only emits blank-line-terminated
+  events) and the reconnect loop re-POSTed the subscription every second, so
+  `subscribe()` waited for an acknowledgment that could never arrive — and the
+  idle timeout was removed in 0.3.0, so it waited forever. A non-SSE response
+  body is now queued as a normal message (an empty 2xx body yields a synthetic
+  error for the same reason), and a successful non-SSE answer ends
+  the subscription thread instead of reconnecting.
+- **Authentication challenges on the subscription POST reach the handler.**
+  A `401`/`403` + `WWW-Authenticate` on `subscriptions/listen` was not reported
+  to `setAuthChallengeHandler`, so an OAuth client could not learn where the
+  protected-resource metadata lives before re-subscribing.
+- **`version.txt` is now a CMake configure dependency.** An existing build
+  directory kept the old project version after a release bump, which surfaced
+  as a stale `MCP_EXPECTED_SDK_VERSION` and a failing `mcp_test_version`.
+
+### Added
+
+- Regression tests: `HttpClientTransport.SubscriptionJsonRpcErrorSurfacesAndStopsReconnecting`
+  and `HttpClientTransport.SubscriptionAuthChallengeIsReported`.
+
 ## [0.3.0] - 2026-10-19
 
 Behavior-correctness release: everything from the P0 review round plus the
@@ -275,6 +300,7 @@ cancellation, `completion/complete`, CacheableResult, a JSON Schema 2020-12
 validator, and `x-mcp-header` mirroring. Ten CTest suites, three benchmarks, and the
 zorm integration example.
 
-[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zhoutk/mcp-cpp/releases/tag/v0.1.0

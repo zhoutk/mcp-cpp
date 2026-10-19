@@ -51,6 +51,7 @@ implements; the suite has no 2026 scenario to score instead.
 | Typed MRTR / elicitation helpers (`Ctx::elicit`, `Ctx::inputRequired`, client `retry`) | ✅ |
 | Signed `requestState` codec (HMAC-SHA256, context-bound, TTL) + server binding + client auto-fulfil | ✅ |
 | Logging helper (`Ctx::log`) + `_meta` log-level plumbing | ⏳ |
+| Client request timeout / cancellation API | ⏳ |
 | Doxygen API reference; client + HTTP examples | ⏳ |
 | Zero-copy parse optimization (re-measure B1) | ⏳ |
 | Conan recipe | ⏳ |
@@ -61,7 +62,7 @@ implements; the suite has no 2026 scenario to score instead.
 | --- | --- |
 | Tasks extension (`io.modelcontextprotocol/tasks`) | ⏳ |
 | Multi-worker dispatch (compile-time `MCP_WORKERS`) | ⏳ |
-| Legacy revision semantics (opt-in) | ⏳ |
+| Legacy revision semantics (opt-in) | ✅ dual-era mode: `initialize`, meta-less requests, `ping`, `logging/setLevel`, resource subscriptions |
 | MCP Apps (UI extension) | ❌ out of scope |
 | Roots / Sampling | ❌ deprecated by SEP-2577 |
 
@@ -72,4 +73,4 @@ implements; the suite has no 2026 scenario to score instead.
 - Issue triage: ≤ 2 business days; critical (P0) bugs: ≤ 7 days.
 - Conformance job stays green on `main`.
 
-*Last updated: 2026-10-15.*
+*Last updated: 2026-10-19.*

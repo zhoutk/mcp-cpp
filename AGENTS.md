@@ -103,7 +103,8 @@ Key runtime facts:
   worker pool (64 threads) is safe and handlers still run one at a time. Handlers must not re-enter
   `processLine()` (the mutex is not recursive). Other members are plain except `subscriptions_`
   (`subscriptionsMutex_`, notification fan-out from any thread) and `cancellations_`
-  (`cancellationsMutex_`).
+  (`cancellationsMutex_`; keys are type-tagged so the number `1` and the string `"1"` differ, and
+  pre-registered "parked" flags are capped at 1024 with FIFO eviction).
 - **Stateless protocol.** Every request carries `params._meta` with `protocolVersion` +
   `clientCapabilities` (required). `decodeRequestMeta` (strict) rejects missing/ill-typed `_meta` with
   `-32602`; `decodeRequestMetaRelaxed` is the legacy path. Unknown/unsupported version → `-32022` with
@@ -134,9 +135,16 @@ Key runtime facts:
   `closeSubscriptions()` must be called (or the destructor) to terminate those threads — see the P0 fix in
   `docs/CODE-REVIEW-2026-10.md`.
 - **A client subscription is a durable stream.** The server sends an SSE keep-alive comment every 5 s, so
-  the subscription read timeout is 30 s (a shorter one kills an idle subscription between keep-alives).
+  the subscription stream read timeout is 30 s (a shorter one kills an idle subscription between keep-alives).
   After a drop the client re-subscribes, applies the peer's `retry:` advice clamped to 100 ms–30 s, and
-  suppresses duplicate acknowledgments. Peer-controlled `retry:` values are always clamped.
+  suppresses duplicate acknowledgments. Peer-controlled `retry:` values are always clamped. A **successful
+  non-SSE answer** (a `200` body that is not an event stream, typically a JSON-RPC error) is queued as one
+  message and ends the thread — do not re-subscribe after it, or a refusing peer produces a reconnect storm.
+- **`HttpClientTransport::read()` has no idle timeout.** `nullopt` means orderly transport teardown and an
+  error means a lost connection (the GET listen loop could not reconnect). A quiet connection is alive, so a
+  request that legitimately takes minutes must not look like EOF. There is no per-request timeout API yet;
+  wrap `Client` calls externally if a bound is required, and note that `closeSubscriptions()` does not wake a
+  blocked `read()`.
 - **`HttpClientTransport` runs background threads.** Each request POST streams its response on a worker
   (a response may be a long-lived SSE stream, and the client must stay free to answer a mid-call
   elicitation), and the GET listening stream owns a reconnect loop; `read()` gets messages only through
