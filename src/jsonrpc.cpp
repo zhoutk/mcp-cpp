@@ -1,5 +1,7 @@
 #include <mcp/jsonrpc.hpp>
 
+#include <cstdint>
+
 #include <cmath>
 #include <utility>
 
@@ -148,9 +150,28 @@ ParsedMessage parseMessage(std::string_view text) {
   }
   const Json code = member(e.error, "code");
   const Json message = member(e.error, "message");
-  if (!code.isNumber() || static_cast<double>(code.toInt64()) != code.toDouble()) {
+  // Range-check before converting: toInt64() on a double outside int64 is UB,
+  // and the JSON-RPC code is an int32 on the wire model.
+  if (!code.isNumber()) {
     return invalid("Invalid request: error.code must be an integer", McpErrorCode::InvalidRequest,
                    std::move(id));
+  }
+  if (code.isIntegral()) {
+    const int64_t i = code.toInt64();
+    if (i < INT32_MIN || i > INT32_MAX) {
+      return invalid("Invalid request: error.code must be a 32-bit integer",
+                     McpErrorCode::InvalidRequest, std::move(id));
+    }
+  } else {
+    // Double lexeme: range-check before any int conversion.
+    const double d = code.toDouble();
+    constexpr double kInt32Min = -2147483648.0;
+    constexpr double kInt32MaxExclusive = 2147483648.0;
+    if (!(d >= kInt32Min && d < kInt32MaxExclusive) ||
+        static_cast<double>(static_cast<int64_t>(d)) != d) {
+      return invalid("Invalid request: error.code must be a 32-bit integer",
+                     McpErrorCode::InvalidRequest, std::move(id));
+    }
   }
   if (!message.isString()) {
     return invalid("Invalid request: error.message must be a string", McpErrorCode::InvalidRequest,

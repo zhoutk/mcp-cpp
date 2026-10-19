@@ -81,7 +81,7 @@ using McpResult = std::expected<T, McpError>;
 namespace detail {
 
 template <class T>
-McpResult<T> makeOk(T&& v) {
+McpResult<std::decay_t<T>> makeOk(T&& v) {
   return std::forward<T>(v);
 }
 

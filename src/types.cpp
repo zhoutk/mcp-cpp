@@ -13,9 +13,16 @@ std::optional<RequestId> decodeRequestId(const Json& v) {
     return RequestId(std::string(v.toString()));
   }
   if (v.isNumber()) {
-    // Must be integral: fractional ids violate the spec ("string or integer").
+    // Integer literal (incl. full int64 range): exact, no floating point.
+    if (v.isIntegral()) return RequestId(v.toInt64());
+    // Double-lexeme number: still accepted when it is mathematically integral
+    // (2.0 / 42e0), but range-check BEFORE converting - static_cast<int64_t> on
+    // an out-of-range double is UB and silently yields INT64_MIN.
     const double d = v.toDouble();
-    const int64_t i = v.toInt64();
+    constexpr double kMin = -9223372036854775808.0;  // -2^63
+    constexpr double kMaxExclusive = 9223372036854775808.0;  // 2^63
+    if (!(d >= kMin && d < kMaxExclusive)) return std::nullopt;
+    const int64_t i = static_cast<int64_t>(d);
     if (static_cast<double>(i) != d) return std::nullopt;
     return RequestId(i);
   }
