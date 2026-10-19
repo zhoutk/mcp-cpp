@@ -43,6 +43,14 @@ struct Fixture {
     b.simpleTool("fail", "always errors", [](Ctx&) -> McpResult<Json> {
       return Err(McpErrorCode::InvalidParams, "intentional failure");
     });
+    b.tool(Json(R"({"name":"mirror","description":"mirrors a header param",
+        "inputSchema":{"type":"object","properties":{
+          "token":{"type":"string","x-mcp-header":"X-Token"}}}})"),
+           [](Ctx& c) -> McpResult<Json> {
+             Json result;
+             result.add("token", Json::str(c.params["arguments"]["token"].toString()));
+             return Ok(std::move(result));
+           });
     b.resource(Json(R"({"uri":"file:///motd","name":"motd"})"),
                [](Ctx&) -> McpResult<Json> {
                  Json result;
@@ -172,6 +180,62 @@ TEST(HttpE2E, OriginPolicyRejectsForeignOrigins) {
 
   http.stop();
   runner.join();
+}
+
+// The default Origin policy matches the HOST exactly after the scheme: a
+// prefix match admitted http://localhost.evil.example (DNS rebinding). Any
+// port is allowed; scheme must be http/https; IPv6 literals use brackets.
+TEST(HttpE2E, OriginPolicyHostMatchIsExact) {
+  Builder b;
+  b.name("o").version("1");
+  auto server = b.build();
+  HttpServerTransport http(*server);
+  auto bound = http.bind("127.0.0.1");
+  ASSERT_TRUE(bound.has_value());
+  std::thread runner([&] { (void)http.run(); });
+  while (!http.running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  httplib::Client c("127.0.0.1", *bound);
+  auto postWithOrigin = [&](const char* origin) {
+    httplib::Headers headers{{"Origin", origin}};
+    return c.Post("/mcp", headers, "{}", "application/json");
+  };
+
+  // Rejected: foreign hosts, including ones that share the localhost PREFIX.
+  for (const char* evil : {"http://localhost.evil.example", "http://localhost.com",
+                           "http://127.0.0.1.evil.com", "http://evil.example.com",
+                           "ftp://localhost", "not-an-origin"}) {
+    auto r = postWithOrigin(evil);
+    ASSERT_TRUE(r) << evil;
+    EXPECT_EQ(r->status, 403) << evil;
+  }
+
+  // Accepted (a later validation stage answers, not the 403 origin gate):
+  // loopback hosts, with or without port, http or https, IPv6 in brackets.
+  for (const char* good :
+       {"http://localhost", "http://localhost:3000", "http://127.0.0.1",
+        "http://127.0.0.1:9000", "https://localhost", "http://[::1]", "http://[::1]:8080"}) {
+    auto r = postWithOrigin(good);
+    ASSERT_TRUE(r) << good;
+    EXPECT_NE(r->status, 403) << good;
+  }
+
+  http.stop();
+  runner.join();
+}
+
+// An empty Mcp-Param-* value must round-trip over HTTP: the empty string is a
+// real header value, and wrapping it in the base64 sentinel produced an
+// encoding the receiver could not decode (permanent HeaderMismatch).
+TEST(HttpE2E, EmptyHeaderParamValueRoundTrips) {
+  Fixture f;
+  auto client = f.makeClient();
+  ASSERT_TRUE(client->listTools().has_value());
+
+  Json arguments = Json(R"({"token":""})");
+  auto result = client->callTool("mirror", arguments);
+  ASSERT_TRUE(result.has_value()) << "empty param value must not fail header validation";
+  EXPECT_EQ((*result)["token"].toString(), "");
 }
 
 TEST(HttpE2E, SubscriptionStreamDeliversNotifications) {

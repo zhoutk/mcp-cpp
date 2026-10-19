@@ -105,10 +105,28 @@ struct HttpServerTransport::Impl {
     originValidator = [](const std::string& origin) {
       // Default policy: no Origin header (non-browser clients) and explicit
       // localhost origins pass; everything else is rejected (DNS-rebinding
-      // protection from the spec's Security & Endpoint section).
+      // protection from the spec's Security & Endpoint section). The HOST
+      // must match exactly after the scheme: a prefix match would admit
+      // http://localhost.evil.example. Any port is fine; bracketed IPv6
+      // literals are compared with the brackets kept.
       if (origin.empty()) return true;
-      return origin.rfind("http://localhost", 0) == 0 ||
-             origin.rfind("http://127.0.0.1", 0) == 0;
+      static constexpr std::string_view kSchemeSep = "://";
+      const size_t schemeEnd = origin.find(kSchemeSep);
+      if (schemeEnd == std::string::npos) return false;
+      const std::string scheme = origin.substr(0, schemeEnd);
+      if (scheme != "http" && scheme != "https") return false;
+      const size_t hostStart = schemeEnd + kSchemeSep.size();
+      size_t hostEnd;
+      if (hostStart < origin.size() && origin[hostStart] == '[') {
+        const size_t close = origin.find(']', hostStart);
+        if (close == std::string::npos) return false;
+        hostEnd = close + 1;
+      } else {
+        hostEnd = origin.find_first_of(":/", hostStart);
+      }
+      const std::string host = origin.substr(
+          hostStart, hostEnd == std::string::npos ? std::string::npos : hostEnd - hostStart);
+      return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
     };
   }
 
