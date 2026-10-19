@@ -139,7 +139,18 @@ Standalone configuration needs a zjson copy under `thirds/zjson`, or pass
 `-DMCP_ZJSON_DIR=<dir>`. Options: `MCP_BUILD_TESTS` (ON), `MCP_BUILD_EXAMPLES` (ON),
 `MCP_DISABLE_HTTP` (OFF — pure-stdio build), `MCP_INSTALL` (ON).
 
-> A vcpkg port and a Conan recipe are on the roadmap ([ROADMAP.md](ROADMAP.md)).
+### vcpkg / Conan
+
+A vcpkg port and a Conan 2.x recipe ship with the repo:
+
+```bash
+# vcpkg (overlay port)
+vcpkg install --overlay-ports=<repo>/packaging/vcpkg mcp-cpp
+# Conan
+conan build <repo>/packaging/conan --version=0.3.1
+```
+
+httplib and zjson are vendored, so neither package pulls extra dependencies.
 
 ## Quick start
 

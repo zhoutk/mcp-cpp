@@ -132,7 +132,18 @@ target_link_libraries(my_server PRIVATE mcp::mcp)
 `-DMCP_ZJSON_DIR=<dir>`。选项：`MCP_BUILD_TESTS`（ON）、`MCP_BUILD_EXAMPLES`（ON）、
 `MCP_DISABLE_HTTP`（OFF——纯 stdio 构建）、`MCP_INSTALL`（ON）。
 
-> vcpkg port 和 Conan recipe 已在路线图上（[ROADMAP.md](ROADMAP.md)）。
+### vcpkg / Conan
+
+仓库自带 vcpkg port 和 Conan 2.x recipe：
+
+```bash
+# vcpkg（overlay port）
+vcpkg install --overlay-ports=<仓库>/packaging/vcpkg mcp-cpp
+# Conan
+conan build <仓库>/packaging/conan --version=0.3.1
+```
+
+httplib 与 zjson 均已内置，两个包都不引入额外依赖。
 
 ## 快速开始
 
