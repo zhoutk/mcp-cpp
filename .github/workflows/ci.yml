@@ -46,6 +46,29 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure -C RelWithDebInfo
 
+  # B1: the headers must also compile as C++23 (std::expected path in
+  # error.hpp; consumers set their own standard, so it is not ours to choose).
+  cxx23:
+    name: ubuntu / C++23 headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_FLAGS="-std=c++23 -Werror"
+          -DMCP_BUILD_TESTS=ON -DMCP_BUILD_EXAMPLES=ON
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   # P0-3 / P0-4: the package must be usable through find_package() alone.
   # Configure + install, then build tests/consumer (which uses the HTTP
   # transport, so ws2_32/Threads must be in the exported target).

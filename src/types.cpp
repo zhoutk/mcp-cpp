@@ -134,7 +134,14 @@ McpResult<RequestMeta> decodeRequestMeta(const Json& params) {
 // Relaxed decoding shared by decodeRequestMetaRelaxed: a present-but-partial
 // _meta is filled with defaults and marked !complete instead of failing. Only
 // a non-object _meta (or non-object params) is an error.
-McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params) {
+McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params,
+                                                std::string_view defaultVersion) {
+  // The fill-in version must be one the SERVER actually supports: a legacy
+  // server that only advertises 2025-03-26 would otherwise see its very first
+  // meta-less request rejected with -32022 (Latest is not in its set).
+  const std::string fillVersion =
+      !defaultVersion.empty() ? std::string(defaultVersion)
+                              : std::string(toString(ProtocolVersion::Latest));
   // Parameterless methods (tools/list, prompts/list, ...) send params:null
   // (normalized to Json(nullptr) by the JSON-RPC layer). Treat null params
   // as an empty object so legacy clients can call them without metadata.
@@ -146,7 +153,7 @@ McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params) {
   if (!hasMeta) {
     // No _meta at all: caller (legacy mode) serves with defaults.
     RequestMeta m;
-    m.protocolVersion = std::string(toString(ProtocolVersion::Latest));
+    m.protocolVersion = fillVersion;
     m.clientCapabilities = Json(R"({})");
     m.complete = false;
     return Ok(std::move(m));
@@ -162,8 +169,8 @@ McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params) {
   const bool haveVersion = pv.isString() && !pv.toString().empty();
   const bool haveCaps = caps.isObject();
   RequestMeta m;
-  m.protocolVersion = haveVersion ? std::string(pv.toString())
-                                  : std::string(toString(ProtocolVersion::Latest));
+  m.protocolVersion =
+      haveVersion ? std::string(pv.toString()) : fillVersion;
   m.clientCapabilities = haveCaps ? caps : Json(R"({})");
   m.complete = haveVersion && haveCaps;
   const Json info = member(meta, kMetaClientInfo);

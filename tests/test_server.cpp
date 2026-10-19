@@ -944,6 +944,27 @@ TEST(ServerLegacy, RequestsWithoutMetaServedWhenEnabled) {
   EXPECT_TRUE(t.output_.empty());
 }
 
+// A legacy server that supports ONLY 2025-03-26 must still serve a meta-less
+// request: the relaxed fill-in used Latest (2026-07-28), which the version
+// gate then rejected - the very first request failed with -32022.
+TEST(ServerLegacy, MetalessRequestOnLegacyOnlyServerIsServed) {
+  Builder b;
+  b.acceptLegacyClients(true).supports(ProtocolVersion::V2025_03_26);
+  b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server = b.build();
+
+  Out o = serveOnce(server, encodeRequest(RequestId(int64_t(1)), "tools/call",
+                                          Json(R"({"name":"t"})")));
+  ASSERT_NE(o.result, nullptr);
+  EXPECT_EQ(o.result->result["ok"].isTrue(), true);
+
+  // Partial _meta without a version is filled the same way.
+  Out o2 = serveOnce(server, encodeRequest(RequestId(int64_t(2)), "tools/call",
+                                           Json(R"({"name":"t","_meta":{}})")));
+  ASSERT_NE(o2.result, nullptr);
+  EXPECT_EQ(o2.result->result["ok"].isTrue(), true);
+}
+
 TEST(ServerLegacy, PartialMetaStillStrictWhenDisabled) {
   Builder b;  // acceptLegacyClients NOT enabled
   b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });

@@ -88,17 +88,17 @@ bool isPlainHeaderValue(std::string_view value) {
 std::string encodeHeaderValue(std::string_view raw) {
   // The EMPTY string is a real header value (an absent Mcp-Param-* argument is
   // distinct from a missing one) and must be sent plain. Wrapping it in the
-  // sentinel form produced "=?base64??=", which the decoder did not recognize
-  // - an empty value could never round-trip and failed header validation
-  // forever.
+  // sentinel form produced an empty-payload sentinel the decoder did not
+  // recognize - an empty value could never round-trip and failed header
+  // validation forever.
   if (raw.empty() || isPlainHeaderValue(raw)) return std::string(raw);
   return std::string(kSentinelPrefix) + base64Encode(raw) + kSentinelSuffix;
 }
 
 bool decodeHeaderValue(std::string_view value, std::string& out) {
   // The empty-payload sentinel (emitted by pre-fix encoders for an empty
-  // value) decodes to "".
-  constexpr std::string_view kEmptySentinel = "=?base64??=";
+  // value) decodes to "". The literal is split so "??" is not a trigraph.
+  constexpr std::string_view kEmptySentinel = "=?base64?" "?=";
   if (value == kEmptySentinel) {
     out.clear();
     return true;

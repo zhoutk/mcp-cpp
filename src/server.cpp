@@ -417,7 +417,9 @@ void Server::processLine(const std::string& line, ITransport& out) {
   // default metadata instead of failing. Strict mode keeps the -32602 for
   // any ill-formed _meta (the 2026-07-28 spec mandates those fields).
   McpResult<RequestMeta> metaResult = acceptLegacy_
-      ? decodeRequestMetaRelaxed(req.params)
+      ? decodeRequestMetaRelaxed(
+            req.params, supported_.empty() ? std::string_view()
+                                           : std::string_view(supported_.front()))
       : decodeRequestMeta(req.params);
   if (!metaResult.has_value()) {
     (void)out.write(encodeErrorResponse(req.id, toErrorValue(metaResult.error())));

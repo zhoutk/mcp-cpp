@@ -137,7 +137,12 @@ McpResult<RequestMeta> decodeRequestMeta(const Json& params);
 // not an object. A missing/partial _meta yields a RequestMeta with defaults
 // (Latest protocol version, empty capabilities) and complete=false, letting
 // legacy clients with partial metadata be served when the server opts in.
-McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params);
+// Relaxed variant (legacy dual-era mode only). `defaultVersion` fills in the
+// protocol version for a missing/partial _meta; pass the SERVER's oldest
+// supported wire version so a legacy-only server does not reject its first
+// meta-less request with -32022 (empty falls back to Latest).
+McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params,
+                                                std::string_view defaultVersion = {});
 
 // Builds a params._meta object for outgoing client requests (M3).
 // `progressToken` (optional) opts the request into progress notifications.
