@@ -124,8 +124,13 @@ struct HttpServerTransport::Impl {
       } else {
         hostEnd = origin.find_first_of(":/", hostStart);
       }
-      const std::string host = origin.substr(
+      std::string host = origin.substr(
           hostStart, hostEnd == std::string::npos ? std::string::npos : hostEnd - hostStart);
+      // RFC 6454: reg-names are ASCII case-insensitive; browsers always send
+      // lowercase, but be liberal in what we accept.
+      for (char& c : host) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+      }
       return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
     };
   }
@@ -352,6 +357,16 @@ struct HttpServerTransport::Impl {
       sseBody += "data: ";
       sseBody += line;
       sseBody += "\n\n";
+    }
+    // A protocol-level rejection buried in the stream (e.g. the handler
+    // emitted progress, then elicitation failed with -32021) still means the
+    // REQUEST was invalid, so the status carries it too, not just the body.
+    for (const auto& line : lines) {
+      const int lineStatus = statusForResponseLine(line);
+      if (lineStatus != 200) {
+        res.status = lineStatus;
+        break;
+      }
     }
     res.set_header("X-Accel-Buffering", "no");
     res.set_content(sseBody, "text/event-stream");

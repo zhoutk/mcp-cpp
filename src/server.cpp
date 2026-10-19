@@ -354,9 +354,11 @@ void Server::processLine(const std::string& line, ITransport& out) {
             // capped: cancels for arbitrary never-sent ids must not grow the
             // map without bound. Eviction drops the OLDEST still-parked flag -
             // the only loss is a cancel for a request that never arrived.
+            // (The cap applies to PARKED entries; in-flight flags are erased
+            // when their request completes and are bounded by dispatch.)
             cancellations_[key] = std::make_shared<std::atomic_bool>(true);
             parkedCancels_.push_back(key);
-            while (cancellations_.size() > kMaxParkedCancels && !parkedCancels_.empty()) {
+            while (parkedCancels_.size() > kMaxParkedCancels) {
               const std::string oldest = parkedCancels_.front();
               parkedCancels_.pop_front();
               cancellations_.erase(oldest);  // no-op if adopted-and-completed

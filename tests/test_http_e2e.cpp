@@ -52,6 +52,17 @@ struct Fixture {
              result.add("token", Json::str(c.params["arguments"]["token"].toString()));
              return Ok(std::move(result));
            });
+    // Emits a notification line first, THEN fails with a protocol-level
+    // -32021 (eliciting from a client that did not declare the capability):
+    // the multi-line SSE path must carry the 400 status, not just the body.
+    b.tool(Json(R"({"name":"progress-then-elicit","description":"x",
+        "inputSchema":{"type":"object"}})"),
+           [](Ctx& c) -> McpResult<Json> {
+             Json p;
+             p.add("progress", Json(static_cast<int64_t>(1)));
+             c.notify("notifications/progress", std::move(p));
+             return c.elicit("go?", Json(R"({"type":"object"})"), "");
+           });
     b.resource(Json(R"({"uri":"file:///motd","name":"motd"})"),
                [](Ctx&) -> McpResult<Json> {
                  Json result;
@@ -207,18 +218,20 @@ TEST(HttpE2E, OriginPolicyHostMatchIsExact) {
 
   // Rejected: foreign hosts, including ones that share the localhost PREFIX.
   for (const char* evil : {"http://localhost.evil.example", "http://localhost.com",
-                           "http://127.0.0.1.evil.com", "http://evil.example.com",
-                           "ftp://localhost", "not-an-origin"}) {
+                           "http://LOCALHOST.evil.example", "http://127.0.0.1.evil.com",
+                           "http://evil.example.com", "ftp://localhost", "not-an-origin"}) {
     auto r = postWithOrigin(evil);
     ASSERT_TRUE(r) << evil;
     EXPECT_EQ(r->status, 403) << evil;
   }
 
   // Accepted (a later validation stage answers, not the 403 origin gate):
-  // loopback hosts, with or without port, http or https, IPv6 in brackets.
+  // loopback hosts, with or without port, http or https, IPv6 in brackets,
+  // and non-lowercase spellings (RFC 6454 reg-names are case-insensitive).
   for (const char* good :
        {"http://localhost", "http://localhost:3000", "http://127.0.0.1",
-        "http://127.0.0.1:9000", "https://localhost", "http://[::1]", "http://[::1]:8080"}) {
+        "http://127.0.0.1:9000", "https://localhost", "http://[::1]", "http://[::1]:8080",
+        "http://LOCALHOST", "http://LocalHost:3000"}) {
     auto r = postWithOrigin(good);
     ASSERT_TRUE(r) << good;
     EXPECT_NE(r->status, 403) << good;
@@ -681,6 +694,28 @@ TEST(HttpE2E, ProtocolRejectionsAreHttp400ToolErrorsStay200) {
                                                      Json(R"({"name":"fail"})"))),
                  200, -32602);
   }
+}
+
+// A protocol-level rejection in the MULTI-LINE path (handler emitted a
+// notification, then the elicitation failed with -32021) must still answer
+// HTTP 400 - the body streams as SSE, but the status carries the rejection.
+TEST(HttpE2E, ProtocolRejectionInSsePathIsHttp400) {
+  Fixture f;
+  httplib::Client raw("127.0.0.1", f.port);
+  raw.set_connection_timeout(5);
+  raw.set_read_timeout(10, 0);
+  httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                              {"Mcp-Method", "tools/call"},
+                              {"Mcp-Name", "progress-then-elicit"}};
+  auto res = raw.Post("/mcp", headers,
+                      makeModernRequestLine("1", "tools/call",
+                                            Json(R"({"name":"progress-then-elicit"})")),
+                      "application/json");
+  ASSERT_TRUE(res) << "no response";
+  EXPECT_EQ(res->status, 400);
+  // The body still streams: the notification line, then the -32021 error.
+  EXPECT_NE(res->body.find("-32021"), std::string::npos);
+  EXPECT_NE(res->body.find("notifications/progress"), std::string::npos);
 }
 
 TEST(HttpClientTransport, PostFailureSurfacesAsAnError) {
