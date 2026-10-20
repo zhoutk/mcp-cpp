@@ -1,0 +1,626 @@
+MSBuild version 18.10.1-1.26427.6+3cd27c13e for .NET Framework
+
+  1>Checking Build System
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  gtest-all.cc
+  version.cpp
+  types.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  jsonrpc.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\src\jsonrpc.cpp(182,35): warning C4244: '=': conversion from 'int64_t' to 'int32_t', possible loss of data [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  transport.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  server.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  client.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  gtest.vcxproj -> D:\a\mcp-cpp\mcp-cpp\build\lib\RelWithDebInfo\gtest.lib
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/CMakeLists.txt
+  gtest_main.cc
+  schema.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  gtest_main.vcxproj -> D:\a\mcp-cpp\mcp-cpp\build\lib\RelWithDebInfo\gtest_main.lib
+  base64.cpp
+  sha256.cpp
+  request_state.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  oauth.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  oauth_server.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  transport_http.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport_http.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport_http.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport_http.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp.vcxproj]
+  (compiling source file '../src/transport_http.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  Generating Code...
+  mcp.vcxproj -> D:\a\mcp-cpp\mcp-cpp\build\RelWithDebInfo\mcp.lib
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  minimal_server.cpp
+  bench_e2e.cpp
+  test_stdio_e2e.cpp
+  bench_parse.cpp
+  conformance_server.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_stdio_e2e.vcxproj]
+  (compiling source file '../tests/test_stdio_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_stdio_e2e.vcxproj]
+  (compiling source file '../tests/test_stdio_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_stdio_e2e.vcxproj]
+  (compiling source file '../tests/test_stdio_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_stdio_e2e.vcxproj]
+  (compiling source file '../tests/test_stdio_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_parse.vcxproj]
+  (compiling source file '../bench/bench_parse.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_parse.vcxproj]
+  (compiling source file '../bench/bench_parse.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_parse.vcxproj]
+  (compiling source file '../bench/bench_parse.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_parse.vcxproj]
+  (compiling source file '../bench/bench_parse.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_e2e.vcxproj]
+  (compiling source file '../bench/bench_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_e2e.vcxproj]
+  (compiling source file '../bench/bench_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_e2e.vcxproj]
+  (compiling source file '../bench/bench_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_e2e.vcxproj]
+  (compiling source file '../bench/bench_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  conformance_client.cpp
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  bench_dispatch.cpp
+  mcp_bench_parse.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_bench_parse.exe
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_dispatch.vcxproj]
+  (compiling source file '../bench/bench_dispatch.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_dispatch.vcxproj]
+  (compiling source file '../bench/bench_dispatch.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_dispatch.vcxproj]
+  (compiling source file '../bench/bench_dispatch.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_bench_dispatch.vcxproj]
+  (compiling source file '../bench/bench_dispatch.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  mcp_bench_e2e.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_bench_e2e.exe
+  conformance_server.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\conformance_server.exe
+  minimal_server.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\minimal_server.exe
+  mcp_test_stdio_e2e.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_stdio_e2e.exe
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  test_request_state.cpp
+  test_http_e2e.cpp
+  test_jsonrpc.cpp
+  test_oauth.cpp
+  test_client.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_request_state.vcxproj]
+  (compiling source file '../tests/test_request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_request_state.vcxproj]
+  (compiling source file '../tests/test_request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_request_state.vcxproj]
+  (compiling source file '../tests/test_request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_jsonrpc.vcxproj]
+  (compiling source file '../tests/test_jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_jsonrpc.vcxproj]
+  (compiling source file '../tests/test_jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_request_state.vcxproj]
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_jsonrpc.vcxproj]
+  (compiling source file '../tests/test_jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_jsonrpc.vcxproj]
+  (compiling source file '../tests/test_jsonrpc.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  (compiling source file '../tests/test_request_state.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_http_e2e.vcxproj]
+  (compiling source file '../tests/test_http_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_http_e2e.vcxproj]
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth.vcxproj]
+  (compiling source file '../tests/test_http_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+  (compiling source file '../tests/test_oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_http_e2e.vcxproj]
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth.vcxproj]
+  (compiling source file '../tests/test_http_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_http_e2e.vcxproj]
+  (compiling source file '../tests/test_oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_client.vcxproj]
+  (compiling source file '../tests/test_client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_client.vcxproj]
+  (compiling source file '../tests/test_client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+  (compiling source file '../tests/test_http_e2e.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth.vcxproj]
+  (compiling source file '../tests/test_oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth.vcxproj]
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_client.vcxproj]
+  (compiling source file '../tests/test_client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_client.vcxproj]
+  (compiling source file '../tests/test_client.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  (compiling source file '../tests/test_oauth.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  conformance_client.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\conformance_client.exe
+  test_error.cpp
+D:\a\mcp-cpp\mcp-cpp\tests\test_http_e2e.cpp(315,27): error C3493: 'kIterations' cannot be implicitly captured because no default capture mode has been specified [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_http_e2e.vcxproj]
+  test_conformance_2026.cpp
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_error.vcxproj]
+  (compiling source file '../tests/test_error.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_error.vcxproj]
+  (compiling source file '../tests/test_error.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_error.vcxproj]
+  (compiling source file '../tests/test_error.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_error.vcxproj]
+  (compiling source file '../tests/test_error.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_conformance_2026.vcxproj]
+  (compiling source file '../tests/test_conformance_2026.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_conformance_2026.vcxproj]
+  (compiling source file '../tests/test_conformance_2026.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_conformance_2026.vcxproj]
+  test_oauth_server.cpp
+  (compiling source file '../tests/test_conformance_2026.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_conformance_2026.vcxproj]
+  (compiling source file '../tests/test_conformance_2026.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth_server.vcxproj]
+  (compiling source file '../tests/test_oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth_server.vcxproj]
+  (compiling source file '../tests/test_oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth_server.vcxproj]
+  (compiling source file '../tests/test_oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_oauth_server.vcxproj]
+  (compiling source file '../tests/test_oauth_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  mcp_test_jsonrpc.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_jsonrpc.exe
+  mcp_test_error.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_error.exe
+  mcp_test_client.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_client.exe
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  test_server.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_server.vcxproj]
+  (compiling source file '../tests/test_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_server.vcxproj]
+  (compiling source file '../tests/test_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_server.vcxproj]
+  (compiling source file '../tests/test_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_server.vcxproj]
+  (compiling source file '../tests/test_server.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\tests\test_server.cpp(187,27): error C3493: 'kIterations' cannot be implicitly captured because no default capture mode has been specified [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_server.vcxproj]
+  mcp_bench_dispatch.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_bench_dispatch.exe
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  test_transport.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_transport.vcxproj]
+  (compiling source file '../tests/test_transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_transport.vcxproj]
+  (compiling source file '../tests/test_transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_transport.vcxproj]
+  (compiling source file '../tests/test_transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_transport.vcxproj]
+  (compiling source file '../tests/test_transport.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  test_schema.cpp
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  test_types.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_schema.vcxproj]
+  mcp_test_request_state.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_request_state.exe
+  (compiling source file '../tests/test_schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_schema.vcxproj]
+  (compiling source file '../tests/test_schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_schema.vcxproj]
+  (compiling source file '../tests/test_schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_schema.vcxproj]
+  (compiling source file '../tests/test_schema.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_types.vcxproj]
+  (compiling source file '../tests/test_types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_types.vcxproj]
+  (compiling source file '../tests/test_types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+  mcp_test_oauth.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_oauth.exe
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_types.vcxproj]
+  (compiling source file '../tests/test_types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_types.vcxproj]
+  (compiling source file '../tests/test_types.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  mcp_test_transport.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_transport.exe
+  mcp_test_conformance_2026.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_conformance_2026.exe
+  mcp_test_oauth_server.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_oauth_server.exe
+  Building Custom Rule D:/a/mcp-cpp/mcp-cpp/CMakeLists.txt
+  test_version.cpp
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2637,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_version.vcxproj]
+  (compiling source file '../tests/test_version.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(2641,20): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_version.vcxproj]
+  (compiling source file '../tests/test_version.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3678,25): warning C4458: declaration of 'name' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_version.vcxproj]
+  (compiling source file '../tests/test_version.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1209,24):
+      see declaration of 'ZJSON::Json::name'
+  
+D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(3791,17): warning C4458: declaration of 'child' hides class member [D:\a\mcp-cpp\mcp-cpp\build\mcp_test_version.vcxproj]
+  (compiling source file '../tests/test_version.cpp')
+      D:\a\mcp-cpp\mcp-cpp\thirds\zjson\zjson.hpp(1193,9):
+      see declaration of 'ZJSON::Json::child'
+  
+  mcp_test_schema.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_schema.exe
+  mcp_test_types.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_types.exe
+  mcp_test_version.vcxproj -> D:\a\mcp-cpp\mcp-cpp\bin\RelWithDebInfo\mcp_test_version.exe
