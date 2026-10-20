@@ -221,14 +221,15 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
                     std::string stateContext) const {
   Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}, {}};
   ctx.notify = notify;
-  // Structured logging (see Ctx::log in server.hpp). The spec gates the
-  // notification on the REQUEST: notifications/message MUST NOT be emitted
-  // for a request that did not carry _meta.logLevel. There is no
-  // server-default fallback - Builder::logLevel only supplies a threshold for
-  // requests that DID opt in.
+  // Structured logging (see Ctx::log in server.hpp). A 2026-07-28 request
+  // opts in through _meta.logLevel and MUST NOT receive notifications/message
+  // without it; Builder::logLevel only raises the threshold for opted-in
+  // requests. A legacy (pre-2026) request has no per-request field - it opts
+  // in through logging/setLevel, which sets the server-wide level - so the
+  // configured level is the whole threshold there.
   ctx.log = [notify, logger = name_, configuredLevel = logLevel_,
-             requestLevel = meta.logLevel](const std::string& level,
-                                           const std::string& message) {
+             requestLevel = meta.logLevel,
+             modern = meta.complete](const std::string& level, const std::string& message) {
     static constexpr std::string_view kLevels[] = {"debug",    "info",     "notice",
                                                    "warning",  "error",    "critical",
                                                    "alert",    "emergency"};
@@ -237,13 +238,16 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
         if (kLevels[i] == l) return i;
       return -1;
     };
-    if (requestLevel.empty()) return;  // no opt-in -> no notification
-    // An explicit server threshold may be higher than the request's level;
-    // messages below it are still dropped.
     const int have = rank(level);
-    const int requestRank = rank(requestLevel);
     const int serverRank = rank(configuredLevel);
-    const int threshold = serverRank > requestRank ? serverRank : requestRank;
+    int threshold = -1;  // -1: no filtering
+    if (modern) {
+      if (requestLevel.empty()) return;  // no opt-in -> no notification
+      threshold = rank(requestLevel);
+      if (serverRank > threshold) threshold = serverRank;
+    } else {
+      threshold = serverRank;
+    }
     if (have >= 0 && threshold >= 0 && have < threshold) return;
     Json p;
     p.add("level", Json::str(level));

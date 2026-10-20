@@ -93,6 +93,17 @@ TEST(RequestStateCodecTest, RoundTripReturnsPayload) {
   EXPECT_EQ(*opened, "step=2;cursor=abc");
 }
 
+// The UNBOUND wire form is frozen: seal() must keep producing exactly the
+// pre-principal-binding bytes (the MAC input is domain + len(context) +
+// context + expiry + payload, with no principal field). Principal-bound
+// states use a separate domain precisely so this encoding does not move -
+// a rolling upgrade keeps verifying states minted by older instances.
+TEST(RequestStateCodecTest, UnboundWireFormIsByteCompatible) {
+  const auto codec = makeCodec();
+  EXPECT_EQ(codec.seal("step=2;cursor=abc", "tools/call\nquote", kNow),
+            "v1.AAAAAAAPRJhzdGVwPTI7Y3Vyc29yPWFiYw.aehbdYQBQPcJUCGT_sYJxkP6puAmR4OIwVCWDVhyWws");
+}
+
 TEST(RequestStateCodecTest, EmptyPayloadRoundTrips) {
   const auto codec = makeCodec();
   const std::string state = codec.seal("", "prompts/get\nsummarize", kNow);

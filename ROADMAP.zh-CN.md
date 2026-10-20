@@ -61,21 +61,35 @@
 
 | 事项 | 级别 |
 | --- | --- |
-| D1 · Base64 哨兵值再编码：形如 `=?base64?…?=` 的纯 ASCII 值 MUST 先再编码再镜像；解码器只接受真编码值 | 🔜 P0 |
-| D2 · `MissingRequiredClientCapabilityError.data.requiredCapabilities` 改按 schema 输出 `ClientCapabilities` 对象（而非字符串数组） | 🔜 P0 |
-| D3 · `io.modelcontextprotocol/subscriptionId` 类型保真：流通知保留 listen 请求 JSON-RPC id 的类型（数字保持数字——ack/关闭回包已经如此） | 🔜 P0 |
-| D4 · `x-mcp-header` 校验收紧至规范：头名限 `1*tchar`，禁止经 `items`/组合关键字可达，组合关键字内注解视为无效工具，注册侧自校验 | 🔜 P0 |
-| D5 · `Client::listTools` 剔除违反 D4 的工具（规则从一致性夹具下沉进库） | 🔜 P0 |
-| D6 · `notifications/message` 门控：请求缺 `_meta.logLevel` 一律不发送（移除服务端默认级别路径）；非法级别值以 `-32602` 拒绝 | 🔜 P1 |
-| D7 · 签名 `requestState` 可选 principal 绑定（编解码器区分完整性与身份） | 🔜 P1 |
-| D8 · 每个 result 的 `_meta` 附 `serverInfo`（可配置）；拒绝 `initialize` 时附 `supported` 版本列表 | 🔜 P1 |
-| D9 · Builder API 将 `listChanged`/`subscribe` 能力标志广告进 capabilities（扇出已就绪） | 🔜 P1 |
-| D10 · 整数 `Mcp-Param-*` 头校验改为数值比较（非字符串比较） | 🔜 P1 |
-| D11 · `HttpServerTransport` 的令牌校验挂钩（资源服务器侧 audience 校验目前无落点） | 🔜 P1 |
-| D12 · 扩展协商强制：不支持已广告的扩展时回退核心行为或拒绝请求 | 🔜 P1 |
+| D1 · Base64 哨兵值再编码：形如 `=?base64?…?=` 的纯 ASCII 值 MUST 先再编码再镜像；解码器只接受真编码值 | ✅ P0 |
+| D2 · `MissingRequiredClientCapabilityError.data.requiredCapabilities` 改按 schema 输出 `ClientCapabilities` 对象（而非字符串数组） | ✅ P0 |
+| D3 · `io.modelcontextprotocol/subscriptionId` 类型保真：流通知保留 listen 请求 JSON-RPC id 的类型（数字保持数字——ack/关闭回包已经如此） | ✅ P0 |
+| D4 · `x-mcp-header` 校验收紧至规范：头名限 `1*tchar`，禁止经 `items`/组合关键字可达，组合关键字内注解视为无效工具，注册侧自校验 | ✅ P0 |
+| D5 · `Client::listTools` 剔除违反 D4 的工具（规则从一致性夹具下沉进库） | ✅ P0 |
+| D6 · `notifications/message` 门控：请求缺 `_meta.logLevel` 一律不发送（移除服务端默认级别路径）；非法级别值以 `-32602` 拒绝 | ✅ P1 |
+| D7 · 签名 `requestState` 可选 principal 绑定（编解码器区分完整性与身份） | ✅ P1 |
+| D8 · 每个 result 的 `_meta` 附 `serverInfo`（可配置）；拒绝 `initialize` 时附 `supported` 版本列表 | ✅ P1 |
+| D9 · Builder API 将 `listChanged`/`subscribe` 能力标志广告进 capabilities（扇出已就绪） | ✅ P1 |
+| D10 · 整数 `Mcp-Param-*` 头校验改为数值比较（非字符串比较） | ✅ P1 |
+| D11 · `HttpServerTransport` 的令牌校验挂钩（资源服务器侧 audience 校验目前无落点） | ✅ P1 |
+| D12 · 扩展协商强制：不支持已广告的扩展时回退核心行为或拒绝请求 | ✅ P1 |
 
 出口门槛：每一项完成后官方 2026-07-28 套件保持 100%；错误面 pin 测试锁定
-变更的 wire 形状。
+变更的 wire 形状。**状态：十二项全部落地并复验（单测 14/14；2026-07-28 客户端
+399/399；服务端 55 项计分检查 + 4 个基线 legacy 场景；2025-11-25 客户端套件
+多次并行运行全绿）。**
+
+## 里程碑 F —— 评审加固（v1.0 前）
+
+复核里程碑 D 时发现的后续项。均不阻塞合规，各自关闭一个易用性或纵深防御缺口。
+
+| 事项 | 级别 |
+| --- | --- |
+| F1 · 把已认证 principal 暴露给 MRTR：`Builder::requestStatePrincipal(fn)` / `Ctx::principal`，让 D7 的绑定成为默认路径而非仅 codec API | 🔜 P1 |
+| F2 · 将 `Client` 的 x-mcp-header 过滤限定在真正镜像头的传输上（stdio MAY ignore；一律过滤会隐藏可用工具） | 🔜 P2 |
+| F3 · legacy GET 监听流携带配置头（含 `Authorization`）——目前仅 POST 携带 | 🔜 P1 |
+| F4 · `requiredCapabilities` 一次报告全部缺失能力 | 🔜 P2 |
+| F5 · 修复 sse-retry 偶发：强制重连不得被判为 peer gone；无 `retry:` 建议时不得提前重连 | ✅ P1 |
 
 ## 里程碑 E —— 参考实现供养（v0.5）
 

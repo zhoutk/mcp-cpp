@@ -32,9 +32,20 @@ inline std::string headerParamText(const Json& value) {
 // whose value is present (and non-null) in `args`. Header names are the raw
 // `x-mcp-header` values; encoding to `Mcp-Param-{name}` wire form happens at
 // the call sites.
+//
+// `integer` records whether the annotated parameter is declared
+// `"type": "integer"`: only those values may be compared numerically when the
+// server validates a mirrored header against the body
+// (basic/transports/streamable-http.md "Server Validation").
+struct HeaderParam {
+  std::string name;
+  std::string value;
+  bool integer = false;
+};
+
 inline void collectHeaderParams(const Json& schema, const Json& args,
                                 const std::vector<std::string>& path,
-                                std::vector<std::pair<std::string, std::string>>& out) {
+                                std::vector<HeaderParam>& out) {
   if (!schema.isObject() || !args.isObject()) return;
   const Json properties = mcp::member(schema, "properties");
   if (!properties.isObject()) return;
@@ -52,7 +63,9 @@ inline void collectHeaderParams(const Json& schema, const Json& args,
       // sent with an empty payload (the http-custom-headers scenario probes
       // exactly this). Only absent/null arguments omit the header.
       std::string text = headerParamText(value);
-      out.emplace_back(std::string(annotation.toString()), std::move(text));
+      const Json type = mcp::member(prop, "type");
+      const bool isInteger = type.isString() && type.toString() == "integer";
+      out.push_back(HeaderParam{std::string(annotation.toString()), std::move(text), isInteger});
     }
     // Descend through properties chains only.
     std::vector<std::string> nextPath = path;
@@ -103,7 +116,10 @@ inline bool noAnnotationsDeep(const Json& node) {
     return true;
   }
   if (!node.isObject()) return true;
-  if (mcp::member(node, "x-mcp-header").isString()) return false;
+  // ANY x-mcp-header here is invalid - not just a string one. A non-string
+  // value cannot be a header field name, and the walk below only validates
+  // string annotations on the properties chain.
+  if (!mcp::member(node, "x-mcp-header").isNull()) return false;
   // Descend through EVERYTHING (properties included): this subtree is not a
   // properties chain, so any annotation reachable here is invalid.
   for (const auto& key : node.getAllKeys().toVector()) {
@@ -133,8 +149,9 @@ inline bool headerAnnotationsValid(const Json& schema, std::set<std::string>& se
   // patternProperties/$defs invalidates the tool.
   for (const auto& key : schema.getAllKeys().toVector()) {
     const std::string k(key.toString());
+    // `properties` is the only chain we may descend (handled below); the
+    // annotation itself was already validated by the parent frame.
     if (k == "properties" || k == "x-mcp-header" || !isSchemaBearingKeyword(k)) continue;
-    if (k == "properties") continue;
     if (!noAnnotationsDeep(schema[k])) return false;
   }
   const Json properties = mcp::member(schema, "properties");
@@ -144,7 +161,9 @@ inline bool headerAnnotationsValid(const Json& schema, std::set<std::string>& se
     const Json annotation = mcp::member(prop, "x-mcp-header");
     const Json type = mcp::member(prop, "type");
     const std::string t = type.isString() ? std::string(type.toString()) : std::string();
-    if (annotation.isString()) {
+    if (!annotation.isNull()) {
+      // Non-string annotation: cannot be a field-name token -> invalid tool.
+      if (!annotation.isString()) return false;
       const std::string name(annotation.toString());
       if (name.empty() || !headerNameValid(name)) return false;
       std::string lower;
@@ -164,6 +183,11 @@ inline bool headerAnnotationsValid(const Json& schema, std::set<std::string>& se
 
 // Convenience for a tool definition: validates the tool's inputSchema.
 inline bool headerAnnotationsValid(const Json& toolSchema) {
+  // A root-level annotation is not attached to any property, so it cannot be
+  // mirrored: the spec allows annotations only on statically reachable
+  // properties. (This check lives here, not in the recursion: a property may
+  // legitimately carry one.)
+  if (!mcp::member(toolSchema, "x-mcp-header").isNull()) return false;
   std::set<std::string> seen;
   return headerAnnotationsValid(toolSchema, seen);
 }

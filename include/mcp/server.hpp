@@ -364,8 +364,11 @@ class Builder {
   // On by default with ttlMs 0 (required by 2026-07-28); pass a positive ttlMs
   // to let clients cache, or -1 to omit the fields entirely.
   Builder& listCache(long ttlMs, std::string cacheScope = "public");
-  // Default severity threshold for Ctx::log (debug..emergency). A client may
-  // raise or lower it per request via _meta io.modelcontextprotocol/logLevel.
+  // Server-side severity FLOOR for Ctx::log (debug..emergency). It never turns
+  // logging on: a 2026 request must opt in via _meta
+  // io.modelcontextprotocol/logLevel, and legacy clients opt in through
+  // logging/setLevel. The effective threshold is the higher of this floor and
+  // the request's level.
   Builder& logLevel(std::string level);
 
   // Dual-era server: also accept LEGACY clients (initialize handshake, no

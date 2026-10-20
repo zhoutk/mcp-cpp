@@ -209,7 +209,7 @@ struct HttpServerTransport::Impl {
       const Json toolDef = server.findToolDefinition(std::string(toolName.toString()));
       const Json inputSchema = member(toolDef, "inputSchema");
       if (inputSchema.isObject()) {
-        std::vector<std::pair<std::string, std::string>> expected;
+        std::vector<detail::HeaderParam> expected;
         detail::collectHeaderParams(inputSchema, member(request->params, "arguments"), {},
                                     expected);
 
@@ -223,7 +223,9 @@ struct HttpServerTransport::Impl {
           if (upper.rfind("MCP-PARAM-", 0) == 0) received[upper] = field.second;
         }
 
-        for (const auto& [paramName, rawValue] : expected) {
+        for (const auto& param : expected) {
+          const std::string& paramName = param.name;
+          const std::string& rawValue = param.value;
           std::string upper = "MCP-PARAM-";
           for (const char ch : paramName) {
             upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
@@ -236,7 +238,7 @@ struct HttpServerTransport::Impl {
           }
           std::string decoded;
           if (!detail::decodeHeaderValue(it->second, decoded) ||
-              !headerValuesEqual(decoded, rawValue)) {
+              !headerValuesEqual(decoded, rawValue, param.integer)) {
             return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
                                    "Header mismatch: Mcp-Param-" + paramName +
                                        " does not match body value")};
@@ -253,19 +255,32 @@ struct HttpServerTransport::Impl {
   }
 
   // Integer-typed parameters MUST compare numerically (D10): "42.0" and
-  // "42e0" are the same argument as 42, so a strict string comparison would
-  // reject conformant mirroring. Everything else compares as text.
-  static bool headerValuesEqual(const std::string& headerValue, const std::string& bodyValue) {
+  // "42e0" are the same argument as 42. Only parameters DECLARED
+  // `"type": "integer"` qualify - for everything else (strings, booleans) the
+  // spec requires an exact match, so a string property must not accept a
+  // numerically-equal spelling.
+  static bool headerValuesEqual(const std::string& headerValue, const std::string& bodyValue,
+                                bool integerTyped) {
     if (headerValue == bodyValue) return true;
-    const auto parseInteger = [](const std::string& text, double& out) -> bool {
+    if (!integerTyped) return false;
+    // Decimal literals only: strtod also accepts hex floats and inf/nan, which
+    // are not valid renderings of an integer argument and would let two
+    // different strings compare equal.
+    const auto parseDecimal = [](const std::string& text, double& out) -> bool {
       if (text.empty()) return false;
+      for (const char c : text) {
+        const bool digit = c >= '0' && c <= '9';
+        const bool sign = c == '+' || c == '-';
+        const bool exp = c == 'e' || c == 'E';
+        if (!digit && !sign && !exp && c != '.') return false;
+      }
       char* end = nullptr;
       out = std::strtod(text.c_str(), &end);
-      return end != nullptr && *end == ' ';
+      return end != nullptr && *end == '\0';
     };
     double lhs = 0;
     double rhs = 0;
-    if (!parseInteger(headerValue, lhs) || !parseInteger(bodyValue, rhs)) return false;
+    if (!parseDecimal(headerValue, lhs) || !parseDecimal(bodyValue, rhs)) return false;
     return lhs == rhs;
   }
 
@@ -593,6 +608,22 @@ struct HttpClientTransport::Impl {
   }
 
   void setPeerGone(bool gone) {
+    if (gone) {
+      // The GET listen stream is only the legacy server->client side channel:
+      // its failure does NOT mean a call is lost, because the request's own
+      // POST stream can still deliver the response (in the sse-retry scenario
+      // the server drops the GET stream while tools/call is in flight). Only
+      // report a lost peer when no request stream can answer whatever read()
+      // is waiting for.
+      //
+      // NOTE: this window is narrow - the POST thread decrements requestThreads
+      // BEFORE it forces a listen-stream reconnect, so a self-inflicted stop()
+      // error can land after the count reached zero. Callers therefore also
+      // pass the `forced` flag (see the listen loop): never report gone for a
+      // stream we stopped ourselves.
+      std::lock_guard<std::mutex> reqLock(reqMutex);
+      if (requestThreads > 0) return;
+    }
     // Notify under the lock, like every other cv wake here.
     std::lock_guard<std::mutex> lock(queueMutex);
     peerGone = gone;
@@ -1377,8 +1408,15 @@ void HttpClientTransport::openListenStreamOnce() {
       // unreachable RIGHT NOW - read() must surface that instead of blocking
       // forever on a dead server. A completed response means the peer was
       // reachable: re-arm read() for blocking.
+      //
+      // `forced` means WE stopped this stream: a POST response ended without
+      // answering its request, so the pending result can only arrive on a
+      // reconnected GET (SEP-1699). The resulting stop() error is self-
+      // inflicted and must never be reported as a lost peer - doing so aborted
+      // the in-flight call and made the sse-retry scenario flaky under
+      // parallel load.
       if (!result) {
-        impl_->setPeerGone(true);
+        if (!forced) impl_->setPeerGone(true);
       } else if (result->status < 400) {
         impl_->setPeerGone(false);
       }
@@ -1386,18 +1424,23 @@ void HttpClientTransport::openListenStreamOnce() {
       // earlier than the advised delay is a conformance failure). The advice
       // applies to the connection, so the last known value is kept. The margin
       // covers the lag between our seeing the TCP close and the server recording
-      // its own close timestamp; waiting longer is compliant. A forced
-      // reconnect (a closed POST stream) waits the full advised delay too; a
-      // failed connection attempt backs off modestly instead.
-      int delay;
-      if (forced || result) {
-        delay = 100;
-        {
-          std::lock_guard<std::mutex> lock(impl_->listenMutex);
-          if (impl_->retryMs > 0) delay = Impl::clampRetryMs(impl_->retryMs) + 250;
-        }
-      } else {
-        delay = 250;  // connection error backoff
+      // its own close timestamp; waiting longer is compliant.
+      //
+      // The advice applies to EVERY reconnect, including one triggered by a
+      // transport error: a dropped connection often surfaces as an error rather
+      // than a clean result, and ignoring the advice there made reconnects
+      // early by however long the error path took.
+      //
+      // With no advice yet, never reconnect eagerly after a FORCED close: under
+      // parallel load the `retry:` line can still be in flight when the stream
+      // drops, and reconnecting before it is parsed is a conformance failure.
+      // SSE's conventional 3 s default covers that window (waiting longer than
+      // advised is always compliant). A plain graceful close keeps the prompt
+      // 100 ms reconnect, and a failed connection attempt backs off a little.
+      int delay = forced ? 3000 : (result ? 100 : 1000);
+      {
+        std::lock_guard<std::mutex> lock(impl_->listenMutex);
+        if (impl_->retryMs > 0) delay = Impl::clampRetryMs(impl_->retryMs) + 250;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(delay));
     }

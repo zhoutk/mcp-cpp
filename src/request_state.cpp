@@ -10,6 +10,9 @@ namespace {
 
 constexpr std::string_view kVersionPrefix = "v1.";
 constexpr std::string_view kDomain = "mcp-cpp/requestState/v1";
+// Principal-bound states use a separate domain so the unbound encoding can
+// stay byte-compatible with pre-D7 states.
+constexpr std::string_view kBoundDomain = "mcp-cpp/requestState/v1/principal";
 constexpr size_t kExpiryBytes = 8;
 constexpr size_t kMacBytes = 32;
 
@@ -51,15 +54,30 @@ uint64_t readU64(const char* p) {
 
 // MAC input binds the domain, the context (length-prefixed so that no two
 // (context, body) pairs share an encoding), and the expiry+payload body.
+//
+// Two encodings, separated by DOMAIN rather than by a field:
+//   - unbound (seal/open): byte-identical to the pre-D7 format, so a state
+//     minted by an older instance still verifies after a rolling upgrade;
+//   - principal-bound (sealFor/openFor): a distinct domain plus a
+//     length-prefixed principal.
+// The domains make the two forms non-interchangeable: a bound state never
+// verifies under the unbound opener and vice versa, and no concatenation of
+// context/principal/body can collide across forms.
 std::string macInput(std::string_view context, std::string_view principal,
                      std::string_view body) {
   std::string in;
-  in.reserve(kDomain.size() + 16 + context.size() + principal.size() + body.size());
-  in.append(kDomain);
+  if (principal.empty()) {
+    in.reserve(kDomain.size() + 8 + context.size() + body.size());
+    in.append(kDomain);
+    appendU64(in, static_cast<uint64_t>(context.size()));
+    in.append(context);
+    in.append(body);
+    return in;
+  }
+  in.reserve(kBoundDomain.size() + 16 + context.size() + principal.size() + body.size());
+  in.append(kBoundDomain);
   appendU64(in, static_cast<uint64_t>(context.size()));
   in.append(context);
-  // Length-prefixed principal: empty means "no principal binding" (the
-  // legacy wire form), so the two shapes cannot be confused by concatenation.
   appendU64(in, static_cast<uint64_t>(principal.size()));
   in.append(principal);
   in.append(body);

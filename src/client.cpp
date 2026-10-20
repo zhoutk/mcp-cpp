@@ -403,7 +403,7 @@ McpResult<Json> Client::subscribe(const Json& filter) {
 
 void Client::mirrorHeaderParams(const std::string& toolName, const Json& arguments) {
   auto it = toolSchemas_.find(toolName);
-  std::vector<std::pair<std::string, std::string>> params;
+  std::vector<detail::HeaderParam> params;
   if (it != toolSchemas_.end()) {
     const Json inputSchema = member(it->second, "inputSchema");
     if (inputSchema.isObject()) {
@@ -415,14 +415,14 @@ void Client::mirrorHeaderParams(const std::string& toolName, const Json& argumen
   for (const auto& h : lastParamHeaders_) {
     const bool stillMirrored =
         std::any_of(params.begin(), params.end(), [&](const auto& p) {
-          return "Mcp-Param-" + p.first == h;
+          return "Mcp-Param-" + p.name == h;
         });
     if (!stillMirrored) transport_->removeHeader(h);
   }
   lastParamHeaders_.clear();
-  for (auto& [headerName, value] : params) {
-    const std::string wireName = "Mcp-Param-" + headerName;
-    transport_->setHeader(wireName, detail::encodeHeaderValue(value));
+  for (const auto& param : params) {
+    const std::string wireName = "Mcp-Param-" + param.name;
+    transport_->setHeader(wireName, detail::encodeHeaderValue(param.value));
     lastParamHeaders_.push_back(wireName);
   }
 }

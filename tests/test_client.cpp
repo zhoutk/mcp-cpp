@@ -687,6 +687,21 @@ TEST(ClientToolFilter, ExcludesInvalidHeaderAnnotations) {
                      "a":{"type":"number","x-mcp-header":"X-A"}}}}])json"),
             0);
 
+  // Non-string annotation value: cannot be a field-name token.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"string","x-mcp-header":42}}}}])json"),
+            0);
+
+  // A non-string annotation hiding under items invalidates the tool too.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"array","items":{"type":"object","x-mcp-header":7}}}}}])json"),
+            0);
+
+  // A root-level annotation is attached to no property.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object",
+                     "x-mcp-header":"X-Root"}}])json"),
+            0);
+
   // A malformed tool must not hide the valid ones in the same response.
   EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
                      "a":{"type":"number","x-mcp-header":"X-A"}}}},

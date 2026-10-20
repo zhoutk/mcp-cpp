@@ -1180,6 +1180,36 @@ TEST(ServerLogging, InvalidLogLevelIsInvalidParams) {
   EXPECT_EQ(o.error->error.code, -32602);
 }
 
+// A legacy (pre-2026) client has no per-request _meta.logLevel: it opts in
+// through logging/setLevel, which sets the server-wide level. The D6 gating
+// must therefore not silence legacy logging - doing so would make
+// logging/setLevel a no-op in dual-era mode.
+TEST(ServerLogging, LegacySetLevelStillEmits) {
+  Builder b;
+  b.acceptLegacyClients(true);
+  b.simpleTool("emit", "logs", [](Ctx& c) -> McpResult<Json> {
+    c.log("critical", "boom");
+    return Ok(Json(R"({"ok":true})"));
+  });
+  auto server = b.build();
+
+  Out set = serveOnce(server, encodeRequest(RequestId(int64_t(1)), "logging/setLevel",
+                                            Json(R"({"level":"debug"})")));
+  ASSERT_NE(set.result, nullptr);
+
+  // A meta-less (legacy) tools/call: complete == false.
+  MemTransport t({});
+  server->processLine(encodeRequest(RequestId(int64_t(2)), "tools/call",
+                                    Json(R"({"name":"emit","arguments":{}})")),
+                      t);
+  ASSERT_EQ(t.output_.size(), 2u);  // the log notification + the result
+  const ParsedMessage parsed = parseMessage(t.output_[0]);
+  const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
+  ASSERT_NE(notif, nullptr);
+  EXPECT_EQ(notif->method, "notifications/message");
+  EXPECT_EQ(member(notif->params, "level").toString(), "critical");
+}
+
 TEST(ServerProgress, ArbitraryNotificationReachesTransport) {
   Builder b;
   b.simpleTool("log", "logs", [](Ctx& c) -> McpResult<Json> {

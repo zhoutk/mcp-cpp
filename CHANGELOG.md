@@ -4,6 +4,52 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Roadmap Milestone D (2026-07-28 spec calibration) plus the review fixes found
+while auditing it.
+
+### Added
+
+- `Builder::listChanged(capability)` / `Builder::resourceSubscribe()` advertise
+  `listChanged` and `resources.subscribe`; `Builder::extension(id, settings)`
+  advertises namespaced extensions; `Builder::resultServerInfo(bool)` controls
+  `_meta.serverInfo`.
+- `HttpServerTransport::setTokenValidator()` — a resource-server authentication
+  seam (returns 401 plus an optional `WWW-Authenticate` challenge).
+- `RequestStateCodec::sealFor()/openFor()` bind a sealed state to an
+  authenticated principal; the unbound `seal()/open()` wire form is unchanged
+  (a frozen test vector now guards it).
+
+### Changed
+
+- `Client::listTools()` excludes tools whose `x-mcp-header` annotations are
+  invalid (SEP-2243 client MUST), and no longer caches them for mirroring.
+- `x-mcp-header` validation is spec-strict: RFC 9110 `1*tchar` names, no
+  annotation reachable through `items`/composition/conditionals/`$defs`, no
+  non-string or root-level annotations.
+- `Mcp-Param-*` header/body comparison is numeric only for parameters declared
+  `"type": "integer"` (decimal literals only); string parameters require an
+  exact match.
+- `Builder::logLevel()` is a server-side floor, not an on-switch: a request must
+  opt in through `_meta.logLevel` (legacy clients through `logging/setLevel`).
+  Invalid level values are rejected with `-32602`.
+- Every modern result carries `_meta.io.modelcontextprotocol/serverInfo`; a
+  modern-only server rejecting `initialize` names the versions it supports.
+
+### Fixed
+
+- A plain-ASCII header value shaped like the base64 sentinel (`=?base64?…?=`)
+  is re-encoded before mirroring, so it no longer fails `-32020` on every call.
+- `MissingRequiredClientCapabilityError.data.requiredCapabilities` is a
+  `ClientCapabilities` object (`{"elicitation":{}}`), as the schema requires.
+- `io.modelcontextprotocol/subscriptionId` keeps the listen request's JSON-RPC
+  id type; numeric subscription ids are no longer stringified in fan-out.
+- sse-retry flake under parallel conformance runs: a listen stream stopped for a
+  forced reconnect is no longer reported as a lost peer (which aborted the
+  in-flight call), and a forced reconnect without `retry:` advice waits the
+  conservative 3 s default instead of 100 ms.
+
 ## [0.3.1] - 2026-10-19
 
 Patch release: two subscription-transport defects found by the v0.3.0 commit

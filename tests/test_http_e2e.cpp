@@ -875,6 +875,11 @@ TEST(HttpE2E, IntegerHeaderParamComparesNumerically) {
   auto wrong = post("41");
   ASSERT_TRUE(wrong);
   EXPECT_EQ(wrong->status, 400);
+  // Only decimal literals compare numerically: strtod would otherwise accept
+  // hex floats and INF/NAN, where two different strings compare equal.
+  auto hex = post("0x2A");
+  ASSERT_TRUE(hex);
+  EXPECT_EQ(hex->status, 400) << "0x2A is not a decimal rendering of 42";
 }
 
 TEST(HttpE2E, StringHeaderParamStillRequiresExactMatch) {
@@ -884,6 +889,23 @@ TEST(HttpE2E, StringHeaderParamStillRequiresExactMatch) {
   auto result = client->callTool("mirror", Json(R"({"token":"abc"})"));
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ((*result)["token"].toString(), "abc");
+
+  // D10 is scoped to integer-typed parameters: a string parameter must match
+  // byte-for-byte, so a numerically-equal spelling is a header mismatch. The
+  // body carries "42"; the header says "42.0".
+  httplib::Client raw("127.0.0.1", f.port);
+  raw.set_connection_timeout(5);
+  raw.set_read_timeout(10, 0);
+  httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                              {"Mcp-Method", "tools/call"},
+                              {"Mcp-Name", "mirror"},
+                              {"Mcp-Param-X-Token", "42.0"}};
+  auto r = raw.Post("/mcp", headers,
+                    makeModernRequestLine("1", "tools/call",
+                                          Json(R"({"name":"mirror","arguments":{"token":"42"}})")),
+                    "application/json");
+  ASSERT_TRUE(r);
+  EXPECT_EQ(r->status, 400) << "string parameters require an exact match";
 }
 
 // D11: the token-validation seam. A validator rejecting the request answers

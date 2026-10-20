@@ -63,21 +63,37 @@ these are the remaining MUST/SHOULD deviations, all edge-path and locally fixabl
 
 | Item | Class |
 | --- | --- |
-| D1 · Base64 sentinel re-encoding: a plain-ASCII value matching `=?base64?…?=` MUST be re-encoded before mirroring; decoder handles only true encodings | 🔜 P0 |
-| D2 · `MissingRequiredClientCapabilityError.data.requiredCapabilities` emitted as a `ClientCapabilities` object, not a string array | 🔜 P0 |
-| D3 · `io.modelcontextprotocol/subscriptionId` type fidelity: stream notifications keep the listen request's JSON-RPC id type (numeric stays numeric — ack/closure already do) | 🔜 P0 |
-| D4 · `x-mcp-header` validation tightened to spec: `1*tchar` header names, no `items`/composition reachability, annotations inside composition keywords invalidate the tool, registry-side self-validation | 🔜 P0 |
-| D5 · `Client::listTools` excludes tools whose annotations violate D4 (rule moves from the conformance fixture into the library) | 🔜 P0 |
-| D6 · `notifications/message` gating: never emit for a request without `_meta.logLevel` (drop the server-default path); reject invalid level values with `-32602` | 🔜 P1 |
-| D7 · Optional principal binding for sealed `requestState` (integrity-vs-identity split of the codec) | 🔜 P1 |
-| D8 · `serverInfo` in every result `_meta` (configurable) + `initialize` rejections name the supported versions | 🔜 P1 |
-| D9 · Builder API to advertise `listChanged`/`subscribe` capability flags (fan-out already works) | 🔜 P1 |
-| D10 · Numeric (not string) comparison for integer `Mcp-Param-*` header validation | 🔜 P1 |
-| D11 · Token-validation hook on `HttpServerTransport` (resource-server audience checks have no surface today) | 🔜 P1 |
-| D12 · Extension negotiation enforcement: fall back to core behavior or reject when an advertised extension is unsupported | 🔜 P1 |
+| D1 · Base64 sentinel re-encoding: a plain-ASCII value matching `=?base64?…?=` MUST be re-encoded before mirroring; decoder handles only true encodings | ✅ P0 |
+| D2 · `MissingRequiredClientCapabilityError.data.requiredCapabilities` emitted as a `ClientCapabilities` object, not a string array | ✅ P0 |
+| D3 · `io.modelcontextprotocol/subscriptionId` type fidelity: stream notifications keep the listen request's JSON-RPC id type (numeric stays numeric — ack/closure already do) | ✅ P0 |
+| D4 · `x-mcp-header` validation tightened to spec: `1*tchar` header names, no `items`/composition reachability, annotations inside composition keywords invalidate the tool, registry-side self-validation | ✅ P0 |
+| D5 · `Client::listTools` excludes tools whose annotations violate D4 (rule moves from the conformance fixture into the library) | ✅ P0 |
+| D6 · `notifications/message` gating: never emit for a request without `_meta.logLevel` (drop the server-default path); reject invalid level values with `-32602` | ✅ P1 |
+| D7 · Optional principal binding for sealed `requestState` (integrity-vs-identity split of the codec) | ✅ P1 |
+| D8 · `serverInfo` in every result `_meta` (configurable) + `initialize` rejections name the supported versions | ✅ P1 |
+| D9 · Builder API to advertise `listChanged`/`subscribe` capability flags (fan-out already works) | ✅ P1 |
+| D10 · Numeric (not string) comparison for integer `Mcp-Param-*` header validation | ✅ P1 |
+| D11 · Token-validation hook on `HttpServerTransport` (resource-server audience checks have no surface today) | ✅ P1 |
+| D12 · Extension negotiation enforcement: fall back to core behavior or reject when an advertised extension is unsupported | ✅ P1 |
 
 Exit gate: official 2026-07-28 suites stay at 100% after every item; error-surface
-pin tests lock the changed wire shapes.
+pin tests lock the changed wire shapes. **Status: all twelve landed and re-verified
+(14/14 unit suites; client 399/399 on 2026-07-28; server 55 scored checks + the four
+baselined legacy scenarios; 2025-11-25 client suite green across repeated parallel
+runs).**
+
+## Milestone F — Review hardening (pre-v1.0)
+
+Follow-ups found while reviewing Milestone D. None blocks conformance; each closes a
+usability or defense-in-depth gap.
+
+| Item | Class |
+| --- | --- |
+| F1 · Expose the authenticated principal to MRTR: `Builder::requestStatePrincipal(fn)` / `Ctx::principal`, so D7's binding is the default path rather than a codec-only API | 🔜 P1 |
+| F2 · Scope `Client`'s x-mcp-header tool filtering to transports that actually mirror headers (stdio MAY ignore annotations; filtering there hides usable tools) | 🔜 P2 |
+| F3 · Send the configured headers (incl. `Authorization`) on the legacy GET listen stream — today only POSTs carry them | 🔜 P1 |
+| F4 · Report every missing capability at once in `requiredCapabilities` | 🔜 P2 |
+| F5 · Fix the sse-retry flake: a forced listen-stream reconnect must not be reported as a lost peer, and a forced reconnect without `retry:` advice must not fire early | ✅ P1 |
 
 ## Milestone E — Reference-fed (v0.5)
 
