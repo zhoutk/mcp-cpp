@@ -308,7 +308,7 @@ TEST(HttpE2E, ConcurrentPostsAreSerializedSafely) {
   std::vector<std::thread> workers;
   workers.reserve(kThreads);
   for (int t = 0; t < kThreads; ++t) {
-    workers.emplace_back([&f, &failures, t] {
+    workers.emplace_back([&f, &failures, t, kIterations] {
       HttpClientTransport transport("127.0.0.1", f.port);
       Client client("worker-" + std::to_string(t), "1.0");
       client.connect(transport);

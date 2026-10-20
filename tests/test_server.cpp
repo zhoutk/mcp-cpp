@@ -183,7 +183,7 @@ TEST(ServerConcurrency, ParallelDispatchIsSerialized) {
   std::vector<std::thread> workers;
   workers.reserve(kThreads);
   for (int t = 0; t < kThreads; ++t) {
-    workers.emplace_back([&server, &failures, t] {
+    workers.emplace_back([&server, &failures, t, kIterations] {
       for (int i = 0; i < kIterations; ++i) {
         const std::string id = std::to_string(t) + "-" + std::to_string(i);
         if (i % 4 == 3) {
