@@ -89,18 +89,20 @@ executable with its extension (`--command "bin\conformance_client.exe"`).
 | Revision | Scenarios | Checks |
 | --- | --- | --- |
 | **2026-07-28** | **32/32 (100%)** — every required scenario, incl. all 25 `auth/*` | **399/399** |
-| 2025-11-25 | 18/18 (100%) — baseline entry for `elicitation-sep1034-client-defaults` removed 2026-10-20 | 231/231 scored |
+| 2025-11-25 | 17/18 (only `elicitation-sep1034-client-defaults`) | 231/231 scored |
 | 2025-03-26 (extra) | 2/2 legacy auth scenarios | 15/15 |
 
-Until 2026-10-20 the 2025-11-25 revision baselined one scenario,
-`elicitation-sep1034-client-defaults`: the harness mock never delivered the
-server→client elicitation (its GET stream answered keepalives only), so the tool
-call it drives never completed — the **official rust-sdk reference client failed
-it identically** (0/5, plus a `0xC0000005` crash). The mock defect was reported
-upstream as [modelcontextprotocol/conformance#557][issue-557] and is fixed by
-[PR #561][pr-561] (`server.request()` is now tied to the originating response
-stream). The baseline entry is removed here; the next suite release that
-contains the fix should be re-baselined against this file.
+The single baselined failure is the harness mock's, not the SDK's: for
+`elicitation-sep1034-client-defaults` the mock never delivers the server→client
+elicitation (its GET stream answers keepalives only), so the tool call it drives
+never completes. The **official rust-sdk reference client fails it identically**
+(0/5, plus a `0xC0000005` crash). Reported upstream as
+[modelcontextprotocol/conformance#557][issue-557]; **fixed by [PR #561][pr-561]**
+(`server.request()` is now tied to the originating response stream), verified
+2026-10-20 against the PR preview build: 5/5 checks, and the full 2025-11-25
+suite passes 236/236. The baseline entry stays until CI pins a *release* that
+contains #561 (the pinned `0.2.0-alpha.12` still has the defect), then delete
+it and re-baseline.
 
 [issue-557]: https://github.com/modelcontextprotocol/conformance/issues/557
 [pr-561]: https://github.com/modelcontextprotocol/conformance/pull/561

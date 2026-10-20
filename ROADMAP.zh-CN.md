@@ -31,7 +31,7 @@
 | 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 2026-07-28：**42/42（100%）** · 2025-11-25：26/30 |
 | 达到所有适用必需场景的 100% | ✅ 2026-07-28 · 🔄 2025-11-25（4 个受阻，见下文） |
 | 发布 `conformance/report.json` + 一份 `--expected-failures` 基线 | ✅ |
-| 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 2026-07-28：**32/32 场景（100%）**；2025-11-25：18/18（100%；另加两个 2025-03-26 legacy 场景） |
+| 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 2026-07-28：**32/32 场景（100%）**；2025-11-25：17/18（另加两个 2025-03-26 legacy 场景；上游修复待正式发布） |
 | 客户端模式 `--expected-failures` 基线 | ✅ 仅 1 个套件 mock 缺陷场景，附 rust-sdk A/B 证据 |
 | 仓库内 **2026-07-28** 一致性测试套件（`mcp_test_conformance_2026`，12 个场景，含完整的 MRTR 往返） | ✅ |
 | 稳定的 **v1.0.0** 发布 | ⏳ |

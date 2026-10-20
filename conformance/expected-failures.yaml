@@ -14,10 +14,10 @@
 #
 # Client suite (suite 0.2.0-alpha.12, sequential/parallel):
 #   2026-07-28: 399/399 checks, 32/32 scenarios - 100% (incl. all 25 auth/*)
-#   2025-11-25: all scored checks pass, including elicitation-sep1034-client-defaults
-#               (baseline entry removed 2026-10-20; upstream PR #561 fixes the
-#               mock's stream routing - re-verify on the next suite release).
-#               auth/* is green on this revision too.
+#   2025-11-25: all scored checks pass except elicitation-sep1034-client-defaults
+#               (upstream mock defect #557, fixed by PR #561 - the pinned suite
+#               0.2.0-alpha.12 predates the fix; delete the entry when CI pins a
+#               release containing it). auth/* is green on this revision too.
 server:
   - tools-call-sampling          # server->client sampling/createMessage (2025 mechanism;
                                  #   2026-07-28 replaced it with MRTR, which mcp-cpp implements)
@@ -28,10 +28,12 @@ server:
   # 2026-07-28 removed (GET returns 405). The suite runs it but records zero
   # checks, and the baseline gate treats a non-passing scenario as unexpected.
   - server-sse-multiple-streams
-client: []
-  # Empty: every client scenario passes. `elicitation-sep1034-client-defaults`
-  # was baselined from 2026-10-15 while the harness mock dropped the
-  # server->client elicitation (modelcontextprotocol/conformance#557); upstream
-  # PR #561 ties the request to the originating response stream, and this entry
-  # was removed 2026-10-20. Re-check it against a suite release that contains
-  # the fix.
+client:
+  # The harness mock in the PINNED suite (0.2.0-alpha.12) does not deliver the
+  # server->client elicitation: its GET stream answers keepalives only, so the
+  # tool call it drives never completes. Verified fixed upstream: PR #561
+  # (modelcontextprotocol/conformance, "send elicitation on originating
+  # response stream") passes this scenario 5/5 with the pkg.pr.new preview
+  # build. The entry STAYS until CI pins a release that contains #561, then
+  # delete it - CI still runs alpha.12, where the defect is live.
+  - elicitation-sep1034-client-defaults
