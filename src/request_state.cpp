@@ -93,10 +93,6 @@ bool constantTimeEqual(std::string_view a, std::string_view b) {
   return diff == 0;
 }
 
-McpResult<std::string> rejected(const char* reason) {
-  return Err(McpErrorCode::InvalidParams, std::string("requestState rejected: ") + reason);
-}
-
 }  // namespace
 
 McpResult<RequestStateCodec> RequestStateCodec::create(std::string_view key, int64_t ttlSeconds) {

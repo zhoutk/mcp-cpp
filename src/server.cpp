@@ -168,9 +168,12 @@ Server::Server(Server&& other) noexcept
       acceptLegacy_(other.acceptLegacy_),
       listCacheScope_(std::move(other.listCacheScope_)),
       logLevel_(std::move(other.logLevel_)),
-      resultServerInfo_(other.resultServerInfo_),
       name_(std::move(other.name_)),
       version_(std::move(other.version_)),
+      // Declaration order matters: resultServerInfo_ is declared after
+      // name_/version_ in server.hpp, and -Werror turns a mismatch
+      // (-Wreorder-ctor) into a build failure.
+      resultServerInfo_(other.resultServerInfo_),
       completionsHandler_(std::move(other.completionsHandler_)),
       stateCodec_(std::move(other.stateCodec_)),
       cancellations_(std::move(other.cancellations_)),
