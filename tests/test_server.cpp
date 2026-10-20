@@ -1065,9 +1065,18 @@ TEST(ServerLogging, LogEmitsMessageWithMetaLevel) {
     return Ok(Json(R"({"resultType":"complete"})"));
   });
   auto server = b.build();
+  // The spec gates notifications/message on the REQUEST opting in through
+  // _meta.logLevel; without it the call emits nothing (D6).
+  Json meta = Json(R"({})");
+  meta.add(std::string(kMetaProtocolVersion), Json::str("2026-07-28"));
+  meta.add(std::string(kMetaClientCapabilities), Json(R"({})"));
+  meta.add(std::string(kMetaLogLevel), Json::str("debug"));
+  Json params = Json(R"({})");
+  params.add("_meta", std::move(meta));
+  params.add("name", Json::str("emit"));
+  params.add("arguments", Json(R"({})"));
   MemTransport t({});
-  server->processLine(
-      makeRequest("1", "tools/call", Json(R"({"name":"emit","arguments":{}})")), t);
+  server->processLine(encodeRequest(RequestId("1"), "tools/call", params), t);
   ASSERT_EQ(t.output_.size(), 2u);
   const ParsedMessage parsed = parseMessage(t.output_[0]);
   const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
@@ -1076,8 +1085,8 @@ TEST(ServerLogging, LogEmitsMessageWithMetaLevel) {
   EXPECT_EQ(member(notif->params, "level").toString(), "warning");
   EXPECT_EQ(member(notif->params, "data").toString(), "disk nearly full");
   EXPECT_EQ(member(notif->params, "logger").toString(), "logger-server");
-  const Json meta = member(notif->params, "_meta");
-  EXPECT_EQ(member(meta, std::string(kMetaLogLevel)).toString(), "warning");
+  const Json notifMeta = member(notif->params, "_meta");
+  EXPECT_EQ(member(notifMeta, std::string(kMetaLogLevel)).toString(), "warning");
 }
 
 // The request's _meta logLevel is the threshold: below it, messages are
@@ -1111,8 +1120,25 @@ TEST(ServerLogging, RequestMetaLogLevelFilters) {
   EXPECT_EQ(member(notif->params, "level").toString(), "error");
 }
 
-// Without a request _meta level, the server's configured threshold applies.
-TEST(ServerLogging, ServerLogLevelFilters) {
+// Without a request _meta level, nothing is emitted at all (spec MUST NOT);
+// Builder::logLevel only raises the threshold for opted-in requests.
+TEST(ServerLogging, NoRequestLevelMeansNoNotification) {
+  Builder b;
+  b.logLevel("debug");
+  b.simpleTool("emit", "logs", [](Ctx& c) -> McpResult<Json> {
+    c.log("critical", "boom");
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+  MemTransport t({});
+  server->processLine(
+      makeRequest("1", "tools/call", Json(R"({"name":"emit","arguments":{}})")), t);
+  ASSERT_EQ(t.output_.size(), 1u);  // the result only
+}
+
+// The server threshold may be HIGHER than the request's: messages below it
+// are still dropped.
+TEST(ServerLogging, ServerLogLevelRaisesTheThreshold) {
   Builder b;
   b.logLevel("warning");
   b.simpleTool("emit", "logs", [](Ctx& c) -> McpResult<Json> {
@@ -1121,14 +1147,37 @@ TEST(ServerLogging, ServerLogLevelFilters) {
     return Ok(Json(R"({"resultType":"complete"})"));
   });
   auto server = b.build();
+  Json meta = Json(R"({})");
+  meta.add(std::string(kMetaProtocolVersion), Json::str("2026-07-28"));
+  meta.add(std::string(kMetaClientCapabilities), Json(R"({})"));
+  meta.add(std::string(kMetaLogLevel), Json::str("debug"));  // opted in
+  Json params = Json(R"({})");
+  params.add("_meta", std::move(meta));
+  params.add("name", Json::str("emit"));
+  params.add("arguments", Json(R"({})"));
   MemTransport t({});
-  server->processLine(
-      makeRequest("1", "tools/call", Json(R"({"name":"emit","arguments":{}})")), t);
+  server->processLine(encodeRequest(RequestId("1"), "tools/call", params), t);
   ASSERT_EQ(t.output_.size(), 2u);
   const ParsedMessage parsed = parseMessage(t.output_[0]);
   const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
   ASSERT_NE(notif, nullptr);
   EXPECT_EQ(member(notif->params, "level").toString(), "critical");
+}
+
+// An invalid level value is a malformed request (-32602), not a silent pass.
+TEST(ServerLogging, InvalidLogLevelIsInvalidParams) {
+  auto server = makeToolServer();
+  Json meta = Json(R"({})");
+  meta.add(std::string(kMetaProtocolVersion), Json::str("2026-07-28"));
+  meta.add(std::string(kMetaClientCapabilities), Json(R"({})"));
+  meta.add(std::string(kMetaLogLevel), Json::str("verbose"));
+  Json params = Json(R"({})");
+  params.add("_meta", std::move(meta));
+  params.add("name", Json::str("echo"));
+  params.add("arguments", Json(R"({"text":"x"})"));
+  Out o = serveOnce(server, encodeRequest(RequestId("1"), "tools/call", params));
+  ASSERT_NE(o.error, nullptr);
+  EXPECT_EQ(o.error->error.code, -32602);
 }
 
 TEST(ServerProgress, ArbitraryNotificationReachesTransport) {
@@ -1302,4 +1351,76 @@ TEST(ServerLegacy, DeclaresConfiguredVersionsInDiscover) {
   EXPECT_TRUE(has("2026-07-28"));
   EXPECT_TRUE(has("2025-11-25"));
   EXPECT_TRUE(has("2025-06-18"));
+}
+
+// ---- D8/D9: serverInfo in results, capability flags --------------------------------
+
+// Every modern result carries _meta.serverInfo (unless opted out).
+TEST(ServerD8, ResultsCarryServerInfo) {
+  Builder b;
+  b.name("info-server").version("9.9");
+  b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server = b.build();
+
+  Out o = serveOnce(server, makeRequest("1", "tools/call", Json(R"({"name":"t"})")));
+  ASSERT_NE(o.result, nullptr);
+  const Json info = member(member(o.result->result, "_meta"), kMetaServerInfo);
+  ASSERT_TRUE(info.isObject());
+  EXPECT_EQ(member(info, "name").toString(), "info-server");
+  EXPECT_EQ(member(info, "version").toString(), "9.9");
+
+  // Opt-out: no serverInfo injected, and a pre-existing _meta is untouched.
+  Builder b2;
+  b2.resultServerInfo(false);
+  b2.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server2 = b2.build();
+  Out o2 = serveOnce(server2, makeRequest("1", "tools/call", Json(R"({"name":"t"})")));
+  ASSERT_NE(o2.result, nullptr);
+  EXPECT_TRUE(member(o2.result->result, "_meta").isNull());
+}
+
+// Legacy (incomplete-meta) results keep their pre-2026 shape: no serverInfo.
+TEST(ServerD8, LegacyResultsStayUnchanged) {
+  Builder b;
+  b.acceptLegacyClients(true);
+  b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server = b.build();
+  Out o = serveOnce(server, encodeRequest(RequestId(int64_t(1)), "tools/call",
+                                          Json(R"({"name":"t","arguments":{}})")));
+  ASSERT_NE(o.result, nullptr);
+  EXPECT_TRUE(member(o.result->result, "_meta").isNull());
+}
+
+// A strict server rejects the legacy handshake with the supported versions.
+TEST(ServerD8, InitializeRejectionNamesSupportedVersions) {
+  auto server = makeToolServer();
+  Out o = serveOnce(server, encodeRequest(RequestId(int64_t(1)), "initialize",
+                                          Json(R"({"protocolVersion":"2025-06-18"})")));
+  ASSERT_NE(o.error, nullptr);
+  EXPECT_EQ(o.error->error.code, -32601);
+  const Json supported = o.error->error.data["supported"];
+  ASSERT_TRUE(supported.isArray());
+  EXPECT_GE(supported.size(), 1u);
+}
+
+// Builder::listChanged / resourceSubscribe advertise the flags.
+TEST(ServerD9, CapabilityFlagsAreAdvertised) {
+  Builder b;
+  b.listChanged("tools");
+  b.listChanged("prompts");
+  b.resourceSubscribe();
+  b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  b.prompt(Json(R"({"name":"p","description":"d"})"),
+           [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"messages":[]})")); });
+  b.resource(Json(R"({"uri":"test://r","name":"r"})"),
+             [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"contents":[]})")); });
+  auto server = b.build();
+
+  Out d = serveOnce(server, makeRequest("d1", "server/discover", Json(nullptr)));
+  ASSERT_NE(d.result, nullptr);
+  const Json caps = d.result->result["capabilities"];
+  EXPECT_TRUE(member(member(caps, "tools"), "listChanged").isTrue());
+  EXPECT_TRUE(member(member(caps, "prompts"), "listChanged").isTrue());
+  EXPECT_TRUE(member(member(caps, "resources"), "subscribe").isTrue());
+  EXPECT_TRUE(member(member(caps, "resources"), "listChanged").isNull());
 }

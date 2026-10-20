@@ -221,6 +221,7 @@ class Server {
   };
 
   // handler dispatch, after meta/version/capability validation
+  void addServerInfoToResult(Json& result) const;
   McpResult<Json> dispatchRequest(const JsonRpcRequest& req, const RequestMeta& meta,
                                   const std::function<bool()>& cancelled,
                                   const NotifyFn& notify);
@@ -268,6 +269,7 @@ class Server {
   // Default serverInfo.version tracks the SDK release, so a server that does
   // not call Builder::version() still reports a real version.
   std::string version_ = std::string(kSdkVersion);
+  bool resultServerInfo_ = true;  // D8: serverInfo in every modern result's _meta
   Handler completionsHandler_;
   std::shared_ptr<const RequestStateCodec> stateCodec_;  // null: requestState unsupported
 
@@ -309,6 +311,15 @@ class Builder {
  public:
   Builder& name(std::string n);
   Builder& version(std::string v);
+  // Attach serverInfo to every modern result's _meta (default true). Turn
+  // off when another layer owns the _meta payload.
+  Builder& resultServerInfo(bool enabled);
+  // Advertise listChanged on "tools"/"prompts"/"resources" so clients know
+  // the *ListChanged notifications may arrive (the fan-out itself always
+  // works; this is the wire declaration).
+  Builder& listChanged(std::string capability);
+  // Advertise resources.subscribe (notifications/resources/updated).
+  Builder& resourceSubscribe();
   Builder& instructions(std::string text);
   // Adds a supported protocol version. Repeatable. NOTE: the default is
   // Latest-only, and the FIRST explicit call REPLACES that default - to keep
@@ -366,6 +377,7 @@ class Builder {
   std::shared_ptr<Server> build();
 
  private:
+  void capabilityFlag(std::string_view capability, std::string_view flag);
   Server server_;
 };
 

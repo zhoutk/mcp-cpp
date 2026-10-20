@@ -100,6 +100,17 @@ std::optional<Implementation> decodeImplementation(const Json& v) {
   return impl;
 }
 
+// RFC 5424 severity names used by MCP logging, lowest to highest.
+bool isValidLogLevel(std::string_view level) {
+  static constexpr std::string_view kLevels[] = {"debug",    "info",     "notice",
+                                                 "warning",  "error",    "critical",
+                                                 "alert",    "emergency"};
+  for (const auto& known : kLevels) {
+    if (level == known) return true;
+  }
+  return false;
+}
+
 // ---- per-request metadata ------------------------------------------------------
 
 McpResult<RequestMeta> decodeRequestMeta(const Json& params) {
@@ -129,7 +140,15 @@ McpResult<RequestMeta> decodeRequestMeta(const Json& params) {
   const Json token = member(meta, kMetaProgressToken);
   if (token.isString() || token.isNumber()) m.progressToken = decodeRequestId(token);
   const Json level = member(meta, kMetaLogLevel);
-  if (level.isString()) m.logLevel = std::string(level.toString());
+  if (!level.isNull()) {
+    // An ill-typed or unknown level is a malformed request, not something to
+    // silently ignore: the server would otherwise have to guess the gating.
+    if (!level.isString() || !isValidLogLevel(level.toString())) {
+      return Err(McpErrorCode::InvalidParams,
+                 "request _meta io.modelcontextprotocol/logLevel is not a valid level");
+    }
+    m.logLevel = std::string(level.toString());
+  }
   return Ok(std::move(m));
 }
 
@@ -180,7 +199,13 @@ McpResult<RequestMeta> decodeRequestMetaRelaxed(const Json& params,
   const Json token = member(meta, kMetaProgressToken);
   if (token.isString() || token.isNumber()) m.progressToken = decodeRequestId(token);
   const Json level = member(meta, kMetaLogLevel);
-  if (level.isString()) m.logLevel = std::string(level.toString());
+  if (!level.isNull()) {
+    if (!level.isString() || !isValidLogLevel(level.toString())) {
+      return Err(McpErrorCode::InvalidParams,
+                 "request _meta io.modelcontextprotocol/logLevel is not a valid level");
+    }
+    m.logLevel = std::string(level.toString());
+  }
   return Ok(std::move(m));
 }
 

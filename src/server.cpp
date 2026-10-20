@@ -168,6 +168,7 @@ Server::Server(Server&& other) noexcept
       acceptLegacy_(other.acceptLegacy_),
       listCacheScope_(std::move(other.listCacheScope_)),
       logLevel_(std::move(other.logLevel_)),
+      resultServerInfo_(other.resultServerInfo_),
       name_(std::move(other.name_)),
       version_(std::move(other.version_)),
       completionsHandler_(std::move(other.completionsHandler_)),
@@ -220,11 +221,14 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
                     std::string stateContext) const {
   Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}, {}};
   ctx.notify = notify;
-  // Structured logging (see Ctx::log in server.hpp). Threshold: the request's
-  // _meta logLevel when the client sent one, else the server's configured
-  // level (Builder::logLevel / legacy logging/setLevel).
-  ctx.log = [notify, logger = name_, serverLevel = logLevel_, requestLevel = meta.logLevel](
-                const std::string& level, const std::string& message) {
+  // Structured logging (see Ctx::log in server.hpp). The spec gates the
+  // notification on the REQUEST: notifications/message MUST NOT be emitted
+  // for a request that did not carry _meta.logLevel. There is no
+  // server-default fallback - Builder::logLevel only supplies a threshold for
+  // requests that DID opt in.
+  ctx.log = [notify, logger = name_, configuredLevel = logLevel_,
+             requestLevel = meta.logLevel](const std::string& level,
+                                           const std::string& message) {
     static constexpr std::string_view kLevels[] = {"debug",    "info",     "notice",
                                                    "warning",  "error",    "critical",
                                                    "alert",    "emergency"};
@@ -233,10 +237,14 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
         if (kLevels[i] == l) return i;
       return -1;
     };
+    if (requestLevel.empty()) return;  // no opt-in -> no notification
+    // An explicit server threshold may be higher than the request's level;
+    // messages below it are still dropped.
     const int have = rank(level);
-    const std::string& threshold = !requestLevel.empty() ? requestLevel : serverLevel;
-    const int max = rank(threshold);
-    if (have >= 0 && max >= 0 && have < max) return;  // below the threshold
+    const int requestRank = rank(requestLevel);
+    const int serverRank = rank(configuredLevel);
+    const int threshold = serverRank > requestRank ? serverRank : requestRank;
+    if (have >= 0 && threshold >= 0 && have < threshold) return;
     Json p;
     p.add("level", Json::str(level));
     p.add("data", Json::str(message));
@@ -427,9 +435,16 @@ void Server::processLine(const std::string& line, ITransport& out) {
   // the root, no _meta by definition). Strict mode answers MethodNotFound.
   if (req.method == "initialize") {
     if (!acceptLegacy_) {
-      (void)out.write(encodeErrorResponse(
-          req.id, toErrorValue(McpErrorCode::MethodNotFound,
-                               "Method not found: initialize (legacy mode disabled)")));
+      // The legacy client's only diagnostic is the error: name the versions
+      // this server does support (D8).
+      JsonRpcErrorValue v = toErrorValue(McpErrorCode::MethodNotFound,
+                                         "Method not found: initialize");
+      Json data;
+      Json versions = Json("[]");
+      for (const auto& wire : supported_) versions.push_back(Json::str(std::string(wire)));
+      data.add("supported", std::move(versions));
+      v.data = std::move(data);
+      (void)out.write(encodeErrorResponse(req.id, v));
       return;
     }
     McpResult<Json> initResult = handleInitialize(req);
@@ -542,9 +557,13 @@ void Server::processLine(const std::string& line, ITransport& out) {
     // 2026-07-28 requires resultType on every result; the pre-2026 schemas have
     // no such field and reject unknown keys, so it is injected only for modern
     // requests (a legacy request is one served with relaxed, incomplete _meta).
-    if (meta.complete && result->isObject() &&
-        !result->contains(std::string(kResultTypeKey))) {
-      result->add(std::string(kResultTypeKey), Json::str(std::string(kResultTypeComplete)));
+    if (meta.complete && result->isObject()) {
+      if (!result->contains(std::string(kResultTypeKey))) {
+        result->add(std::string(kResultTypeKey), Json::str(std::string(kResultTypeComplete)));
+      }
+      // D8: every modern result carries serverInfo in _meta (SHOULD). The
+      // discover result builds its own; do not overwrite it.
+      addServerInfoToResult(*result);
     }
     (void)out.write(encodeResultResponse(req.id, *result));
   } else {
@@ -554,6 +573,21 @@ void Server::processLine(const std::string& line, ITransport& out) {
     std::lock_guard<std::mutex> lock(cancellationsMutex_);
     cancellations_.erase(cancelKey(req.id));
   }
+}
+
+// D8: attaches io.modelcontextprotocol/serverInfo to a result's _meta unless
+// the result already carries one (server/discover builds its own). Opt out
+// with Builder::resultServerInfo(false).
+void Server::addServerInfoToResult(Json& result) const {
+  if (!resultServerInfo_) return;
+  Json meta = member(result, "_meta");
+  if (!meta.isObject()) meta = Json(R"({})");
+  if (!member(meta, kMetaServerInfo).isNull()) return;  // already present
+  Json info;
+  info.add("name", Json::str(name_));
+  info.add("version", Json::str(version_));
+  meta.add(std::string(kMetaServerInfo), std::move(info));
+  result.add("_meta", std::move(meta));
 }
 
 McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const RequestMeta& meta,
@@ -938,6 +972,11 @@ Builder& Builder::listCache(long ttlMs, std::string cacheScope) {
   return *this;
 }
 
+Builder& Builder::resultServerInfo(bool enabled) {
+  server_.resultServerInfo_ = enabled;
+  return *this;
+}
+
 Builder& Builder::logLevel(std::string level) {
   server_.logLevel_ = std::move(level);
   return *this;
@@ -968,6 +1007,28 @@ Builder& Builder::tool(Json definition, Handler handler) {
     Json empty;
     server_.capabilities_.add("tools", std::move(empty));
   }
+  return *this;
+}
+
+// D9: resource/tool/prompt capability objects advertise listChanged and
+// subscribe flags. The fan-out already works (notifyListChanged /
+// notifyResourceUpdated); without the flags a strict client has no reason to
+// subscribe.
+void Builder::capabilityFlag(std::string_view capability, std::string_view flag) {
+  Json entry = member(server_.capabilities_, capability);
+  if (!entry.isObject()) entry = Json(R"({})");
+  entry.add(std::string(flag), Json(true));
+  server_.capabilities_.remove(std::string(capability));
+  server_.capabilities_.add(std::string(capability), std::move(entry));
+}
+
+Builder& Builder::listChanged(std::string capability) {
+  capabilityFlag(capability, "listChanged");
+  return *this;
+}
+
+Builder& Builder::resourceSubscribe() {
+  capabilityFlag("resources", "subscribe");
   return *this;
 }
 
