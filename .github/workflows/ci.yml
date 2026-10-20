@@ -58,12 +58,15 @@ jobs:
       - name: Persist failure log
         if: failure()
         shell: bash
+        env:
+          # Unique per job: concurrent failures must not push the same path.
+          LOG_NAME: ci-failure-${{ runner.os }}-${{ matrix.cxx }}.log
         run: |
           git config user.name "ci-log-bot"
           git config user.email "actions@users.noreply.github.com"
-          tail -c 300000 ci-build.log > ci-failure.log || true
-          git add ci-failure.log
-          git commit -m "ci: attach ${RUNNER_OS} failure log for run ${GITHUB_RUN_ID} [skip ci]"
+          tail -c 300000 ci-build.log > "$LOG_NAME" || true
+          git add "$LOG_NAME"
+          git commit -m "ci: attach ${RUNNER_OS}/${RUNNER_ARCH} failure log for run ${GITHUB_RUN_ID} [skip ci]"
           for i in 1 2 3; do
             git pull --rebase origin "${GITHUB_REF_NAME}" \
               && git push origin "HEAD:${GITHUB_REF_NAME}" && break
@@ -157,11 +160,13 @@ jobs:
       - name: Persist failure log
         if: failure()
         shell: bash
+        env:
+          LOG_NAME: ci-failure-TSan.log
         run: |
           git config user.name "ci-log-bot"
           git config user.email "actions@users.noreply.github.com"
-          tail -c 300000 ci-test.log > ci-failure.log || true
-          git add ci-failure.log
+          tail -c 300000 ci-test.log > "$LOG_NAME" || true
+          git add "$LOG_NAME"
           git commit -m "ci: attach TSan failure log for run ${GITHUB_RUN_ID} [skip ci]"
           for i in 1 2 3; do
             git pull --rebase origin "${GITHUB_REF_NAME}" \

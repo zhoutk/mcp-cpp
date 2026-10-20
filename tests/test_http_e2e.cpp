@@ -605,8 +605,6 @@ TEST(HttpClientTransport, GracefulClosureStopsReconnecting) {
   svr.stop();
   runner.join();
 }
-// 30s idle return made a >30s request look like "connection closed by peer").
-// Only orderly transport shutdown ends the read - with EOF, not an error.
 // read() has no idle timeout: a quiet connection must NOT look closed (the
 // old 30s idle return made a >30s request look like "closed by peer"). Only
 // orderly transport shutdown ends the read - with EOF, not an error.
@@ -618,10 +616,16 @@ TEST(HttpClientTransport, ReadBlocksWhileIdleAndReturnsEofOnShutdown) {
   auto tools = client.listTools();
   ASSERT_TRUE(tools.has_value());
 
+  // The reader thread takes a RAW pointer, not the unique_ptr: unique_ptr::
+  // reset() writes the pointer member BEFORE destroying the pointee, so a
+  // reader dereferencing the unique_ptr races with reset() (TSan). A plain
+  // pointer removes the shared write; the destructor's reader-count handshake
+  // already guarantees the reader has left read() before impl_ dies.
+  HttpClientTransport* const raw = transport.get();
   std::atomic<bool> done{false};
   bool eof = false;
-  std::thread reader([&] {
-    auto received = transport->read();
+  std::thread reader([raw, &eof, &done] {
+    auto received = raw->read();
     // Reached only on shutdown: orderly EOF, not an idle timeout.
     eof = received.has_value() && !received->has_value();
     done = true;
