@@ -55,6 +55,18 @@ class RequestStateCodec {
   McpResult<std::string> open(std::string_view state, std::string_view context,
                               int64_t nowUnix) const;
 
+  // D7: principal binding. sealFor() additionally binds the state to the
+  // authenticated principal (typically a token subject); openFor() then
+  // rejects a state presented by a DIFFERENT principal even though the MAC
+  // itself is valid. This separates integrity (the codec) from identity (the
+  // embedder's authentication): contexts are method/target scoped, not user
+  // scoped, so without binding one user could replay another user's state
+  // against the same tool inside the TTL.
+  std::string sealFor(std::string_view payload, std::string_view context,
+                      std::string_view principal, int64_t nowUnix) const;
+  McpResult<std::string> openFor(std::string_view state, std::string_view context,
+                                 std::string_view principal, int64_t nowUnix) const;
+
   int64_t ttlSeconds() const noexcept { return ttl_; }
 
  private:

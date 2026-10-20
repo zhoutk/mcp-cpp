@@ -148,3 +148,34 @@ TEST(RequestStateCodecTest, MalformedInputRejected) {
   // Standard-alphabet characters are not valid base64url.
   EXPECT_FALSE(codec.open("v1.ab+/.cd", ctx, kNow).has_value());
 }
+
+// ---- D7: principal binding --------------------------------------------------------
+
+TEST(RequestStateCodecTest, PrincipalBoundStateRejectsOtherUsers) {
+  auto codec = RequestStateCodec::create(std::string(32, 'k'));
+  ASSERT_TRUE(codec.has_value());
+  const std::string ctx = "tools/call\nquote";
+  const int64_t now = 1'700'000'000;
+
+  const std::string sealed = codec->sealFor("payload", ctx, "user-a", now);
+  // The same principal opens it.
+  ASSERT_TRUE(codec->openFor(sealed, ctx, "user-a", now).has_value());
+  EXPECT_EQ(codec->openFor(sealed, ctx, "user-a", now).value(), "payload");
+  // Another principal is rejected even though the MAC is valid.
+  EXPECT_FALSE(codec->openFor(sealed, ctx, "user-b", now).has_value());
+  // Nor does the principal-less opener accept a bound state: the MAC input
+  // differs, so it is an integrity failure rather than a silent downgrade.
+  EXPECT_FALSE(codec->open(sealed, ctx, now).has_value());
+}
+
+TEST(RequestStateCodecTest, UnboundStateStillWorksWithOpenForEmptyPrincipal) {
+  auto codec = RequestStateCodec::create(std::string(32, 'k'));
+  ASSERT_TRUE(codec.has_value());
+  const std::string ctx = "tools/call\nquote";
+  const int64_t now = 1'700'000'000;
+  const std::string sealed = codec->seal("payload", ctx, now);
+  ASSERT_TRUE(codec->open(sealed, ctx, now).has_value());
+  // Empty principal == the legacy unbound form.
+  EXPECT_TRUE(codec->openFor(sealed, ctx, "", now).has_value());
+  EXPECT_FALSE(codec->openFor(sealed, ctx, "user-a", now).has_value());
+}

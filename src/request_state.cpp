@@ -51,12 +51,17 @@ uint64_t readU64(const char* p) {
 
 // MAC input binds the domain, the context (length-prefixed so that no two
 // (context, body) pairs share an encoding), and the expiry+payload body.
-std::string macInput(std::string_view context, std::string_view body) {
+std::string macInput(std::string_view context, std::string_view principal,
+                     std::string_view body) {
   std::string in;
-  in.reserve(kDomain.size() + 8 + context.size() + body.size());
+  in.reserve(kDomain.size() + 16 + context.size() + principal.size() + body.size());
   in.append(kDomain);
   appendU64(in, static_cast<uint64_t>(context.size()));
   in.append(context);
+  // Length-prefixed principal: empty means "no principal binding" (the
+  // legacy wire form), so the two shapes cannot be confused by concatenation.
+  appendU64(in, static_cast<uint64_t>(principal.size()));
+  in.append(principal);
   in.append(body);
   return in;
 }
@@ -83,16 +88,17 @@ McpResult<RequestStateCodec> RequestStateCodec::create(std::string_view key, int
   return Ok(RequestStateCodec(std::string(key), ttlSeconds));
 }
 
-std::string RequestStateCodec::seal(std::string_view payload, std::string_view context,
-                                    int64_t nowUnix) const {
+namespace {
+std::string sealWith(const std::string& key, int64_t ttl, std::string_view payload,
+                     std::string_view context, std::string_view principal, int64_t nowUnix) {
   const uint64_t expiry =
-      ttl_ > 0 ? static_cast<uint64_t>(nowUnix) + static_cast<uint64_t>(ttl_) : 0;
+      ttl > 0 ? static_cast<uint64_t>(nowUnix) + static_cast<uint64_t>(ttl) : 0;
   std::string body;
   body.reserve(kExpiryBytes + payload.size());
   appendU64(body, expiry);
   body.append(payload);
 
-  const detail::Digest256 mac = detail::hmacSha256(key_, macInput(context, body));
+  const detail::Digest256 mac = detail::hmacSha256(key, macInput(context, principal, body));
   const std::string_view macView(reinterpret_cast<const char*>(mac.data()), mac.size());
   std::string out(kVersionPrefix);
   out += toBase64Url(body);
@@ -100,9 +106,25 @@ std::string RequestStateCodec::seal(std::string_view payload, std::string_view c
   out += toBase64Url(macView);
   return out;
 }
+}  // namespace
 
-McpResult<std::string> RequestStateCodec::open(std::string_view state, std::string_view context,
-                                               int64_t nowUnix) const {
+std::string RequestStateCodec::seal(std::string_view payload, std::string_view context,
+                                    int64_t nowUnix) const {
+  return sealWith(key_, ttl_, payload, context, std::string_view(), nowUnix);
+}
+
+std::string RequestStateCodec::sealFor(std::string_view payload, std::string_view context,
+                                       std::string_view principal, int64_t nowUnix) const {
+  return sealWith(key_, ttl_, payload, context, principal, nowUnix);
+}
+
+namespace {
+McpResult<std::string> openWith(const std::string& key, std::string_view state,
+                                std::string_view context, std::string_view principal,
+                                int64_t nowUnix) {
+  const auto rejected = [](std::string_view why) {
+    return Err(McpErrorCode::InvalidParams, "invalid requestState: " + std::string(why));
+  };
   if (state.substr(0, kVersionPrefix.size()) != kVersionPrefix) return rejected("unknown version");
   state.remove_prefix(kVersionPrefix.size());
 
@@ -117,7 +139,7 @@ McpResult<std::string> RequestStateCodec::open(std::string_view state, std::stri
   if (body.size() < kExpiryBytes || mac.size() != kMacBytes) return rejected("malformed");
 
   // Verify integrity before trusting any field inside the body.
-  const detail::Digest256 expected = detail::hmacSha256(key_, macInput(context, body));
+  const detail::Digest256 expected = detail::hmacSha256(key, macInput(context, principal, body));
   const std::string_view expectedView(reinterpret_cast<const char*>(expected.data()),
                                       expected.size());
   if (!constantTimeEqual(mac, expectedView)) return rejected("integrity check failed");
@@ -125,6 +147,19 @@ McpResult<std::string> RequestStateCodec::open(std::string_view state, std::stri
   const uint64_t expiry = readU64(body.data());
   if (expiry != 0 && static_cast<uint64_t>(nowUnix) >= expiry) return rejected("expired");
   return Ok(body.substr(kExpiryBytes));
+}
+}  // namespace
+
+McpResult<std::string> RequestStateCodec::open(std::string_view state, std::string_view context,
+                                               int64_t nowUnix) const {
+  return openWith(key_, state, context, std::string_view(), nowUnix);
+}
+
+McpResult<std::string> RequestStateCodec::openFor(std::string_view state,
+                                                  std::string_view context,
+                                                  std::string_view principal,
+                                                  int64_t nowUnix) const {
+  return openWith(key_, state, context, principal, nowUnix);
 }
 
 }  // namespace mcp
