@@ -299,20 +299,23 @@ TEST(HttpE2E, SubscriptionStreamDeliversNotifications) {
 // hammers that path with concurrent tools/call + notifications/cancelled
 // requests - the exact mix the review's P0-1 called out. Without the dispatch
 // lock this races on Server::cancellations_ (and TSan reports it).
+// Namespace scope: see kParallelDispatchIterations in test_server.cpp (MSVC
+// C3493 vs Clang -Wunused-lambda-capture).
+constexpr int kConcurrentPostIterations = 4;
+
 TEST(HttpE2E, ConcurrentPostsAreSerializedSafely) {
   Fixture f;
   constexpr int kThreads = 64;
-  constexpr int kIterations = 4;
   std::atomic<int> failures{0};
 
   std::vector<std::thread> workers;
   workers.reserve(kThreads);
   for (int t = 0; t < kThreads; ++t) {
-    workers.emplace_back([&f, &failures, t, kIterations] {
+    workers.emplace_back([&f, &failures, t] {
       HttpClientTransport transport("127.0.0.1", f.port);
       Client client("worker-" + std::to_string(t), "1.0");
       client.connect(transport);
-      for (int i = 0; i < kIterations; ++i) {
+      for (int i = 0; i < kConcurrentPostIterations; ++i) {
         if (i % 2 == 1) {
           // Cancellation for an id this worker never sent: it still exercises
           // the cancellations_ map on a different worker thread.

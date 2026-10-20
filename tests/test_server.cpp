@@ -172,19 +172,23 @@ TEST(ServerGates, InvalidMessageGetsParseErrorWithoutId) {
 // ---- concurrency -----------------------------------------------------------------
 // processLine() is documented as single-threaded dispatch, but the HTTP
 // transport calls it from an httplib worker pool. These tests drive it from
+// Namespace scope, not a local constexpr: MSVC fails to compile a lambda that
+// uses an uncaptured local (C3493) while Clang -Werror reports the capture as
+// unused. A namespace-scope constant needs no capture either way.
+constexpr int kParallelDispatchIterations = 40;
+
 // many threads at once; without dispatchMutex_ this is a data race on
 // cancellations_ (and TSan flags it), even though each response is per-thread.
 TEST(ServerConcurrency, ParallelDispatchIsSerialized) {
   auto server = makeToolServer();
   constexpr int kThreads = 16;
-  constexpr int kIterations = 40;
   std::atomic<int> failures{0};
 
   std::vector<std::thread> workers;
   workers.reserve(kThreads);
   for (int t = 0; t < kThreads; ++t) {
-    workers.emplace_back([&server, &failures, t, kIterations] {
-      for (int i = 0; i < kIterations; ++i) {
+    workers.emplace_back([&server, &failures, t] {
+      for (int i = 0; i < kParallelDispatchIterations; ++i) {
         const std::string id = std::to_string(t) + "-" + std::to_string(i);
         if (i % 4 == 3) {
           // Interleave cancellation notifications: they mutate cancellations_
