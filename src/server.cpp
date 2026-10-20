@@ -289,8 +289,10 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
           e.code = McpErrorCode::MissingRequiredClientCapability;
           e.message = "client did not declare the '" + std::string(capability) +
                       "' capability required by " + std::string(method.toString());
-          Json required = Json("[]");
-          required.push_back(Json::str(std::string(capability)));
+          // schema: data.requiredCapabilities is a ClientCapabilities OBJECT
+          // (e.g. {"elicitation":{}}), not a list of names.
+          Json required = Json(R"({})");
+          required.add(std::string(capability), Json(R"({})"));
           Json data;
           data.add("requiredCapabilities", std::move(required));
           e.data = std::move(data);
@@ -827,7 +829,10 @@ void Server::notifyListChanged(const std::string& feature) {
     if (!match || !sub.sink) continue;
     Json params;
     Json meta;
-    meta.add(std::string(kMetaSubscriptionId), Json::str(id));
+    // Type fidelity: the subscriptionId is the listen request's JSON-RPC id,
+    // so a numeric id stays numeric (a strict client correlates by value
+    // AND type; encoding the map key as a string turned 1 into "1").
+    meta.add(std::string(kMetaSubscriptionId), encodeRequestId(sub.id));
     params.add("_meta", std::move(meta));
     (void)sub.sink(encodeNotification(method, params));
   }
@@ -848,7 +853,7 @@ void Server::notifyResourceUpdated(const std::string& uri) {
     Json params;
     params.add("uri", Json::str(uri));
     Json meta;
-    meta.add(std::string(kMetaSubscriptionId), Json::str(id));
+    meta.add(std::string(kMetaSubscriptionId), encodeRequestId(sub.id));  // type fidelity
     params.add("_meta", std::move(meta));
     (void)sub.sink(encodeNotification("notifications/resources/updated", params));
   }

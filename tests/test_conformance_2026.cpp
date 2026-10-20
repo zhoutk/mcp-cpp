@@ -284,9 +284,10 @@ TEST(Conformance2026, MrtrRejectsUndeclaredClientCapability) {
   EXPECT_EQ(err->error.code,
             static_cast<int32_t>(McpErrorCode::MissingRequiredClientCapability));
   EXPECT_NE(err->error.message.find("elicitation"), std::string::npos);
+  // schema: a ClientCapabilities OBJECT keyed by capability name.
   const Json required = err->error.data["requiredCapabilities"];
-  ASSERT_TRUE(required.isArray());
-  EXPECT_EQ(required[0].toString(), "elicitation");
+  ASSERT_TRUE(required.isObject());
+  EXPECT_TRUE(member(required, "elicitation").isObject());
 }
 
 TEST(Conformance2026, MrtrNotAllowedOnUnsupportedMethods) {

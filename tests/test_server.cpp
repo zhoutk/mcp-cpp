@@ -364,10 +364,11 @@ TEST(ServerProtocolErrors, InputRequiredWithoutClientCapabilityIs32021) {
   Out o = serveOnce(server, makeRequest("e1", "tools/call", Json(R"({"name":"ask"})")));
   ASSERT_NE(o.error, nullptr);
   EXPECT_EQ(o.error->error.code, -32021);
+  // schema: data.requiredCapabilities is a ClientCapabilities OBJECT.
   const Json required = o.error->error.data["requiredCapabilities"];
-  ASSERT_TRUE(required.isArray());
-  ASSERT_EQ(required.size(), 1u);
-  EXPECT_EQ(required[0].toString(), "elicitation");
+  ASSERT_TRUE(required.isObject());
+  EXPECT_FALSE(member(required, "elicitation").isNull());
+  EXPECT_TRUE(member(required, "elicitation").isObject());
 }
 
 // The HTTP layer maps a missing/ill-typed _meta (InvalidParams) onto 400 by
@@ -1226,6 +1227,32 @@ TEST(ServerLegacy, PingIsMethodNotFoundInStrictMode) {
   Out o = serveOnce(server, makeRequest("1", "ping", Json(nullptr)));
   ASSERT_NE(o.error, nullptr);
   EXPECT_EQ(o.error->error.code, -32601);
+}
+
+// D3 (subscriptionId type fidelity): fan-out notifications must carry the
+// listen request's id with its ORIGINAL JSON-RPC type. The map key is a
+// string, so encoding it verbatim turned the numeric id 7 into "7".
+TEST(ServerSubscriptions, FanOutKeepsNumericSubscriptionIdType) {
+  Builder b;
+  b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server = b.build();
+
+  // Open a subscription with a NUMERIC id and capture its sink output.
+  Json params = encodeRequestMeta("2026-07-28", Json(R"({})"), std::nullopt);
+  params.add("notifications", Json(R"({"toolsListChanged":true})"));
+  MemTransport subOut({});
+  server->processLine(encodeRequest(RequestId(int64_t(7)), "subscriptions/listen", params),
+                      subOut);
+  ASSERT_EQ(subOut.output_.size(), 1u);  // the acknowledgment
+
+  server->notifyListChanged("tools");
+  ASSERT_EQ(subOut.output_.size(), 2u);
+  const ParsedMessage parsed = parseMessage(subOut.output_[1]);
+  const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
+  ASSERT_NE(notif, nullptr);
+  const Json subId = member(member(notif->params, "_meta"), kMetaSubscriptionId);
+  EXPECT_TRUE(subId.isNumber());  // not "7"
+  EXPECT_EQ(subId.toInt64(), 7);
 }
 
 TEST(ServerLegacy, ResourceSubscribeServedInLegacyMode) {

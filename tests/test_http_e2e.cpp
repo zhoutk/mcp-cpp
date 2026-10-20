@@ -255,6 +255,20 @@ TEST(HttpE2E, EmptyHeaderParamValueRoundTrips) {
   EXPECT_EQ((*result)["token"].toString(), "");
 }
 
+// D1: a plain value that LOOKS like the base64 sentinel must be re-encoded.
+// Sending it verbatim makes the receiver decode it (and fail), so the call
+// could never succeed.
+TEST(HttpE2E, SentinelShapedPlainValueIsReEncoded) {
+  Fixture f;
+  auto client = f.makeClient();
+  ASSERT_TRUE(client->listTools().has_value());
+
+  Json arguments = Json(R"({"token":"=?base64?dGVzdA==?="})");
+  auto result = client->callTool("mirror", arguments);
+  ASSERT_TRUE(result.has_value()) << "sentinel-shaped value must survive re-encoding";
+  EXPECT_EQ((*result)["token"].toString(), "=?base64?dGVzdA==?=");
+}
+
 TEST(HttpE2E, SubscriptionStreamDeliversNotifications) {
   Fixture f;
   auto client = f.makeClient();

@@ -85,13 +85,28 @@ bool isPlainHeaderValue(std::string_view value) {
   return true;
 }
 
+// True when a plain value would be misread as the base64 sentinel form: the
+// receiver sees "=?base64?" ... "?=" and decodes instead of taking it
+// literally. Such values MUST be re-encoded even though they are visible
+// ASCII (basic/transports/streamable-http.md "Value Encoding").
+namespace {
+bool looksLikeSentinel(std::string_view value) {
+  const std::string_view prefix = kSentinelPrefix;
+  const std::string_view suffix = kSentinelSuffix;
+  return value.size() >= prefix.size() + suffix.size() &&
+         value.substr(0, prefix.size()) == prefix &&
+         value.substr(value.size() - suffix.size()) == suffix;
+}
+}  // namespace
+
 std::string encodeHeaderValue(std::string_view raw) {
   // The EMPTY string is a real header value (an absent Mcp-Param-* argument is
   // distinct from a missing one) and must be sent plain. Wrapping it in the
   // sentinel form produced an empty-payload sentinel the decoder did not
   // recognize - an empty value could never round-trip and failed header
   // validation forever.
-  if (raw.empty() || isPlainHeaderValue(raw)) return std::string(raw);
+  if (raw.empty()) return std::string();
+  if (isPlainHeaderValue(raw) && !looksLikeSentinel(raw)) return std::string(raw);
   return std::string(kSentinelPrefix) + base64Encode(raw) + kSentinelSuffix;
 }
 
