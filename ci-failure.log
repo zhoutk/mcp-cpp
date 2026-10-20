@@ -1,0 +1,141 @@
+Internal ctest changing into directory: /home/runner/work/mcp-cpp/mcp-cpp/build
+Test project /home/runner/work/mcp-cpp/mcp-cpp/build
+    Start  6: mcp_test_server
+1/2 Test  #6: mcp_test_server ..................   Passed    1.16 sec
+    Start 10: mcp_test_http_e2e
+2/2 Test #10: mcp_test_http_e2e ................***Failed   11.67 sec
+Running main() from /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest_main.cc
+[==========] Running 22 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 13 tests from HttpE2E
+[ RUN      ] HttpE2E.DiscoverAndCallToolOverLoopback
+[       OK ] HttpE2E.DiscoverAndCallToolOverLoopback (263 ms)
+[ RUN      ] HttpE2E.ReadResource
+[       OK ] HttpE2E.ReadResource (260 ms)
+[ RUN      ] HttpE2E.UnknownMethodIs404WithJsonRpcBody
+[       OK ] HttpE2E.UnknownMethodIs404WithJsonRpcBody (12 ms)
+[ RUN      ] HttpE2E.HeaderMismatchIsRejected
+[       OK ] HttpE2E.HeaderMismatchIsRejected (11 ms)
+[ RUN      ] HttpE2E.GetAndDeleteAre405
+[       OK ] HttpE2E.GetAndDeleteAre405 (11 ms)
+[ RUN      ] HttpE2E.OriginPolicyRejectsForeignOrigins
+[       OK ] HttpE2E.OriginPolicyRejectsForeignOrigins (8 ms)
+[ RUN      ] HttpE2E.OriginPolicyHostMatchIsExact
+[       OK ] HttpE2E.OriginPolicyHostMatchIsExact (21 ms)
+[ RUN      ] HttpE2E.EmptyHeaderParamValueRoundTrips
+[       OK ] HttpE2E.EmptyHeaderParamValueRoundTrips (259 ms)
+[ RUN      ] HttpE2E.SubscriptionStreamDeliversNotifications
+[       OK ] HttpE2E.SubscriptionStreamDeliversNotifications (265 ms)
+[ RUN      ] HttpE2E.ConcurrentPostsAreSerializedSafely
+[       OK ] HttpE2E.ConcurrentPostsAreSerializedSafely (592 ms)
+[ RUN      ] HttpE2E.SubscriptionSurvivesIdlePeriod
+[       OK ] HttpE2E.SubscriptionSurvivesIdlePeriod (5265 ms)
+[ RUN      ] HttpE2E.ProtocolRejectionsAreHttp400ToolErrorsStay200
+[       OK ] HttpE2E.ProtocolRejectionsAreHttp400ToolErrorsStay200 (16 ms)
+[ RUN      ] HttpE2E.ProtocolRejectionInSsePathIsHttp400
+[       OK ] HttpE2E.ProtocolRejectionInSsePathIsHttp400 (11 ms)
+[----------] 13 tests from HttpE2E (7000 ms total)
+
+[----------] 9 tests from HttpClientTransport
+[ RUN      ] HttpClientTransport.SubscriptionRejectionSurfacesAsAnError
+[       OK ] HttpClientTransport.SubscriptionRejectionSurfacesAsAnError (11 ms)
+[ RUN      ] HttpClientTransport.SubscriptionJsonRpcErrorSurfacesAndStopsReconnecting
+[       OK ] HttpClientTransport.SubscriptionJsonRpcErrorSurfacesAndStopsReconnecting (10 ms)
+[ RUN      ] HttpClientTransport.SubscriptionAuthChallengeIsReported
+[       OK ] HttpClientTransport.SubscriptionAuthChallengeIsReported (11 ms)
+[ RUN      ] HttpClientTransport.SubscriptionRetryableStatusRetriesAndSucceeds
+[       OK ] HttpClientTransport.SubscriptionRetryableStatusRetriesAndSucceeds (1059 ms)
+[ RUN      ] HttpClientTransport.GracefulClosureStopsReconnecting
+[       OK ] HttpClientTransport.GracefulClosureStopsReconnecting (2262 ms)
+[ RUN      ] HttpClientTransport.ReadBlocksWhileIdleAndReturnsEofOnShutdown
+/usr/bin/llvm-symbolizer-18: error: '[stack]': No such file or directory
+==================
+WARNING: ThreadSanitizer: data race (pid=2607)
+  Write of size 8 at 0x7ffe21506ef0 by main thread:
+    #0 std::__uniq_ptr_impl<mcp::http::HttpClientTransport, std::default_delete<mcp::http::HttpClientTransport>>::reset(mcp::http::HttpClientTransport*) /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/unique_ptr.h:203:11 (mcp_test_http_e2e+0x26e569) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #1 std::unique_ptr<mcp::http::HttpClientTransport, std::default_delete<mcp::http::HttpClientTransport>>::reset(mcp::http::HttpClientTransport*) /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/unique_ptr.h:503:7 (mcp_test_http_e2e+0x124e65) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #2 HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody() /home/runner/work/mcp-cpp/mcp-cpp/tests/test_http_e2e.cpp:634:13 (mcp_test_http_e2e+0x10791d) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #3 void testing::internal::HandleSehExceptionsInMethodIfSupported<testing::Test, void>(testing::Test*, void (testing::Test::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2698:10 (mcp_test_http_e2e+0x37966c) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #4 void testing::internal::HandleExceptionsInMethodIfSupported<testing::Test, void>(testing::Test*, void (testing::Test::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2734:14 (mcp_test_http_e2e+0x34f46a) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #5 testing::Test::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2773:5 (mcp_test_http_e2e+0x31f6c8) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #6 testing::TestInfo::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2919:11 (mcp_test_http_e2e+0x3206e6) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #7 testing::TestSuite::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:3097:30 (mcp_test_http_e2e+0x32150f) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #8 testing::internal::UnitTestImpl::RunAllTests() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:6090:44 (mcp_test_http_e2e+0x337cf8) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #9 bool testing::internal::HandleSehExceptionsInMethodIfSupported<testing::internal::UnitTestImpl, bool>(testing::internal::UnitTestImpl*, bool (testing::internal::UnitTestImpl::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2698:10 (mcp_test_http_e2e+0x380bcf) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #10 bool testing::internal::HandleExceptionsInMethodIfSupported<testing::internal::UnitTestImpl, bool>(testing::internal::UnitTestImpl*, bool (testing::internal::UnitTestImpl::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2734:14 (mcp_test_http_e2e+0x3532fa) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #11 testing::UnitTest::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:5631:10 (mcp_test_http_e2e+0x337274) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #12 RUN_ALL_TESTS() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/include/gtest/gtest.h:2344:73 (mcp_test_http_e2e+0x388207) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #13 main /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest_main.cc:64:10 (mcp_test_http_e2e+0x3881b6) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+
+  Previous read of size 8 at 0x7ffe21506ef0 by thread T1517:
+    #0 std::__uniq_ptr_impl<mcp::http::HttpClientTransport, std::default_delete<mcp::http::HttpClientTransport>>::_M_ptr() const /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/unique_ptr.h:193:51 (mcp_test_http_e2e+0x265961) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #1 std::unique_ptr<mcp::http::HttpClientTransport, std::default_delete<mcp::http::HttpClientTransport>>::get() const /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/unique_ptr.h:464:21 (mcp_test_http_e2e+0x265915) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #2 std::unique_ptr<mcp::http::HttpClientTransport, std::default_delete<mcp::http::HttpClientTransport>>::operator->() const /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/unique_ptr.h:457:9 (mcp_test_http_e2e+0x122255) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #3 HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0::operator()() const /home/runner/work/mcp-cpp/mcp-cpp/tests/test_http_e2e.cpp:624:21 (mcp_test_http_e2e+0x11b994) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #4 void std::__invoke_impl<void, HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0>(std::__invoke_other, HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0&&) /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/invoke.h:61:14 (mcp_test_http_e2e+0x11b925) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #5 std::__invoke_result<HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0>::type std::__invoke<HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0>(HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0&&) /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/invoke.h:96:14 (mcp_test_http_e2e+0x11b895) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #6 void std::thread::_Invoker<std::tuple<HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0>>::_M_invoke<0ul>(std::_Index_tuple<0ul>) /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/std_thread.h:301:13 (mcp_test_http_e2e+0x11b84d) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #7 std::thread::_Invoker<std::tuple<HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0>>::operator()() /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/std_thread.h:308:11 (mcp_test_http_e2e+0x11b7f5) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #8 std::thread::_State_impl<std::thread::_Invoker<std::tuple<HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()::$_0>>>::_M_run() /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/std_thread.h:253:13 (mcp_test_http_e2e+0x11b6b9) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #9 <null> <null> (libstdc++.so.6+0xecdb3) (BuildId: 753c6c8608b61d4e67be8f0c890e03e0aa046b8b)
+
+  As if synchronized via sleep:
+    #0 nanosleep <null> (mcp_test_http_e2e+0x75301) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #1 void std::this_thread::sleep_for<long, std::ratio<1l, 1l>>(std::chrono::duration<long, std::ratio<1l, 1l>> const&) /usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/bits/this_thread_sleep.h:80:9 (mcp_test_http_e2e+0x123b55) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #2 HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody() /home/runner/work/mcp-cpp/mcp-cpp/tests/test_http_e2e.cpp:631:3 (mcp_test_http_e2e+0x1076ed) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #3 void testing::internal::HandleSehExceptionsInMethodIfSupported<testing::Test, void>(testing::Test*, void (testing::Test::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2698:10 (mcp_test_http_e2e+0x37966c) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #4 void testing::internal::HandleExceptionsInMethodIfSupported<testing::Test, void>(testing::Test*, void (testing::Test::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2734:14 (mcp_test_http_e2e+0x34f46a) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #5 testing::Test::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2773:5 (mcp_test_http_e2e+0x31f6c8) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #6 testing::TestInfo::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2919:11 (mcp_test_http_e2e+0x3206e6) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #7 testing::TestSuite::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:3097:30 (mcp_test_http_e2e+0x32150f) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #8 testing::internal::UnitTestImpl::RunAllTests() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:6090:44 (mcp_test_http_e2e+0x337cf8) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #9 bool testing::internal::HandleSehExceptionsInMethodIfSupported<testing::internal::UnitTestImpl, bool>(testing::internal::UnitTestImpl*, bool (testing::internal::UnitTestImpl::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2698:10 (mcp_test_http_e2e+0x380bcf) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #10 bool testing::internal::HandleExceptionsInMethodIfSupported<testing::internal::UnitTestImpl, bool>(testing::internal::UnitTestImpl*, bool (testing::internal::UnitTestImpl::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2734:14 (mcp_test_http_e2e+0x3532fa) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #11 testing::UnitTest::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:5631:10 (mcp_test_http_e2e+0x337274) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #12 RUN_ALL_TESTS() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/include/gtest/gtest.h:2344:73 (mcp_test_http_e2e+0x388207) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #13 main /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest_main.cc:64:10 (mcp_test_http_e2e+0x3881b6) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+
+  Location is stack of main thread.
+
+  Location is global '??' at 0x7ffe214e8000 ([stack]+0x1eef0)
+
+  Thread T1517 (tid=4131, running) created by main thread at:
+    #0 pthread_create <null> (mcp_test_http_e2e+0x77dff) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #1 std::thread::_M_start_thread(std::unique_ptr<std::thread::_State, std::default_delete<std::thread::_State>>, void (*)()) <null> (libstdc++.so.6+0xeceb0) (BuildId: 753c6c8608b61d4e67be8f0c890e03e0aa046b8b)
+    #2 HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody() /home/runner/work/mcp-cpp/mcp-cpp/tests/test_http_e2e.cpp:623:15 (mcp_test_http_e2e+0x1076a7) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #3 void testing::internal::HandleSehExceptionsInMethodIfSupported<testing::Test, void>(testing::Test*, void (testing::Test::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2698:10 (mcp_test_http_e2e+0x37966c) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #4 void testing::internal::HandleExceptionsInMethodIfSupported<testing::Test, void>(testing::Test*, void (testing::Test::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2734:14 (mcp_test_http_e2e+0x34f46a) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #5 testing::Test::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2773:5 (mcp_test_http_e2e+0x31f6c8) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #6 testing::TestInfo::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2919:11 (mcp_test_http_e2e+0x3206e6) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #7 testing::TestSuite::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:3097:30 (mcp_test_http_e2e+0x32150f) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #8 testing::internal::UnitTestImpl::RunAllTests() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:6090:44 (mcp_test_http_e2e+0x337cf8) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #9 bool testing::internal::HandleSehExceptionsInMethodIfSupported<testing::internal::UnitTestImpl, bool>(testing::internal::UnitTestImpl*, bool (testing::internal::UnitTestImpl::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2698:10 (mcp_test_http_e2e+0x380bcf) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #10 bool testing::internal::HandleExceptionsInMethodIfSupported<testing::internal::UnitTestImpl, bool>(testing::internal::UnitTestImpl*, bool (testing::internal::UnitTestImpl::*)(), char const*) /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:2734:14 (mcp_test_http_e2e+0x3532fa) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #11 testing::UnitTest::Run() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest.cc:5631:10 (mcp_test_http_e2e+0x337274) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #12 RUN_ALL_TESTS() /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/include/gtest/gtest.h:2344:73 (mcp_test_http_e2e+0x388207) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+    #13 main /home/runner/work/mcp-cpp/mcp-cpp/thirds/googletest-1.18.0/googletest/src/gtest_main.cc:64:10 (mcp_test_http_e2e+0x3881b6) (BuildId: 640a027051f9358fb76985c3bf81e83c202540b0)
+
+SUMMARY: ThreadSanitizer: data race /home/runner/work/mcp-cpp/mcp-cpp/tests/test_http_e2e.cpp:634:13 in HttpClientTransport_ReadBlocksWhileIdleAndReturnsEofOnShutdown_Test::TestBody()
+==================
+[       OK ] HttpClientTransport.ReadBlocksWhileIdleAndReturnsEofOnShutdown (1257 ms)
+[ RUN      ] HttpClientTransport.PostFailureSurfacesAsAnError
+[       OK ] HttpClientTransport.PostFailureSurfacesAsAnError (2 ms)
+[ RUN      ] HttpClientTransport.Reports401AuthChallenge
+[       OK ] HttpClientTransport.Reports401AuthChallenge (12 ms)
+[ RUN      ] HttpClientTransport.Reports403ScopeChallenge
+[       OK ] HttpClientTransport.Reports403ScopeChallenge (10 ms)
+[----------] 9 tests from HttpClientTransport (4638 ms total)
+
+[----------] Global test environment tear-down
+[==========] 22 tests from 2 test suites ran. (11639 ms total)
+[  PASSED  ] 22 tests.
+ThreadSanitizer: reported 1 warnings
+
+
+50% tests passed, 1 tests failed out of 2
+
+Total Test time (real) =  12.97 sec
+
+The following tests FAILED:
+	 10 - mcp_test_http_e2e (Failed)
+Errors while running CTest
