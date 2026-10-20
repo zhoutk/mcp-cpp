@@ -1424,3 +1424,26 @@ TEST(ServerD9, CapabilityFlagsAreAdvertised) {
   EXPECT_TRUE(member(member(caps, "resources"), "subscribe").isTrue());
   EXPECT_TRUE(member(member(caps, "resources"), "listChanged").isNull());
 }
+
+// ---- D12: extension advertising ---------------------------------------------------
+
+TEST(ServerD12, AdvertisesNamespacedExtensions) {
+  Builder b;
+  b.extension("io.modelcontextprotocol/tasks", Json(R"({"maxTtlMs":60000})"));
+  b.extension("com.example/telemetry");        // vendor namespace is fine
+  b.extension("bareword");                     // ignored: not namespaced
+  b.listChanged("tools");
+  b.simpleTool("t", "", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({"ok":true})")); });
+  auto server = b.build();
+
+  Out d = serveOnce(server, makeRequest("d1", "server/discover", Json(nullptr)));
+  ASSERT_NE(d.result, nullptr);
+  const Json extensions = member(d.result->result["capabilities"], "extensions");
+  ASSERT_TRUE(extensions.isObject());
+  EXPECT_TRUE(member(extensions, "io.modelcontextprotocol/tasks").isObject());
+  EXPECT_TRUE(member(extensions, "com.example/telemetry").isObject());
+  EXPECT_TRUE(member(extensions, "bareword").isNull());
+  // A client advertising an unsupported extension keeps core behavior: the
+  // capabilities still advertise the tools we have.
+  EXPECT_TRUE(capabilitiesInclude(d.result->result["capabilities"], "tools"));
+}

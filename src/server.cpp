@@ -1027,6 +1027,23 @@ Builder& Builder::listChanged(std::string capability) {
   return *this;
 }
 
+Builder& Builder::extension(std::string id, Json settings) {
+  // Extension identifiers carry a mandatory prefix ("io.modelcontextprotocol/
+  // tasks", vendor ids likewise): a bare word cannot be namespaced and is
+  // ignored rather than advertised.
+  if (id.find('/') == std::string::npos) {
+    std::cerr << "[mcp-cpp] builder: extension id without a namespace ignored: " << id
+              << '\n';
+    return *this;
+  }
+  Json extensions = member(server_.capabilities_, "extensions");
+  if (!extensions.isObject()) extensions = Json(R"({})");
+  extensions.add(id, settings.isObject() ? std::move(settings) : Json(R"({})"));
+  server_.capabilities_.remove(std::string("extensions"));
+  server_.capabilities_.add("extensions", std::move(extensions));
+  return *this;
+}
+
 Builder& Builder::resourceSubscribe() {
   capabilityFlag("resources", "subscribe");
   return *this;

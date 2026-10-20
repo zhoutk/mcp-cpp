@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <cstdlib>
 #include <condition_variable>
 #include <map>
 #include <deque>
@@ -96,6 +97,7 @@ struct HttpServerTransport::Impl {
   httplib::Server svr;
   std::string endpoint;
   OriginValidator originValidator;
+  HttpServerTransport::TokenValidator tokenValidator;
   std::atomic_bool running{false};
   std::thread thread;
   std::mutex pumpMutex;                        // guards pumps
@@ -233,7 +235,8 @@ struct HttpServerTransport::Impl {
                                        " header is missing")};
           }
           std::string decoded;
-          if (!detail::decodeHeaderValue(it->second, decoded) || decoded != rawValue) {
+          if (!detail::decodeHeaderValue(it->second, decoded) ||
+              !headerValuesEqual(decoded, rawValue)) {
             return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
                                    "Header mismatch: Mcp-Param-" + paramName +
                                        " does not match body value")};
@@ -247,6 +250,23 @@ struct HttpServerTransport::Impl {
       }
     }
     return {0, ""};
+  }
+
+  // Integer-typed parameters MUST compare numerically (D10): "42.0" and
+  // "42e0" are the same argument as 42, so a strict string comparison would
+  // reject conformant mirroring. Everything else compares as text.
+  static bool headerValuesEqual(const std::string& headerValue, const std::string& bodyValue) {
+    if (headerValue == bodyValue) return true;
+    const auto parseInteger = [](const std::string& text, double& out) -> bool {
+      if (text.empty()) return false;
+      char* end = nullptr;
+      out = std::strtod(text.c_str(), &end);
+      return end != nullptr && *end == ' ';
+    };
+    double lhs = 0;
+    double rhs = 0;
+    if (!parseInteger(headerValue, lhs) || !parseInteger(bodyValue, rhs)) return false;
+    return lhs == rhs;
   }
 
   void registerHandlers() {
@@ -288,6 +308,16 @@ struct HttpServerTransport::Impl {
     if (!originValidator(origin)) {
       res.status = 403;
       return;
+    }
+
+    // 1b. Token validation (only when the embedder installed a validator).
+    if (tokenValidator) {
+      std::string challenge;
+      if (!tokenValidator(req.get_header_value("Authorization"), challenge)) {
+        res.status = 401;
+        if (!challenge.empty()) res.set_header("WWW-Authenticate", challenge);
+        return;
+      }
     }
 
     // 2. Parse the body.
@@ -523,6 +553,10 @@ bool HttpServerTransport::running() const { return impl_->svr.is_running(); }
 
 void HttpServerTransport::setOriginValidator(OriginValidator validator) {
   impl_->originValidator = std::move(validator);
+}
+
+void HttpServerTransport::setTokenValidator(TokenValidator validator) {
+  impl_->tokenValidator = std::move(validator);
 }
 
 // ---- client transport -----------------------------------------------------------

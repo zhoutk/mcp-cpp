@@ -44,6 +44,14 @@ struct Fixture {
     b.simpleTool("fail", "always errors", [](Ctx&) -> McpResult<Json> {
       return Err(McpErrorCode::InvalidParams, "intentional failure");
     });
+    b.tool(Json(R"({"name":"counter","description":"integer header param",
+        "inputSchema":{"type":"object","properties":{
+          "n":{"type":"integer","x-mcp-header":"X-Count"}}}})"),
+           [](Ctx& c) -> McpResult<Json> {
+             Json result;
+             result.add("n", Json(c.params["arguments"]["n"].toInt64()));
+             return Ok(std::move(result));
+           });
     b.tool(Json(R"({"name":"mirror","description":"mirrors a header param",
         "inputSchema":{"type":"object","properties":{
           "token":{"type":"string","x-mcp-header":"X-Token"}}}})"),
@@ -839,3 +847,88 @@ TEST(HttpClientTransport, Reports403ScopeChallenge) {
 }
 
 #endif  // MCP_HAS_HTTP
+
+// D10: integer Mcp-Param-* values compare NUMERICALLY - a conformant client
+// may mirror 42 as "42.0" or "42e0"; a string comparison would reject it.
+TEST(HttpE2E, IntegerHeaderParamComparesNumerically) {
+  Fixture f;
+  httplib::Client raw("127.0.0.1", f.port);
+  raw.set_connection_timeout(5);
+  raw.set_read_timeout(10, 0);
+  auto post = [&](const std::string& countHeader) {
+    httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                                {"Mcp-Method", "tools/call"},
+                                {"Mcp-Name", "counter"},
+                                {"Mcp-Param-X-Count", countHeader}};
+    return raw.Post("/mcp", headers,
+                    makeModernRequestLine("1", "tools/call",
+                                          Json(R"({"name":"counter","arguments":{"n":42}})")),
+                    "application/json");
+  };
+  // Equal spellings pass; a different number is still a mismatch.
+  auto exact = post("42");
+  ASSERT_TRUE(exact);
+  EXPECT_EQ(exact->status, 200);
+  auto decimal = post("42.0");
+  ASSERT_TRUE(decimal);
+  EXPECT_EQ(decimal->status, 200) << "42.0 == 42 numerically";
+  auto wrong = post("41");
+  ASSERT_TRUE(wrong);
+  EXPECT_EQ(wrong->status, 400);
+}
+
+TEST(HttpE2E, StringHeaderParamStillRequiresExactMatch) {
+  Fixture f;
+  auto client = f.makeClient();
+  ASSERT_TRUE(client->listTools().has_value());
+  auto result = client->callTool("mirror", Json(R"({"token":"abc"})"));
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ((*result)["token"].toString(), "abc");
+}
+
+// D11: the token-validation seam. A validator rejecting the request answers
+// 401 with its WWW-Authenticate challenge; an accepted token reaches the
+// dispatcher unchanged.
+TEST(HttpE2E, TokenValidatorGatesRequests) {
+  Builder b;
+  b.name("auth").version("1");
+  b.simpleTool("echo", "echoes", [](Ctx& c) -> McpResult<Json> {
+    Json result;
+    result.add("echoed", Json::str(c.params["arguments"]["text"].toString()));
+    return Ok(std::move(result));
+  });
+  auto server = b.build();
+  HttpServerTransport http(*server);
+  http.setTokenValidator([](const std::string& authorization, std::string& challenge) {
+    if (authorization == "Bearer good-token") return true;
+    challenge = R"(Bearer error="invalid_token", resource_metadata="http://example.test/prm")";
+    return false;
+  });
+  auto bound = http.bind("127.0.0.1");
+  ASSERT_TRUE(bound.has_value());
+  std::thread runner([&] { (void)http.run(); });
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  httplib::Client raw("127.0.0.1", *bound);
+  const std::string body = makeModernRequestLine(
+      "1", "tools/call", Json(R"({"name":"echo","arguments":{"text":"hi"}})"));
+  httplib::Headers base = {{"MCP-Protocol-Version", "2026-07-28"},
+                           {"Mcp-Method", "tools/call"},
+                           {"Mcp-Name", "echo"}};
+
+  auto denied = raw.Post("/mcp", base, body, "application/json");
+  ASSERT_TRUE(denied);
+  EXPECT_EQ(denied->status, 401);
+  EXPECT_NE(denied->get_header_value("WWW-Authenticate").find("resource_metadata"),
+            std::string::npos);
+
+  httplib::Headers allowed = base;
+  allowed.emplace("Authorization", "Bearer good-token");
+  auto ok = raw.Post("/mcp", allowed, body, "application/json");
+  ASSERT_TRUE(ok);
+  EXPECT_EQ(ok->status, 200);
+
+  http.stop();
+  runner.join();
+}

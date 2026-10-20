@@ -320,6 +320,13 @@ class Builder {
   Builder& listChanged(std::string capability);
   // Advertise resources.subscribe (notifications/resources/updated).
   Builder& resourceSubscribe();
+  // D12: advertise an MCP extension under capabilities.extensions. The id
+  // must be namespaced ("io.modelcontextprotocol/tasks", vendor-prefixed
+  // ids likewise). A client that advertises an extension this server does
+  // not implement keeps core behavior (the extension is simply unused);
+  // requests for the extension's methods are MethodNotFound because they
+  // are not in kRoutes.
+  Builder& extension(std::string id, Json settings = Json(R"({})"));
   Builder& instructions(std::string text);
   // Adds a supported protocol version. Repeatable. NOTE: the default is
   // Latest-only, and the FIRST explicit call REPLACES that default - to keep

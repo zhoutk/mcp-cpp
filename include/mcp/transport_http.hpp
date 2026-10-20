@@ -72,6 +72,16 @@ class HttpServerTransport {
 
   void setOriginValidator(OriginValidator validator);
 
+  // D11: resource-server authentication seam. Called for every POST with the
+  // request's Authorization header (empty when absent) and the Mcp-Session-Id
+  // (empty on 2026 servers). Return true to accept; false -> HTTP 401 with
+  // the optional challenge in WWW-Authenticate. The transport never parses
+  // tokens itself - an embedder plugs in its JWT/opaque-token validation and
+  // audience checks here.
+  using TokenValidator = std::function<bool(const std::string& authorizationHeader,
+                                            std::string& wwwAuthenticateChallenge)>;
+  void setTokenValidator(TokenValidator validator);
+
   // True while the listener is accepting.
   bool running() const;
 
