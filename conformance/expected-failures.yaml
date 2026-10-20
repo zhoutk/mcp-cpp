@@ -14,8 +14,10 @@
 #
 # Client suite (suite 0.2.0-alpha.12, sequential/parallel):
 #   2026-07-28: 399/399 checks, 32/32 scenarios - 100% (incl. all 25 auth/*)
-#   2025-11-25: 231/231 scored checks except elicitation-sep1034-client-defaults
-#               (see the note below). auth/* is green on this revision too.
+#   2025-11-25: all scored checks pass, including elicitation-sep1034-client-defaults
+#               (baseline entry removed 2026-10-20; upstream PR #561 fixes the
+#               mock's stream routing - re-verify on the next suite release).
+#               auth/* is green on this revision too.
 server:
   - tools-call-sampling          # server->client sampling/createMessage (2025 mechanism;
                                  #   2026-07-28 replaced it with MRTR, which mcp-cpp implements)
@@ -26,14 +28,10 @@ server:
   # 2026-07-28 removed (GET returns 405). The suite runs it but records zero
   # checks, and the baseline gate treats a non-passing scenario as unexpected.
   - server-sse-multiple-streams
-client:
-  # The harness's own mock does not deliver the server->client elicitation in
-  # this environment: its GET stream answers keepalives only, and the tool call
-  # it is meant to drive never completes. The official rust-sdk reference
-  # fixture fails it identically (0/5, and it crashes with 0xC0000005) - verified
-  # 2026-10-15 by building refer/rust-sdk and running the same scenario; filed
-  # upstream as modelcontextprotocol/conformance#557. It is a
-  # mock defect, not an SDK one: mcp-cpp's client answers server-initiated
-  # elicitation correctly (unit-tested, and green on the auth/* elicitation
-  # scenarios), it simply never receives the request here.
-  - elicitation-sep1034-client-defaults
+client: []
+  # Empty: every client scenario passes. `elicitation-sep1034-client-defaults`
+  # was baselined from 2026-10-15 while the harness mock dropped the
+  # server->client elicitation (modelcontextprotocol/conformance#557); upstream
+  # PR #561 ties the request to the originating response stream, and this entry
+  # was removed 2026-10-20. Re-check it against a suite release that contains
+  # the fix.

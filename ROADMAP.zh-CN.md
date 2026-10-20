@@ -31,7 +31,7 @@
 | 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 2026-07-28：**42/42（100%）** · 2025-11-25：26/30 |
 | 达到所有适用必需场景的 100% | ✅ 2026-07-28 · 🔄 2025-11-25（4 个受阻，见下文） |
 | 发布 `conformance/report.json` + 一份 `--expected-failures` 基线 | ✅ |
-| 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 2026-07-28：**32/32 场景（100%）**；2025-11-25：17/18（另加两个 2025-03-26 legacy 场景） |
+| 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 2026-07-28：**32/32 场景（100%）**；2025-11-25：18/18（100%；另加两个 2025-03-26 legacy 场景） |
 | 客户端模式 `--expected-failures` 基线 | ✅ 仅 1 个套件 mock 缺陷场景，附 rust-sdk A/B 证据 |
 | 仓库内 **2026-07-28** 一致性测试套件（`mcp_test_conformance_2026`，12 个场景，含完整的 MRTR 往返） | ✅ |
 | 稳定的 **v1.0.0** 发布 | ⏳ |
@@ -49,17 +49,55 @@
 | OAuth 2.1 客户端 + Client ID Metadata Documents（远程 HTTP） | ✅ 客户端侧（PRM/AS 发现、DCR/CIMD/预注册、PKCE、scope 升级、SEP-2352）· ✅ 服务端侧：`mcp::oauth::AuthorizationServer`（面向本地回环/开发/测试的内存核心：DCR、授权码 + PKCE S256、RFC 8707 绑定、元数据） |
 | 强类型 MRTR / elicitation 辅助工具（`Ctx::elicit`、`Ctx::inputRequired`、客户端 `retry`） | ✅ |
 | 签名 `requestState` 编解码（HMAC-SHA256、绑定上下文、TTL）+ 服务端绑定 + 客户端自动履行 | ✅ |
-| 日志辅助工具（`Ctx::log`）+ `_meta` 日志级别打通 | ⏳ |
-| 客户端请求超时 / 可取消 API | ⏳ |
+| 日志辅助工具（`Ctx::log`）+ `_meta` 日志级别打通（语义门控收口在 D6） | ✅ |
+| 客户端请求超时 / 可取消 API（按请求期限 + 看门狗） | ✅ |
 | Doxygen API 参考；客户端 + HTTP 示例 | ⏳ |
 | 零拷贝解析优化（重新测量 B1） | ⏳ |
-| Conan recipe | ⏳ |
+
+## 里程碑 D —— v0.4 规范校准（2026-10 评审跑道）
+
+针对本地 2026-07-28 规范快照的全面评审结论（官方一致性套件 2026-07-28
+服务端/客户端均已 **100%**；以下为剩余 MUST/SHOULD 偏差，均属边缘路径、可就地修复）。
+
+| 事项 | 级别 |
+| --- | --- |
+| D1 · Base64 哨兵值再编码：形如 `=?base64?…?=` 的纯 ASCII 值 MUST 先再编码再镜像；解码器只接受真编码值 | 🔜 P0 |
+| D2 · `MissingRequiredClientCapabilityError.data.requiredCapabilities` 改按 schema 输出 `ClientCapabilities` 对象（而非字符串数组） | 🔜 P0 |
+| D3 · `io.modelcontextprotocol/subscriptionId` 类型保真：流通知保留 listen 请求 JSON-RPC id 的类型（数字保持数字——ack/关闭回包已经如此） | 🔜 P0 |
+| D4 · `x-mcp-header` 校验收紧至规范：头名限 `1*tchar`，禁止经 `items`/组合关键字可达，组合关键字内注解视为无效工具，注册侧自校验 | 🔜 P0 |
+| D5 · `Client::listTools` 剔除违反 D4 的工具（规则从一致性夹具下沉进库） | 🔜 P0 |
+| D6 · `notifications/message` 门控：请求缺 `_meta.logLevel` 一律不发送（移除服务端默认级别路径）；非法级别值以 `-32602` 拒绝 | 🔜 P1 |
+| D7 · 签名 `requestState` 可选 principal 绑定（编解码器区分完整性与身份） | 🔜 P1 |
+| D8 · 每个 result 的 `_meta` 附 `serverInfo`（可配置）；拒绝 `initialize` 时附 `supported` 版本列表 | 🔜 P1 |
+| D9 · Builder API 将 `listChanged`/`subscribe` 能力标志广告进 capabilities（扇出已就绪） | 🔜 P1 |
+| D10 · 整数 `Mcp-Param-*` 头校验改为数值比较（非字符串比较） | 🔜 P1 |
+| D11 · `HttpServerTransport` 的令牌校验挂钩（资源服务器侧 audience 校验目前无落点） | 🔜 P1 |
+| D12 · 扩展协商强制：不支持已广告的扩展时回退核心行为或拒绝请求 | 🔜 P1 |
+
+出口门槛：每一项完成后官方 2026-07-28 套件保持 100%；错误面 pin 测试锁定
+变更的 wire 形状。
+
+## 里程碑 E —— 参考实现供养（v0.5）
+
+学习 @modelcontextprotocol 官方 SDK（python 2.3 / rust rmcp 3.5 / typescript 2.3），
+按价值排序；难度按 C++17、值语义、无异步运行时评估。
+
+| 事项 | 来源 |
+| --- | --- |
+| E1 · Tasks 扩展（SEP-2663，`io.modelcontextprotocol/tasks`）：任务记录、TTL、可插拔 TaskStore、`tasks/get`/`tasks/update`/`tasks/cancel`、`Mcp-Name` 镜像 | 三家皆有 |
+| E2 · 客户端时代自动协商：探测 `server/discover` → 分类（现代错误/legacy/超时）→ 回退 `initialize` 或锁定版本 | ts `versionNegotiation`、py `_probe` |
+| E3 · 客户端响应缓存：遵守 `ttlMs`、尊重 `cacheScope`、discover 单条豁免 | ts `responseCache.ts` |
+| E4 · 扩展接缝：`Builder::extension()` 以 `(method, version)` 绑定、禁遮蔽规范方法（SEP-2133 形状） | py `server/extension.py` |
+| E5 · SSE keep-alive 可配置（禁用值校验） | ts `sseKeepAlive.ts` |
+| E6 · 黄金线缆夹具：钉住的规范 schema twins + 错误面 pin 测试 | ts corpus、py pinned schema |
+| E7 · MRTR 加固：客户端重试轮次上限、密钥 zeroize | py 默认值、rust zeroize |
+| E8 · 可选：订阅总线抽象；中间件链；legacy `input_required` shim（双时代 handler） | 困难，延后 |
 
 ## 超越 Tier 1
 
 | 事项 | 状态 |
 | --- | --- |
-| Tasks 扩展（`io.modelcontextprotocol/tasks`） | ⏳ |
+| Tasks 扩展（`io.modelcontextprotocol/tasks`） | 🔄 计划为 E1（里程碑 E） |
 | 多 worker 分发（编译期 `MCP_WORKERS`） | ⏳ |
 | 旧版修订语义（选择性启用） | ✅ 双时代模式：`initialize`、无 `_meta` 请求、`ping`、`logging/setLevel`、资源订阅 |
 | MCP Apps（UI 扩展） | ❌ 超出范围 |
@@ -71,4 +109,4 @@
 - Issue 分类：≤ 2 个工作日；严重（P0）缺陷：≤ 7 天。
 - 一致性任务在 `main` 上保持绿色。
 
-*最后更新：2026-10-19。*
+*最后更新：2026-10-20。*

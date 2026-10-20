@@ -84,25 +84,26 @@ npx @modelcontextprotocol/conformance client \
 On Windows the harness spawns the command through `cmd.exe`, so pass the
 executable with its extension (`--command "bin\conformance_client.exe"`).
 
-**Client scores (2026-10-15, suite 0.2.0-alpha.12):**
+**Client scores (2026-10-15 baseline, suite 0.2.0-alpha.12):**
 
 | Revision | Scenarios | Checks |
 | --- | --- | --- |
 | **2026-07-28** | **32/32 (100%)** — every required scenario, incl. all 25 `auth/*` | **399/399** |
-| 2025-11-25 | 17/18 (only `elicitation-sep1034-client-defaults`) | 231/231 scored |
+| 2025-11-25 | 18/18 (100%) — baseline entry for `elicitation-sep1034-client-defaults` removed 2026-10-20 | 231/231 scored |
 | 2025-03-26 (extra) | 2/2 legacy auth scenarios | 15/15 |
 
-The single baselined failure is the harness mock's, not the SDK's: for
-`elicitation-sep1034-client-defaults` the mock never delivers the server→client
-elicitation (its GET stream answers keepalives only), so the tool call it is
-meant to drive never completes. The **official rust-sdk reference client fails it
-identically here** — verified 2026-10-15 by building `refer/rust-sdk` and running
-the same scenario (0/5; it also crashes with `0xC0000005`). mcp-cpp's client
-answers server-initiated elicitation correctly (unit-tested, and green on the
-auth scenarios that exercise the same mechanism); it simply never receives the
-request. It is baselined in
-[`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml)
-with this evidence.
+Until 2026-10-20 the 2025-11-25 revision baselined one scenario,
+`elicitation-sep1034-client-defaults`: the harness mock never delivered the
+server→client elicitation (its GET stream answered keepalives only), so the tool
+call it drives never completed — the **official rust-sdk reference client failed
+it identically** (0/5, plus a `0xC0000005` crash). The mock defect was reported
+upstream as [modelcontextprotocol/conformance#557][issue-557] and is fixed by
+[PR #561][pr-561] (`server.request()` is now tied to the originating response
+stream). The baseline entry is removed here; the next suite release that
+contains the fix should be re-baselined against this file.
+
+[issue-557]: https://github.com/modelcontextprotocol/conformance/issues/557
+[pr-561]: https://github.com/modelcontextprotocol/conformance/pull/561
 
 ### Tier self-assessment
 
