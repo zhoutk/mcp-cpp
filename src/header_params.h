@@ -68,18 +68,75 @@ inline void collectHeaderParams(const Json& schema, const Json& args,
 //   - only string/integer/boolean properties may be annotated (number,
 //     object, array, null are invalid);
 //   - header names must be unique case-insensitively within the tool.
+// RFC 9110 token characters ("1*tchar"): ALPHA / DIGIT /
+// "!#$%&'*+-.^_`|~". The old check only rejected space/CTL/colon, so names
+// like "X(1)" or 'X"y' passed though they are not header field names.
+inline bool isTChar(char c) {
+  const auto u = static_cast<unsigned char>(c);
+  if ((u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || (u >= '0' && u <= '9')) return true;
+  switch (c) {
+    case '!': case '#': case '$': case '%': case '&': case '\'': case '*':
+    case '+': case '-': case '.': case '^': case '_': case '`': case '|': case '~':
+      return true;
+    default:
+      return false;
+  }
+}
+
 inline bool headerNameValid(std::string_view name) {
   if (name.empty()) return false;
   for (const char c : name) {
-    const auto u = static_cast<unsigned char>(c);
-    if (u <= 0x20 || u >= 0x7f) return false;  // space, CTL, non-ASCII
-    if (c == ':') return false;
+    if (!isTChar(c)) return false;  // space, colon, parentheses, quotes, non-ASCII...
   }
   return true;
 }
 
+// Walks a subschema that is NOT a properties chain (items, prefixItems,
+// composition, conditionals, patternProperties, $defs, ...). Any annotation
+// found there is invalid per the spec - those values are not statically
+// reachable through `properties` keys, so they cannot be mirrored.
+inline bool noAnnotationsDeep(const Json& node) {
+  if (node.isArray()) {
+    for (const auto& item : node.toVector()) {
+      if (!noAnnotationsDeep(item)) return false;
+    }
+    return true;
+  }
+  if (!node.isObject()) return true;
+  if (mcp::member(node, "x-mcp-header").isString()) return false;
+  // Descend through EVERYTHING (properties included): this subtree is not a
+  // properties chain, so any annotation reachable here is invalid.
+  for (const auto& key : node.getAllKeys().toVector()) {
+    if (!noAnnotationsDeep(node[key.toString()])) return false;
+  }
+  return true;
+}
+
+// Keywords whose value is itself a subschema (or a map/array of them).
+inline bool isSchemaBearingKeyword(const std::string& key) {
+  static const char* kKeywords[] = {
+      "items",       "prefixItems",     "additionalProperties", "patternProperties",
+      "properties",  "anyOf",           "oneOf",                "allOf",
+      "not",         "if",              "then",                 "else",
+      "contains",    "propertyNames",   "dependentSchemas",     "$defs",
+      "definitions", "unevaluatedItems", "unevaluatedProperties"};
+  for (const char* known : kKeywords) {
+    if (key == known) return true;
+  }
+  return false;
+}
+
 inline bool headerAnnotationsValid(const Json& schema, std::set<std::string>& seenNames) {
   if (!schema.isObject()) return true;
+  // Valid annotations may appear ONLY on properties reached through the
+  // properties chain; anything inside items/composition/conditionals/
+  // patternProperties/$defs invalidates the tool.
+  for (const auto& key : schema.getAllKeys().toVector()) {
+    const std::string k(key.toString());
+    if (k == "properties" || k == "x-mcp-header" || !isSchemaBearingKeyword(k)) continue;
+    if (k == "properties") continue;
+    if (!noAnnotationsDeep(schema[k])) return false;
+  }
   const Json properties = mcp::member(schema, "properties");
   if (!properties.isObject()) return true;
   for (const auto& key : properties.getAllKeys().toVector()) {
@@ -99,12 +156,8 @@ inline bool headerAnnotationsValid(const Json& schema, std::set<std::string>& se
       if (!seenNames.insert(lower).second) return false;  // duplicate header name
       if (t != "string" && t != "integer" && t != "boolean") return false;
     }
-    // Nested schemas carry annotations too.
-    if (t == "object" || t == "array") {
-      const Json nested = t == "object" ? mcp::member(prop, "properties")
-                                        : mcp::member(prop, "items");
-      if (!nested.isNull() && !headerAnnotationsValid(nested, seenNames)) return false;
-    }
+    // Recurse into the property's own properties chain.
+    if (!headerAnnotationsValid(prop, seenNames)) return false;
   }
   return true;
 }

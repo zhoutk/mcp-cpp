@@ -274,17 +274,27 @@ McpResult<Json> Client::listTools(const std::string& cursor) {
   Json extra;
   if (!cursor.empty()) extra.add("cursor", Json::str(cursor));
   auto result = request("tools/list", extra);
-  if (result.has_value()) {
-    // Cache definitions for x-mcp-header mirroring.
-    toolSchemas_.clear();
-    const Json tools = member(*result, "tools");
-    if (tools.isArray()) {
-      for (const auto& item : tools.toVector()) {
-        const Json name = member(item, "name");
-        if (name.isString()) toolSchemas_[std::string(name.toString())] = item;
-      }
+  if (!result.has_value()) return result;
+
+  // SEP-2243 client MUST: a tool whose x-mcp-header annotations are invalid
+  // is EXCLUDED from the list (one malformed definition must not block the
+  // valid ones). This used to live only in the conformance fixture; the rule
+  // belongs to the library. Filtering also keeps toolSchemas_ honest, so
+  // header mirroring never consults an invalid definition.
+  toolSchemas_.clear();
+  Json kept = Json("[]");
+  const Json tools = member(*result, "tools");
+  if (tools.isArray()) {
+    for (const auto& item : tools.toVector()) {
+      const Json name = member(item, "name");
+      if (!name.isString()) continue;
+      if (!detail::headerAnnotationsValid(member(item, "inputSchema"))) continue;
+      toolSchemas_[std::string(name.toString())] = item;
+      kept.push_back(item);
     }
   }
+  result->remove(std::string("tools"));  // remove() is a no-op if absent
+  result->add("tools", std::move(kept));
   return result;
 }
 

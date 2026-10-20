@@ -631,3 +631,66 @@ TEST(ClientTimeout, NonInterruptibleTransportIgnoresTheDeadline) {
   auto result = c.listTools();
   ASSERT_TRUE(result.has_value());
 }
+
+// ---- SEP-2243 x-mcp-header validation (D4/D5) -------------------------------------
+
+namespace {
+// Serves one tools/list result and echoes tools/call success.
+int listToolsThrough(const std::string& toolsJson) {
+  ScriptedTransport t({encodeResultResponse(
+      RequestId(int64_t(1)),
+      Json("{\"resultType\":\"complete\",\"tools\":" + toolsJson + "}"))}, {});
+  Client c("c", "1");
+  c.connect(t);
+  auto listed = c.listTools();
+  if (!listed.has_value()) return -1;
+  const Json tools = member(*listed, "tools");
+  return tools.isArray() ? static_cast<int>(tools.toVector().size()) : -2;
+}
+}  // namespace
+
+// A valid definition survives; each invalid-annotation shape is excluded.
+TEST(ClientToolFilter, ExcludesInvalidHeaderAnnotations) {
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"ok","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"string","x-mcp-header":"X-A"}}}}])json"),
+            1);
+
+  // Non-tchar header name (D4: parentheses are not RFC 9110 tchars).
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"string","x-mcp-header":"X (A)"}}}}])json"),
+            0);
+
+  // Annotation nested under items (not statically reachable via properties).
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"array","items":{"type":"object","properties":{
+                       "b":{"type":"string","x-mcp-header":"X-B"}}}}}}}])json"),
+            0);
+
+  // Annotation inside a composition keyword.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"anyOf":[{"type":"string","x-mcp-header":"X-A"}]}}}}])json"),
+            0);
+
+  // Annotation inside a conditional.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object",
+                     "if":{"properties":{"a":{"type":"string","x-mcp-header":"X-A"}}}}}])json"),
+            0);
+
+  // Duplicate header name (case-insensitive) across properties.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"string","x-mcp-header":"X-A"},
+                     "b":{"type":"string","x-mcp-header":"x-a"}}}}])json"),
+            0);
+
+  // Annotated non-string/integer/boolean property type.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"number","x-mcp-header":"X-A"}}}}])json"),
+            0);
+
+  // A malformed tool must not hide the valid ones in the same response.
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"number","x-mcp-header":"X-A"}}}},
+                    {"name":"ok","inputSchema":{"type":"object","properties":{
+                     "b":{"type":"string","x-mcp-header":"X-B"}}}}])json"),
+            1);
+}
