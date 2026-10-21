@@ -51,7 +51,9 @@ while auditing it.
 - A plain-ASCII header value shaped like the base64 sentinel (`=?base64?…?=`)
   is re-encoded before mirroring, so it no longer fails `-32020` on every call.
 - `MissingRequiredClientCapabilityError.data.requiredCapabilities` is a
-  `ClientCapabilities` object (`{"elicitation":{}}`), as the schema requires.
+  `ClientCapabilities` object (`{"elicitation":{}}`), as the schema requires,
+  and now lists every missing capability at once instead of only the first one
+  the inputRequests need (F4).
 - `io.modelcontextprotocol/subscriptionId` keeps the listen request's JSON-RPC
   id type; numeric subscription ids are no longer stringified in fan-out.
 - The legacy GET listen stream now carries the configured headers

@@ -92,7 +92,7 @@ usability or defense-in-depth gap.
 | F1 · Expose the authenticated principal to MRTR: `Builder::requestStatePrincipal(fn)` / `Ctx::principal`, so D7's binding is the default path rather than a codec-only API | ✅ P1 |
 | F2 · Scope `Client`'s x-mcp-header tool filtering to transports that actually mirror headers (stdio MAY ignore annotations; filtering there hides usable tools) | ✅ P2 |
 | F3 · Send the configured headers (incl. `Authorization`) on the legacy GET listen stream — today only POSTs carry them | ✅ P1 |
-| F4 · Report every missing capability at once in `requiredCapabilities` | 🔜 P2 |
+| F4 · Report every missing capability at once in `requiredCapabilities` | ✅ P2 |
 | F5 · Fix the sse-retry flake: a forced listen-stream reconnect must not be reported as a lost peer, and a forced reconnect without `retry:` advice must not fire early | ✅ P1 |
 
 ## Milestone E — Reference-fed (v0.5)

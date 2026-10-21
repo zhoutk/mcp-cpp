@@ -88,7 +88,7 @@
 | F1 · 把已认证 principal 暴露给 MRTR：`Builder::requestStatePrincipal(fn)` / `Ctx::principal`，让 D7 的绑定成为默认路径而非仅 codec API | ✅ P1 |
 | F2 · 将 `Client` 的 x-mcp-header 过滤限定在真正镜像头的传输上（stdio MAY ignore；一律过滤会隐藏可用工具） | ✅ P2 |
 | F3 · legacy GET 监听流携带配置头（含 `Authorization`）——目前仅 POST 携带 | ✅ P1 |
-| F4 · `requiredCapabilities` 一次报告全部缺失能力 | 🔜 P2 |
+| F4 · `requiredCapabilities` 一次报告全部缺失能力 | ✅ P2 |
 | F5 · 修复 sse-retry 偶发：强制重连不得被判为 peer gone；无 `retry:` 建议时不得提前重连 | ✅ P1 |
 
 ## 里程碑 E —— 参考实现供养（v0.5）

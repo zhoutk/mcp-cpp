@@ -371,6 +371,31 @@ TEST(ServerProtocolErrors, InputRequiredWithoutClientCapabilityIs32021) {
   EXPECT_TRUE(member(required, "elicitation").isObject());
 }
 
+// F4: one -32021 names every capability the inputRequests need, so a client
+// does not have to discover them one round trip at a time.
+TEST(ServerProtocolErrors, ReportsAllMissingCapabilitiesAtOnce) {
+  Builder b;
+  b.simpleTool("ask2", "asks for two capabilities", [](Ctx& c) -> McpResult<Json> {
+    Json elicitation;
+    elicitation.add("method", Json::str("elicitation/create"));
+    Json sampling;
+    sampling.add("method", Json::str("sampling/createMessage"));
+    Json requests = Json(R"({})");
+    requests.add("first", std::move(elicitation));
+    requests.add("second", std::move(sampling));
+    return c.inputRequired(std::move(requests), "");
+  });
+  auto server = b.build();
+
+  Out o = serveOnce(server, makeRequest("e2", "tools/call", Json(R"({"name":"ask2"})")));
+  ASSERT_NE(o.error, nullptr);
+  EXPECT_EQ(o.error->error.code, -32021);
+  const Json required = member(o.error->error.data, "requiredCapabilities");
+  ASSERT_TRUE(required.isObject());
+  EXPECT_TRUE(member(required, "elicitation").isObject());
+  EXPECT_TRUE(member(required, "sampling").isObject());
+}
+
 // The HTTP layer maps a missing/ill-typed _meta (InvalidParams) onto 400 by
 // matching the "_meta" marker in decodeRequestMeta's messages. Lock those
 // messages: a rewording that drops the marker silently changes the status.

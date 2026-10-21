@@ -284,6 +284,10 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
                  "InputRequiredResult requires inputRequests or requestState");
     }
     if (hasRequests) {
+      // F4: report EVERY missing capability in one -32021 instead of failing on
+      // the first one. A client that has to discover them one retry at a time
+      // would otherwise pay a full round trip per capability.
+      std::set<std::string> missing;
       for (const auto& key : inputRequests.getAllKeys().toVector()) {
         const Json request = member(inputRequests, key.toString());
         const Json method = member(request, "method");
@@ -299,22 +303,31 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
         }
         // Spec: MUST NOT request something the client did not declare.
         if (!capabilitiesInclude(meta.clientCapabilities, capability)) {
-          // MissingRequiredClientCapability (-32021) with the missing
-          // capability in data - not InternalError, which would blame the
-          // server for a client-side protocol violation.
-          McpError e;
-          e.code = McpErrorCode::MissingRequiredClientCapability;
-          e.message = "client did not declare the '" + std::string(capability) +
-                      "' capability required by " + std::string(method.toString());
-          // schema: data.requiredCapabilities is a ClientCapabilities OBJECT
-          // (e.g. {"elicitation":{}}), not a list of names.
-          Json required = Json(R"({})");
-          required.add(std::string(capability), Json(R"({})"));
-          Json data;
-          data.add("requiredCapabilities", std::move(required));
-          e.data = std::move(data);
-          return Err(std::move(e));
+          missing.emplace(capability);
         }
+      }
+      if (!missing.empty()) {
+        // MissingRequiredClientCapability (-32021) with the missing
+        // capabilities in data - not InternalError, which would blame the
+        // server for a client-side protocol violation.
+        McpError e;
+        e.code = McpErrorCode::MissingRequiredClientCapability;
+        std::string joined;
+        for (const auto& capability : missing) {
+          if (!joined.empty()) joined += ", ";
+          joined += capability;
+        }
+        e.message = "client did not declare the required capabilities: " + joined;
+        // schema: data.requiredCapabilities is a ClientCapabilities OBJECT
+        // (e.g. {"elicitation":{}}), not a list of names.
+        Json required = Json(R"({})");
+        for (const auto& capability : missing) {
+          required.add(capability, Json(R"({})"));
+        }
+        Json data;
+        data.add("requiredCapabilities", std::move(required));
+        e.data = std::move(data);
+        return Err(std::move(e));
       }
     }
     Json result;
