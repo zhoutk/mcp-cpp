@@ -511,6 +511,45 @@ TEST(HttpClientTransport, SubscriptionAuthChallengeIsReported) {
   runner.join();
 }
 
+// F3: configured headers (Authorization above all) must also be sent on the
+// legacy GET listen stream, not only on POSTs - otherwise a protected
+// 2025-era server rejects the stream while every call succeeds.
+TEST(HttpClientTransport, ListenStreamCarriesConfiguredHeaders) {
+  httplib::Server svr;
+  std::atomic<bool> sawAuth{false};
+  svr.Get("/mcp", [&](const httplib::Request& req, httplib::Response& res) {
+    if (req.get_header_value("Authorization") == "Bearer listen-token") sawAuth.store(true);
+    res.status = 405;  // 2026-style: no GET stream, the client stops quietly
+  });
+  svr.Post("/mcp", [](const httplib::Request&, httplib::Response& res) {
+    res.status = 200;
+    res.set_content(
+        R"({"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","tools":[]}})",
+        "application/json");
+  });
+  const int port = svr.bind_to_any_port("127.0.0.1");
+  std::thread runner([&] { (void)svr.listen_after_bind(); });
+  for (int i = 0; i < 10000 && !svr.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", port, "/mcp");
+  transport.setHeader("Authorization", "Bearer listen-token");
+  Client client("listen-headers", "1.0");
+  client.connect(transport);
+
+  auto listed = client.listTools();
+  ASSERT_TRUE(listed.has_value());
+  // The listen loop opens after the first successful exchange (plus its
+  // startup delay), so give it a few seconds.
+  for (int i = 0; i < 5000 && !sawAuth.load(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  EXPECT_TRUE(sawAuth.load());
+
+  transport.closeSubscriptions();
+  svr.stop();
+  runner.join();
+}
+
 // 408/429 on the subscription POST mean "later", not "no": the client must
 // retry and succeed on a subsequent attempt instead of giving up.
 TEST(HttpClientTransport, SubscriptionRetryableStatusRetriesAndSucceeds) {

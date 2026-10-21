@@ -816,6 +816,19 @@ struct HttpClientTransport::Impl {
            (acc.size() > 1 && acc[0] == ':');
   }
 
+  // Mcp-Param-* headers mirror a TOOL CALL's arguments; they are meaningless on
+  // a GET listen stream (which carries no method/arguments), so the configured
+  // header merge skips them. Comparison is case-insensitive (HTTP field names).
+  static bool isMirroredParamHeader(const std::string& name) {
+    static constexpr std::string_view kPrefix = "mcp-param-";
+    if (name.size() < kPrefix.size()) return false;
+    for (size_t i = 0; i < kPrefix.size(); ++i) {
+      const unsigned char c = static_cast<unsigned char>(name[i]);
+      if (static_cast<char>(std::tolower(c)) != kPrefix[i]) return false;
+    }
+    return true;
+  }
+
   Impl(std::string host, int port, std::string ep)
       : endpoint(std::move(ep)), cli(std::move(host), port) {}
 };
@@ -871,10 +884,13 @@ void HttpClientTransport::reportAuthChallenge(int status, const std::string& cha
 void HttpClientTransport::setHeader(std::string name, std::string value) {
   // Stores even empty values: the mirrored Mcp-Param-* contract allows an
   // empty string parameter, which must still be sent as a header.
+  // sharedMutex: the GET listen thread also reads the configured headers (F3).
+  std::lock_guard<std::mutex> lock(impl_->sharedMutex);
   impl_->headers[name] = std::move(value);
 }
 
 void HttpClientTransport::removeHeader(const std::string& name) {
+  std::lock_guard<std::mutex> lock(impl_->sharedMutex);
   impl_->headers.erase(name);
 }
 
@@ -981,6 +997,11 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
     responseHeaders.emplace("Accept", "application/json, text/event-stream");
     {
       std::lock_guard<std::mutex> lock(impl_->sharedMutex);
+      for (const auto& [k, v] : impl_->headers) {
+        if (Impl::isMirroredParamHeader(k)) continue;
+        responseHeaders.erase(k);
+        responseHeaders.emplace(k, v);
+      }
       if (!impl_->sessionId.empty()) {
         responseHeaders.emplace("Mcp-Session-Id", impl_->sessionId);
       }
@@ -1005,12 +1026,12 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
       headers.emplace(kHeaderName, detail::encodeHeaderValue(name.toString()));
     }
   }
-  for (const auto& [k, v] : impl_->headers) {
-    headers.erase(k);  // override the body-derived mirror (e.g. tamper tests)
-    headers.emplace(k, v);
-  }
   {
     std::lock_guard<std::mutex> lock(impl_->sharedMutex);
+    for (const auto& [k, v] : impl_->headers) {
+      headers.erase(k);  // override the body-derived mirror (e.g. tamper tests)
+      headers.emplace(k, v);
+    }
     if (!impl_->sessionId.empty()) headers.emplace("Mcp-Session-Id", impl_->sessionId);
   }
 
@@ -1374,6 +1395,15 @@ void HttpClientTransport::openListenStreamOnce() {
       headers.emplace("Accept", "text/event-stream");
       {
         std::lock_guard<std::mutex> lock(impl_->sharedMutex);
+        // F3: the legacy listen stream is a request like any other - it must
+        // carry the configured headers (Authorization above all). Without this
+        // a protected 2025-era server rejected the GET while POSTs succeeded.
+        // Mcp-Param-* mirrors belong to a tool call, not to the stream.
+        for (const auto& [k, v] : impl_->headers) {
+          if (Impl::isMirroredParamHeader(k)) continue;
+          headers.erase(k);
+          headers.emplace(k, v);
+        }
         headers.emplace("MCP-Protocol-Version", impl_->protocolVersion);
         if (!impl_->sessionId.empty()) headers.emplace("Mcp-Session-Id", impl_->sessionId);
       }

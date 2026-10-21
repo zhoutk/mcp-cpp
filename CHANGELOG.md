@@ -54,6 +54,10 @@ while auditing it.
   `ClientCapabilities` object (`{"elicitation":{}}`), as the schema requires.
 - `io.modelcontextprotocol/subscriptionId` keeps the listen request's JSON-RPC
   id type; numeric subscription ids are no longer stringified in fan-out.
+- The legacy GET listen stream now carries the configured headers
+  (`Authorization` above all), not just POSTs (F3); `Mcp-Param-*` mirrors stay
+  scoped to tool calls. The header map is guarded by `sharedMutex` because the
+  listen thread reads it concurrently.
 - sse-retry flake under parallel conformance runs: a listen stream stopped for a
   forced reconnect is no longer reported as a lost peer (which aborted the
   in-flight call), and a forced reconnect without `retry:` advice waits the
