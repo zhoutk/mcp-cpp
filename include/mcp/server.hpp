@@ -45,14 +45,13 @@
 #include <string>
 #include <vector>
 
-// Compile-time dispatch concurrency (CMake: -DMCP_WORKERS=N). 1 keeps the
-// serialized model: handlers run one at a time. N > 1 lets up to N handlers
-// run concurrently, which requires handler code (and anything it touches) to
-// be thread-safe.
-#if !defined(MCP_WORKERS)
-#define MCP_WORKERS 1
-#endif
-static_assert(MCP_WORKERS >= 1, "MCP_WORKERS must be at least 1");
+// Dispatch concurrency (CMake: -DMCP_WORKERS=N). 1 keeps the serialized
+// model: handlers run one at a time. N > 1 lets up to N handlers run
+// concurrently, which requires handler code (and anything it touches) to be
+// thread-safe. The value is a PRIVATE build setting of the library, exposed at
+// runtime through Server::workerCount(): a consumer that compiles against the
+// installed headers can never disagree with the library's dispatch width
+// (asking for the macro in a header would be an ODR hazard).
 
 namespace mcp {
 
@@ -219,10 +218,23 @@ class Server {
   // Used by the HTTP transport to validate Mcp-Param-* mirrored headers.
   Json findToolDefinition(const std::string& name) const;
 
-  // True when this server serves `method`: a spec route or a registered
-  // extension method. The HTTP transport uses it for the 404-vs-405
-  // distinction (the free isKnownMethod() only knows the spec routes).
+  // True when this server serves `method`: a spec route available in the
+  // current era, or a registered extension method. The HTTP transport uses it
+  // for the 404-vs-405 distinction, so a modern-only server answers 404 for the
+  // methods 2026-07-28 removed (`initialize`, `ping`, `logging/setLevel`,
+  // `resources/subscribe`, `resources/unsubscribe`) instead of a 200 carrying a
+  // JSON-RPC error.
+  bool isServedMethod(std::string_view method) const;
+
+  // True when the server knows `method` at all, including routes that only
+  // exist in the legacy era. Used to reject extension bindings that would
+  // shadow a spec method.
   bool isKnownMethod(std::string_view method) const;
+
+  // The dispatch width this library was built with (MCP_WORKERS). 1 means
+  // handlers are serialized; N > 1 allows N concurrent handlers, so handler
+  // code must be thread-safe.
+  static int workerCount() noexcept;
 
   // --- subscriptions ----------------------------------------------------------
   // processLine handles subscriptions/listen on the current channel (stdio:
@@ -245,7 +257,7 @@ class Server {
   void notifyResourceUpdated(const std::string& uri);
 
  private:
-  Server() = default;
+  Server();
   Server(Server&& other) noexcept;  // mutex members are default-constructed
 
   struct Registry {
@@ -356,7 +368,7 @@ class Server {
   // on the slot it already holds with one worker, and nest with more).
   std::mutex dispatchMutex_;
   std::condition_variable dispatchSlotsCv_;
-  int dispatchSlots_ = MCP_WORKERS;
+  int dispatchSlots_ = 1;  // set to workerCount() by the constructors
   void acquireDispatchSlot();
   void releaseDispatchSlot();
 };

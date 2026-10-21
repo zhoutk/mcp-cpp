@@ -110,6 +110,36 @@ std::string encodeHeaderValue(std::string_view raw) {
   return std::string(kSentinelPrefix) + base64Encode(raw) + kSentinelSuffix;
 }
 
+// SEP-2243 value encoding is strict about the sentinel payload: the Base64 text
+// must be padded to a multiple of four and may only use the standard alphabet,
+// with padding confined to the end. A lenient decoder would accept
+// "SGVsbG8" (unpadded) and "SGVsbG8=" interchangeably, but the spec's test-case
+// table requires rejecting the unpadded spelling, so a receiver can tell a
+// malformed mirror from a literal value.
+namespace {
+
+bool isBase64Char(char c) {
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+         c == '+' || c == '/';
+}
+
+bool isValidBase64Text(std::string_view text) {
+  if (text.size() % 4 != 0) return false;
+  size_t padding = 0;
+  while (!text.empty() && text.back() == '=') {
+    text.remove_suffix(1);
+    ++padding;
+  }
+  if (padding > 2) return false;
+  if (text.empty()) return padding == 0;  // "====" is not a valid encoding
+  for (const char c : text) {
+    if (!isBase64Char(c)) return false;
+  }
+  return true;
+}
+
+}  // namespace
+
 bool decodeHeaderValue(std::string_view value, std::string& out) {
   // The empty-payload sentinel (emitted by pre-fix encoders for an empty
   // value) decodes to "". The literal is split so "??" is not a trigraph.
@@ -122,8 +152,10 @@ bool decodeHeaderValue(std::string_view value, std::string& out) {
   const std::string_view suffix = kSentinelSuffix;
   if (value.size() > prefix.size() + suffix.size() && value.substr(0, prefix.size()) == prefix &&
       value.substr(value.size() - suffix.size()) == suffix) {
-    return base64Decode(value.substr(prefix.size(), value.size() - prefix.size() - suffix.size()),
-                        out);
+    const std::string_view payload =
+        value.substr(prefix.size(), value.size() - prefix.size() - suffix.size());
+    if (!isValidBase64Text(payload)) return false;
+    return base64Decode(payload, out);
   }
   out.assign(value);
   return true;

@@ -964,3 +964,112 @@ TEST(ClientToolFilter, NonMirroringTransportKeepsAllTools) {
                              false),
             1);
 }
+
+// ---- Tasks extension, client surface (G4) ---------------------------------------
+
+namespace {
+
+// Answers every request by method: tasks/get walks a scripted status sequence,
+// everything else gets `fallback`.
+void installTaskResponder(ScriptedTransport& t, std::vector<std::string> statuses,
+                          const Json& fallback) {
+  auto remaining = std::make_shared<std::deque<std::string>>(statuses.begin(), statuses.end());
+  t.responder_ = [remaining, fallback](const std::string& req,
+                                       std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(request, nullptr);
+    if (request->method == "tasks/get") {
+      Json result;
+      result.add("resultType", Json::str("complete"));
+      result.add("taskId", Json::str("task-1"));
+      result.add("status",
+                 Json::str(remaining->empty() ? std::string("completed")
+                                              : remaining->front()));
+      if (!remaining->empty()) remaining->pop_front();
+      out.push_back(makeResultLine(request->id, std::move(result)));
+      return;
+    }
+    out.push_back(makeResultLine(request->id, fallback));
+  };
+}
+
+}  // namespace
+
+TEST(ClientTasks, RecognizesCreateTaskResult) {
+  const Json task(R"({"resultType":"task","taskId":"abc","status":"working"})");
+  EXPECT_TRUE(Client::isTaskResult(task));
+  EXPECT_EQ(Client::taskIdOf(task), "abc");
+  EXPECT_FALSE(Client::isTaskResult(Json(R"({"resultType":"complete"})")));
+  EXPECT_EQ(Client::taskIdOf(Json(R"({"resultType":"complete"})")), std::string());
+}
+
+TEST(ClientTasks, TaskWrappersSendTheSpecParams) {
+  ScriptedTransport t({}, {});
+  installTaskResponder(t, {"working", "completed"}, Json(R"({"resultType":"complete"})"));
+  Client client("tasks-client", "1.0");
+  client.connect(t);
+
+  ASSERT_TRUE(client.updateTask("task-1", Json(R"({"ask":{"action":"accept","content":{}}})"))
+                  .has_value());
+  ASSERT_TRUE(client.cancelTask("task-1").has_value());
+  auto got = client.getTask("task-1");
+  ASSERT_TRUE(got.has_value());
+  EXPECT_EQ(std::string(member(*got, "taskId").toString()), "task-1");
+
+  ASSERT_EQ(t.sent_.size(), 3u);
+  EXPECT_NE(t.sent_[0].find("tasks/update"), std::string::npos);
+  EXPECT_NE(t.sent_[0].find("inputResponses"), std::string::npos);
+  EXPECT_NE(t.sent_[1].find("tasks/cancel"), std::string::npos);
+  EXPECT_NE(t.sent_[2].find("tasks/get"), std::string::npos);
+}
+
+TEST(ClientTasks, UpdateRejectsNonObjectInputResponses) {
+  ScriptedTransport t({}, {});
+  Client client("tasks-client", "1.0");
+  client.connect(t);
+  auto bad = client.updateTask("task-1", Json("[]"));
+  ASSERT_FALSE(bad.has_value());
+  EXPECT_EQ(bad.error().code, McpErrorCode::InvalidParams);
+  EXPECT_TRUE(t.sent_.empty());
+}
+
+TEST(ClientTasks, WaitForTaskPollsUntilTerminal) {
+  ScriptedTransport t({}, {});
+  installTaskResponder(t, {"working", "working", "completed"},
+                       Json(R"({"resultType":"complete"})"));
+  Client client("tasks-client", "1.0");
+  client.connect(t);
+
+  Client::TaskWaitOptions options;
+  options.timeout = std::chrono::milliseconds(5000);
+  options.pollInterval = std::chrono::milliseconds(1);
+  auto final = client.waitForTask("task-1", options);
+  ASSERT_TRUE(final.has_value());
+  EXPECT_TRUE(Client::isTerminalTask(*final));
+  EXPECT_EQ(std::string(member(*final, "status").toString()), "completed");
+  EXPECT_EQ(t.sent_.size(), 3u);  // two polls plus the terminal one
+}
+
+TEST(ClientTasks, WaitForTaskTimesOutWhileStillWorking) {
+  ScriptedTransport t({}, {});
+  installTaskResponder(t, {"working", "working", "working", "working"},
+                       Json(R"({"resultType":"complete"})"));
+  Client client("tasks-client", "1.0");
+  client.connect(t);
+
+  Client::TaskWaitOptions options;
+  options.timeout = std::chrono::milliseconds(20);
+  options.pollInterval = std::chrono::milliseconds(10);
+  auto final = client.waitForTask("task-1", options);
+  ASSERT_FALSE(final.has_value());
+  EXPECT_EQ(final.error().code, McpErrorCode::InternalError);
+}
+
+TEST(ClientTasks, IsTerminalTaskCoversEveryTerminalStatus) {
+  EXPECT_TRUE(Client::isTerminalTask(Json(R"({"status":"completed"})")));
+  EXPECT_TRUE(Client::isTerminalTask(Json(R"({"status":"failed"})")));
+  EXPECT_TRUE(Client::isTerminalTask(Json(R"({"status":"cancelled"})")));
+  EXPECT_FALSE(Client::isTerminalTask(Json(R"({"status":"working"})")));
+  EXPECT_FALSE(Client::isTerminalTask(Json(R"({"status":"input_required"})")));
+}

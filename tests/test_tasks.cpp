@@ -300,3 +300,75 @@ TEST(TasksServer, ClientWithoutExtensionGetsMissingRequiredCapability) {
   const Json required = member(denied.error->error.data, "requiredCapabilities");
   EXPECT_FALSE(member(required, "extensions").isNull());
 }
+
+// G5: convenience helpers on the handler surface.
+TEST(TasksServer, ClientSupportsReadsPerRequestCapabilities) {
+  Builder b;
+  b.name("tasks-server").version("1.0");
+  b.tasks(std::make_shared<tasks::InMemoryTaskStore>());
+  bool withExtension = false;
+  b.simpleTool("probe", "reports the client's task support",
+               [&](Ctx& c) -> McpResult<Json> {
+                 if (tasks::clientSupports(c)) withExtension = true;
+                 return Ok(Json(R"({"ok":true})"));
+               });
+  auto server = b.build();
+
+  Out declared =
+      serveOnce(server, makeRequestWithCaps("p1", "tools/call", Json(R"({"name":"probe"})")));
+  ASSERT_NE(declared.result, nullptr);
+  EXPECT_TRUE(withExtension);
+
+  bool denied = false;
+  Builder plain;
+  plain.name("tasks-server").version("1.0");
+  plain.tasks(std::make_shared<tasks::InMemoryTaskStore>());
+  plain.simpleTool("probe", "x", [&](Ctx& c) -> McpResult<Json> {
+    denied = !tasks::clientSupports(c);
+    return Ok(Json(R"({"ok":true})"));
+  });
+  auto plainServer = plain.build();
+  Out undeclared = serveOnce(
+      plainServer,
+      encodeRequest(RequestId("p2"), "tools/call",
+                    [] {
+                      Json params = encodeRequestMeta("2026-07-28", Json(R"({})"),
+                                                      std::nullopt);
+                      params.add("name", Json::str("probe"));
+                      return params;
+                    }()));
+  ASSERT_NE(undeclared.result, nullptr);
+  EXPECT_TRUE(denied);
+}
+
+TEST(TasksServer, NotifyStatusEmitsDetailedTask) {
+  auto store = std::make_shared<tasks::InMemoryTaskStore>();
+  const auto record = tasks::makeTask();
+  ASSERT_TRUE(store->put(record));
+
+  bool emitted = false;
+  Builder b;
+  b.name("tasks-server").version("1.0");
+  b.tasks(store);
+  b.simpleTool("notify", "emits a task status notification",
+               [&](Ctx& c) -> McpResult<Json> {
+                 emitted = tasks::notifyStatus(c, record);
+                 return Ok(Json(R"({"ok":true})"));
+               });
+  auto server = b.build();
+
+  Json params = encodeRequestMeta("2026-07-28", taskCaps(), std::nullopt);
+  params.add("name", Json::str("notify"));
+  params.add("arguments", Json(R"({})"));
+  MemTransport t({});
+  server->processLine(encodeRequest(RequestId("n1"), "tools/call", params), t);
+
+  ASSERT_EQ(t.output_.size(), 2u);
+  EXPECT_TRUE(emitted);
+  const ParsedMessage parsed = parseMessage(t.output_[0]);
+  const auto* notif = std::get_if<JsonRpcNotification>(&parsed);
+  ASSERT_NE(notif, nullptr);
+  EXPECT_EQ(notif->method, "notifications/tasks/status");
+  EXPECT_EQ(std::string(member(notif->params, "taskId").toString()), record.taskId);
+  EXPECT_EQ(std::string(member(notif->params, "status").toString()), "working");
+}

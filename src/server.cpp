@@ -17,25 +17,37 @@ struct MethodRoute {
   std::string_view method;
   std::string_view capability;  // empty = core, always available
   std::string_view registryKey; // "tools" / "resources" / "prompts" / ""
+  // True for methods 2026-07-28 removed: they are served only in the legacy
+  // era. A modern-only server must answer them with HTTP 404 + -32601, which is
+  // what the transport's gate derives from isServedMethod().
+  bool legacyOnly = false;
 };
 
 constexpr MethodRoute kRoutes[] = {
     {"server/discover", "", ""},
-    {"initialize", "", ""},  // legacy handshake; served only when acceptLegacy_
-    {"ping", "", ""},        // legacy (removed in 2026-07-28)
-    {"logging/setLevel", "", ""},  // legacy (removed in 2026-07-28)
+    {"initialize", "", "", true},        // legacy handshake
+    {"ping", "", "", true},              // removed in 2026-07-28
+    {"logging/setLevel", "", "", true},  // removed in 2026-07-28
     {"subscriptions/listen", "", ""},
     {"tools/list", "tools", "tools"},
     {"tools/call", "tools", "tools"},
     {"resources/list", "resources", "resources"},
     {"resources/read", "resources", "resources"},
     {"resources/templates/list", "resources", "resources"},
-    {"resources/subscribe", "resources", "resources"},    // legacy
-    {"resources/unsubscribe", "resources", "resources"},  // legacy
+    {"resources/subscribe", "resources", "resources", true},    // legacy
+    {"resources/unsubscribe", "resources", "resources", true},  // legacy
     {"prompts/list", "prompts", "prompts"},
     {"prompts/get", "prompts", "prompts"},
     {"completion/complete", "completions", ""},
 };
+
+// Dispatch width this translation unit was compiled with. MCP_WORKERS is a
+// PRIVATE build definition: keeping it out of the public headers means an
+// installed consumer can never disagree with the library's real slot count.
+#ifndef MCP_WORKERS
+#define MCP_WORKERS 1
+#endif
+static_assert(MCP_WORKERS >= 1, "MCP_WORKERS must be at least 1");
 
 std::string idToString(const RequestId& id) {
   if (const auto* i = std::get_if<int64_t>(&id)) return std::to_string(*i);
@@ -179,7 +191,13 @@ Server::Server(Server&& other) noexcept
       stateCodec_(std::move(other.stateCodec_)),
       principalResolver_(std::move(other.principalResolver_)),
       cancellations_(std::move(other.cancellations_)),
-      subscriptions_(std::move(other.subscriptions_)) {}
+      subscriptions_(std::move(other.subscriptions_)) {
+  // The slot semaphore is not part of the moved state: a moved-from server is
+  // never dispatched again, and a fresh server starts with the full width.
+  dispatchSlots_ = workerCount();
+}
+
+Server::Server() { dispatchSlots_ = workerCount(); }
 
 // ---- result builders ---------------------------------------------------------
 
@@ -602,7 +620,16 @@ void Server::processLine(const std::string& line, ITransport& out,
 
   // Server-to-client notifications for this request (progress, logging).
   // Best-effort: a write failure must not abort the request.
-  const NotifyFn notify = [&out](const std::string& method, Json params) {
+  //
+  // The log-level gate lives HERE, not only in Ctx::log: the spec says a server
+  // MUST NOT emit notifications/message for a request that did not carry
+  // _meta.logLevel, and Ctx::notify is a public escape hatch. Gating inside the
+  // wrapper makes the MUST hold for every code path. A legacy (pre-2026)
+  // request has no per-request field - it opts in through logging/setLevel -
+  // so the gate applies to modern requests only.
+  const NotifyFn notify = [&out, modern = meta.complete, hasLogLevel = !meta.logLevel.empty()](
+                              const std::string& method, Json params) {
+    if (modern && !hasLogLevel && method == "notifications/message") return;
     (void)out.write(encodeNotification(method, std::move(params)));
   };
 
@@ -1143,6 +1170,18 @@ Builder& Builder::listChanged(std::string capability) {
 bool Server::isKnownMethod(std::string_view method) const {
   return findRoute(method) != nullptr || extensionMethods_.count(std::string(method)) > 0;
 }
+
+bool Server::isServedMethod(std::string_view method) const {
+  if (extensionMethods_.count(std::string(method)) > 0) return true;
+  const MethodRoute* route = findRoute(method);
+  if (route == nullptr) return false;
+  // A modern-only server does not implement the methods 2026-07-28 removed, so
+  // HTTP must answer 404 (the transport's pre-dispatch gate) rather than 200
+  // with a -32601 body.
+  return !route->legacyOnly || acceptLegacy_;
+}
+
+int Server::workerCount() noexcept { return MCP_WORKERS; }
 
 Builder& Builder::extension(std::string id, std::string method, std::string protocolVersion,
                             Handler handler) {

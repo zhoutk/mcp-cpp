@@ -4,10 +4,15 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-10-21
 
-Roadmap Milestone D (2026-07-28 spec calibration) plus the review fixes found
-while auditing it.
+Milestones D, E, F and G: full 2026-07-28 calibration, the reference-fed
+features (Tasks extension, era negotiation, response cache, extension seam), the
+review hardening, and the conformance surface that makes all of it scorable.
+Against the official suite at `--requirements 2026-07-28` the server now passes
+**193/193 checks with a strict (modern-only) fixture**; the dual-era fixture
+keeps the 2025-11-25 revision at 55 passes plus its four baselined legacy
+scenarios, and the client stays at 399/399 on 2026-07-28.
 
 ### Added
 
@@ -135,10 +140,52 @@ while auditing it.
   README, CONTRIBUTING, AGENTS.md and PLAN.md. Restored; they are required by
   the SDK Tiering System.
 
+### Milestone G — conformance surface
+
+Features that shipped in E/F could not be scored because the fixture did not
+expose what the scenarios call. Closed:
+
+- **MRTR surface (G1)**: the fixture implements
+  `test_input_required_result_elicitation`, `..._sampling`, `..._list_roots`,
+  `..._request_state`, `..._multiple_inputs`, `..._multi_round`,
+  `..._tampered_state`, `..._capabilities`, plus the `prompts/get` prompt. All
+  eleven `input-required-result-*` scenarios pass.
+- **Dual-mode CI (G2)**: a modern-only server now answers **HTTP 404** for the
+  methods 2026-07-28 removed (`initialize`, `ping`, `logging/setLevel`,
+  `resources/subscribe`, `resources/unsubscribe`) instead of 200 with a
+  `-32601` body — `Server::isServedMethod` carries the era, while
+  `isKnownMethod` keeps the shadowing check for extension bindings. The
+  stateless scenario's probes (`test_missing_capability`,
+  `test_streaming_elicitation`, `test_logging_tool`) are in the fixture, and CI
+  runs the suite twice: `--requirements 2026-07-28` against a `--strict`
+  fixture (193/193) and the 2025-11-25 revision against the dual-era fixture.
+- **Custom-header validation (G3)**: the fixture exposes
+  `test_header_param` (a string `x-mcp-header`), and the sentinel decoder now
+  requires well-formed Base64 (multiple of four, alphabet only, padding at the
+  end). `http-custom-header-server-validation` passes 10/10 and
+  `http-header-validation` 14/14.
+- **Client task surface (G4)**: `Client::getTask`, `updateTask`, `cancelTask`,
+  `waitForTask` (honours the server's `pollIntervalMs`), plus
+  `isTaskResult`/`taskIdOf`/`isTerminalTask`; the cache also keys entries by
+  `ITransport::authorizationContext()`.
+- **Ergonomics and hardening (G5)**: `tasks::clientSupports(Ctx)` and
+  `tasks::notifyStatus(Ctx, record)`; `setSseKeepAlive` is bounded to
+  `[0, 3600000]` ms because the pump's int conversion would otherwise overflow;
+  `MCP_WORKERS` is now a PRIVATE build definition (`Server::workerCount()`
+  exposes the value at runtime, so an installed consumer cannot disagree with
+  the library's dispatch width).
+- The `notifications/message` gate moved into the server's notification wrapper:
+  a raw `Ctx::notify("notifications/message", …)` can no longer escape a modern
+  request that did not set `_meta.logLevel`.
+- The JSON Schema fixture now carries `allOf`/nested `anyOf`, `if`/`then`/`else`
+  and `$anchor`, so SEP-2106 keyword preservation is scored (8/8).
+- Public docs updated for the release: README status, ROADMAP (Milestone G
+  closed) and docs/CONFORMANCE.md (dual-mode runs and the new totals).
+
 ## [0.3.1] - 2026-10-19
 
 Patch release: two subscription-transport defects found by the v0.3.0 commit
-review ([docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) §七, N1/N2) plus
+review (internal v0.3.0 commit review §七, N1/N2) plus
 a build-system fix (N7).
 
 ### Fixed
@@ -189,7 +236,7 @@ a build-system fix (N7).
 ## [0.3.0] - 2026-10-19
 
 Behavior-correctness release: everything from the P0 review round plus the
-full P1 hardening list ([docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md),
+full P1 hardening list (internal v0.3.0 commit review,
 §六 tracks each item). The `Server` threading promise changed (see the first
 entry), which is why this is a MINOR bump.
 
@@ -457,7 +504,8 @@ cancellation, `completion/complete`, CacheableResult, a JSON Schema 2020-12
 validator, and `x-mcp-header` mirroring. Ten CTest suites, three benchmarks, and the
 zorm integration example.
 
-[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/zhoutk/mcp-cpp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/zhoutk/mcp-cpp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zhoutk/mcp-cpp/compare/v0.1.0...v0.2.0

@@ -83,7 +83,8 @@ viable. The direction is a review convention (there is no automated check yet).
   `WWW-Authenticate` challenges**; the transport never authenticates itself.
   That is the hook `mcp::oauth` (and the conformance fixture) drives.
 - **A subscription is a durable stream, not one HTTP request.** The server emits
-  an SSE keep-alive comment every 5 s, so the subscription stream's read timeout
+  an SSE keep-alive comment every 5 s (`HttpServerTransport::setSseKeepAlive`
+  tunes or disables it), so the subscription stream's read timeout
   is 30 s (a shorter timeout tears down an idle subscription between
   keep-alives). After a dropped stream the client re-subscribes, honours the
   server's `retry:` advice clamped to 100 ms–30 s, and suppresses duplicate

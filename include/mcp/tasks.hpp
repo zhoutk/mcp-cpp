@@ -206,4 +206,24 @@ bool touchTask(TaskStore& store, const std::string& taskId,
 void sweepExpired(TaskStore& store);
 
 }  // namespace tasks
+
+namespace server {
+struct Ctx;  // mcp/server.hpp
+}  // namespace server
+
+namespace tasks {
+
+// True when the CLIENT of this request advertised the tasks extension under
+// params._meta.clientCapabilities.extensions - the per-request form modern
+// clients use. (A legacy session's capabilities are served relaxed, so the
+// modern field is the reliable signal for a task-capable caller.)
+bool clientSupports(const server::Ctx& ctx);
+
+// Emits `notifications/tasks/status` for `record` on the request's channel.
+// Optional per SEP-2663 ("receivers are not required to send these"); it lets a
+// client that keeps the response stream open skip polling. Returns false when
+// nothing could be emitted.
+bool notifyStatus(const server::Ctx& ctx, const TaskRecord& record);
+
+}  // namespace tasks
 }  // namespace mcp

@@ -3,7 +3,7 @@
 # mcp-cpp
 
 [![CI](https://github.com/zhoutk/mcp-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/zhoutk/mcp-cpp/actions/workflows/ci.yml)
-[![Conformance server 2026-07-28](https://img.shields.io/badge/conformance%20server-100%25%20(42%2F42)-brightgreen)](conformance/report-2026-07-28.json)
+[![Conformance server 2026-07-28](https://img.shields.io/badge/conformance%20server-100%25%20(193%2F193)-brightgreen)](docs/CONFORMANCE.md)
 [![Conformance client 2026-07-28](https://img.shields.io/badge/conformance%20client-100%25%20(32%2F32%20scenarios%2C%20399%2F399)-brightgreen)](docs/CONFORMANCE.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](https://en.cppreference.com/w/cpp/17)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -22,25 +22,19 @@ C++ SDK**; this project is offered as one (see [ROADMAP.md](ROADMAP.md)).
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
-**Status:** v0.3.1, feature-complete per [PLAN.md](PLAN.md) §5. Against the
-official conformance suite (v0.2.0-alpha.12) it passes **100% of the scored
-2026-07-28 server scenarios (42/42 checks)** — see
-[`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) and
-[docs/CONFORMANCE.md](docs/CONFORMANCE.md). On the 2025-11-25 suite it scores
-26/30; the four remaining need the server to *request* something from the client
-mid-call, which 2026-07-28 replaced with MRTR. The public roadmap is
-[ROADMAP.md](ROADMAP.md).
+**Status:** v0.4.0, feature-complete per [PLAN.md](PLAN.md) §5. Against the
+official conformance suite (v0.2.0-alpha.12) it passes **193/193 checks at
+`--requirements 2026-07-28`** with a strict (modern-only) fixture, and
+**399/399 client checks** on the same revision — see
+[docs/CONFORMANCE.md](docs/CONFORMANCE.md). On the 2025-11-25 suite the
+dual-era fixture scores 55 passed with four baselined scenarios that need the
+server to *request* something from the client mid-call, a mechanism 2026-07-28
+replaced with MRTR. The public roadmap is [ROADMAP.md](ROADMAP.md).
 
-v0.3.0 is the review-hardening release (see `CHANGELOG.md`): HTTP dispatch is
-serialized across httplib's worker pool, subscriptions survive idle periods and
-reconnect, the installed CMake package carries its platform link dependencies,
-and the full P1 list from
-[docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) is closed —
-protocol-level rejections answer HTTP 400, OAuth and schema inputs are
-hardened against hostile peers, and the concurrency suites run under TSan in CI.
-v0.3.1 (2026-10-19) ships the two subscription-transport defects the v0.3.0
-review found (in-band JSON-RPC rejections, auth challenges) plus a build-system
-fix; see `CHANGELOG.md`.
+v0.4.0 completes the roadmap's calibration and reference-fed milestones: the
+2026-07-28 spec fixes (D), the Tasks extension / era negotiation / response
+cache / extension seam (E), the review hardening (F), and the conformance
+surface that makes them scorable (G). See `CHANGELOG.md` for the itemised list.
 
 ---
 
@@ -77,19 +71,22 @@ fix; see `CHANGELOG.md`.
 | `notifications/cancelled` + queryable cancellation flag | ✅ | ✅ |
 | MRTR: `input_required` results + `inputResponses` retry, `requestState` echo, capability-gated `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | Signed `requestState` (`RequestStateCodec`: HMAC-SHA256, context-bound, TTL) + `Client::callToolWithInput` auto-fulfil loop | ✅ | ✅ |
-| Official conformance suite — **server mode** (2026-07-28: 42/42 checks) | ✅ | ✅ |
+| Official conformance suite — **server mode** (2026-07-28 requirements: 193/193 checks) | ✅ | ✅ |
 | Official conformance suite — **client mode** (2026-07-28: 32/32 scenarios, incl. all 25 `auth/*`) | ✅ | ✅ |
 | OAuth 2.1 client: PRM + AS metadata discovery, DCR / CIMD / pre-registration, PKCE (S256), RFC 8707 `resource`, RFC 9207 `iss`, scope step-up, SEP-2352 migration | ✅ | ✅ |
 | Progress notifications (`Ctx::progress`, client `progressToken` opt-in) | ✅ | ✅ |
 | `completion/complete` (server + client) | ✅ | ✅ |
-| CacheableResult (`ttlMs`/`cacheScope`) on discover, `*/list`, `resources/read` | ✅ | ✅ |
+| CacheableResult (`ttlMs`/`cacheScope`) on discover, `*/list`, `resources/read`; client cache honours both and invalidates on `*_list_changed` | ✅ | ✅ |
+| Client era auto-negotiation (`Client::negotiateEra`: probe → classify → legacy fallback) | ✅ | ✅ |
 | JSON Schema 2020-12 validator; tool `inputSchema` **and** `outputSchema` enforced | ✅ | ✅ |
 | `x-mcp-header` mirroring (client) + server-side validation | ✅ | ✅ |
 | Structured results (`structuredResult()` + spec-recommended text block) | ✅ | ✅ |
 | 2026-07-28 conformance suite (in-repo, `mcp_test_conformance_2026`) | ✅ | n/a |
 | CMake package (`find_package(mcp CONFIG)`, exported `mcp::mcp`) | ✅ | n/a |
 | Roots / Sampling (deprecated by SEP-2577) | ❌ intentionally | Tier-1 keeps compat shims |
-| Tasks extension (`io.modelcontextprotocol/tasks`) | ✅ `Builder::tasks()` + `mcp/tasks.hpp` | extension |
+| Tasks extension (`io.modelcontextprotocol/tasks`) | ✅ `Builder::tasks()` + `mcp/tasks.hpp`; client `getTask`/`updateTask`/`cancelTask`/`waitForTask` | extension |
+| Extension method seam (`Builder::extension(id, method, version, handler)`, SEP-2133 shape) | ✅ | extension |
+| Multi-worker dispatch (`MCP_WORKERS=N`, default 1 = serialized) | ✅ | n/a |
 
 Value-semantic message model, exception-free protocol layer, `[[nodiscard]]` result
 types with `Ok`/`Err` factories that read identically whether `McpResult<T>` aliases
@@ -147,7 +144,7 @@ A vcpkg port and a Conan 2.x recipe ship with the repo:
 # vcpkg (overlay port)
 vcpkg install --overlay-ports=<repo>/packaging/vcpkg mcp-cpp
 # Conan
-conan build <repo>/packaging/conan --version=0.3.1
+conan build <repo>/packaging/conan --version=0.4.0
 ```
 
 httplib and zjson are vendored, so neither package pulls extra dependencies.
@@ -266,7 +263,7 @@ domain.
 ```
 include/mcp/   public headers (mcp.hpp aggregates everything)
 src/           compiled implementation (oauth.cpp is the OAuth 2.1 client)
-tests/         googletest unit tests (13 CTest registrations, incl. real
+tests/         googletest unit tests (16 CTest registrations, incl. real
                subprocess stdio e2e and loopback HTTP/SSE e2e)
 bench/         B1 parse / B2 dispatch / B3 stdio e2e benchmarks
 examples/      minimal_server (Inspector-ready) + the two official-conformance

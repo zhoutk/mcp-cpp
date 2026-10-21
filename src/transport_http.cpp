@@ -368,8 +368,10 @@ struct HttpServerTransport::Impl {
     const std::string method = request ? request->method : notification->method;
 
     // 4. Unknown method -> 404 + -32601 (distinguishes modern servers from
-    // legacy HTTP+SSE hosts, which 404 with an empty body).
-    if (request != nullptr && !server.isKnownMethod(method)) {
+    // legacy HTTP+SSE hosts, which 404 with an empty body). A method the server
+    // does not SERVE in the current era also lands here: a modern-only server
+    // answers 404 for the methods 2026-07-28 removed, as the spec requires.
+    if (request != nullptr && !server.isServedMethod(method)) {
       res.status = 404;
       res.set_content(
           errorBody(request->id, static_cast<int32_t>(McpErrorCode::MethodNotFound),
@@ -605,8 +607,16 @@ void HttpServerTransport::setPrincipalExtractor(PrincipalExtractor extractor) {
 
 McpResult<void> HttpServerTransport::setSseKeepAlive(std::chrono::milliseconds interval) {
   const long long ms = static_cast<long long>(interval.count());
+  // Upper bound: the pump casts the value to int for its timed wait, so an
+  // absurd interval would overflow into a negative wait. One hour is far past
+  // any useful keep-alive cadence.
+  constexpr long long kMaxKeepAliveMs = 3'600'000;
   if (ms < 0) {
     return Err(McpErrorCode::InvalidParams, "SSE keep-alive interval must not be negative");
+  }
+  if (ms > kMaxKeepAliveMs) {
+    return Err(McpErrorCode::InvalidParams,
+               "SSE keep-alive interval must not exceed 3600000 ms (1 hour)");
   }
   if (ms > 0 && ms < 100) {
     return Err(McpErrorCode::InvalidParams,

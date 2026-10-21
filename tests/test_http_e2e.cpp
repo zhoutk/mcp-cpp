@@ -1130,3 +1130,127 @@ TEST(TasksHttpE2E, McpNameMirrorsTaskId) {
   http.stop();
   runner.join();
 }
+
+// G2: a modern-only server does not implement the methods 2026-07-28 removed,
+// so the transport must answer 404 (not 200 with a -32601 body). A dual-era
+// server keeps serving them, which is why this is asserted per mode.
+TEST(RemovedMethodsHttp, StrictServerAnswers404) {
+  Builder b;
+  b.name("strict-http").version("1.0");
+  b.simpleTool("echo", "echoes", [](Ctx& c) -> McpResult<Json> {
+    Json r;
+    r.add("echoed", Json::str(c.params["arguments"]["text"].toString()));
+    return Ok(std::move(r));
+  });
+  auto server = b.build();  // acceptLegacyClients stays off
+  HttpServerTransport http(*server);
+  auto bound = http.bind("127.0.0.1");
+  ASSERT_TRUE(bound.has_value());
+  std::thread runner([&] { (void)http.run(); });
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  httplib::Client raw("127.0.0.1", *bound);
+  for (const char* method : {"ping", "logging/setLevel", "resources/subscribe",
+                             "resources/unsubscribe", "initialize"}) {
+    Json params = encodeRequestMeta("2026-07-28", Json(R"({})"), std::nullopt);
+    const std::string body = encodeRequest(RequestId("x1"), method, params);
+    httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                                {"Mcp-Method", method}};
+    auto res = raw.Post("/mcp", headers, body, "application/json");
+    ASSERT_TRUE(res) << method;
+    EXPECT_EQ(res->status, 404) << method << " must be 404 on a modern-only server";
+    EXPECT_NE(res->body.find("-32601"), std::string::npos) << method;
+  }
+
+  // A dual-era server still serves them (200), so the 404 is mode-specific.
+  Builder legacy;
+  legacy.name("dual-http").version("1.0");
+  legacy.acceptLegacyClients(true);
+  auto dual = legacy.build();
+  HttpServerTransport http2(*dual);
+  auto bound2 = http2.bind("127.0.0.1");
+  ASSERT_TRUE(bound2.has_value());
+  std::thread runner2([&] { (void)http2.run(); });
+  for (int i = 0; i < 10000 && !http2.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  httplib::Client raw2("127.0.0.1", *bound2);
+  const std::string ping = encodeRequest(RequestId("p1"), "ping", Json(nullptr));
+  auto served = raw2.Post("/mcp", httplib::Headers{}, ping, "application/json");
+  ASSERT_TRUE(served);
+  EXPECT_EQ(served->status, 200);
+
+  http2.stop();
+  runner2.join();
+  http.stop();
+  runner.join();
+}
+
+// G3: the sentinel payload must be well-formed Base64 (padded to a multiple of
+// four, alphabet only). A lenient decode would accept the unpadded spelling,
+// which SEP-2243's test-case table requires rejecting.
+TEST(HttpE2E, SentinelPayloadMustBeWellFormedBase64) {
+  Builder b;
+  b.name("b64").version("1.0");
+  b.tool(Json(R"({"name":"hdr","inputSchema":{"type":"object","properties":{
+        "region":{"type":"string","x-mcp-header":"X-Region"}},
+        "required":["region"]}})"),
+         [](Ctx&) -> McpResult<Json> { return Ok(textResult("ok")); });
+  auto server = b.build();
+  HttpServerTransport http(*server);
+  auto bound = http.bind("127.0.0.1");
+  ASSERT_TRUE(bound.has_value());
+  std::thread runner([&] { (void)http.run(); });
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  httplib::Client raw("127.0.0.1", *bound);
+  const auto post = [&](const std::string& headerValue) {
+    httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                                {"Mcp-Method", "tools/call"},
+                                {"Mcp-Name", "hdr"},
+                                {"Mcp-Param-X-Region", headerValue}};
+    return raw.Post("/mcp", headers,
+                    makeModernRequestLine("1", "tools/call",
+                                          Json(R"({"name":"hdr","arguments":{"region":"Hello"}})")),
+                    "application/json");
+  };
+
+  // Padded Base64 decodes to "Hello": accepted.
+  auto encoded = post("=?base64?SGVsbG8=?=");
+  ASSERT_TRUE(encoded);
+  EXPECT_EQ(encoded->status, 200);
+
+  // Unpadded payload and non-alphabet characters are malformed.
+  auto unpadded = post("=?base64?SGVsbG8?=");
+  ASSERT_TRUE(unpadded);
+  EXPECT_EQ(unpadded->status, 400) << "unpadded Base64 must be rejected";
+  auto garbage = post("=?base64?SGVs!!!bG8=?=");
+  ASSERT_TRUE(garbage);
+  EXPECT_EQ(garbage->status, 400) << "non-alphabet Base64 must be rejected";
+
+  // A sentinel prefix without the suffix is a literal, not an encoding.
+  auto literal = post("=?base64?SGVsbG8=");
+  ASSERT_TRUE(literal);
+  EXPECT_EQ(literal->status, 400) << "literal differs from the body value";
+
+  http.stop();
+  runner.join();
+}
+
+// G5: the keep-alive interval is validated at both ends of the useful range.
+TEST(HttpE2E, SseKeepAliveValidatesItsRange) {
+  Builder b;
+  b.name("keepalive").version("1.0");
+  auto server = b.build();
+  HttpServerTransport http(*server);
+
+  using std::chrono::milliseconds;
+  EXPECT_TRUE(http.setSseKeepAlive(milliseconds(0)).has_value());      // disabled
+  EXPECT_TRUE(http.setSseKeepAlive(milliseconds(100)).has_value());    // minimum
+  EXPECT_TRUE(http.setSseKeepAlive(milliseconds(3600000)).has_value());  // 1 hour
+  EXPECT_FALSE(http.setSseKeepAlive(milliseconds(99)).has_value());    // chattering
+  EXPECT_FALSE(http.setSseKeepAlive(milliseconds(-1)).has_value());    // negative
+  // Above the cap the pump's int conversion would overflow.
+  EXPECT_FALSE(http.setSseKeepAlive(milliseconds(3600001)).has_value());
+}

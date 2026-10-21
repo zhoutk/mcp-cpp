@@ -276,20 +276,42 @@ jobs:
           submodules: recursive
       - name: Configure + build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
-      - name: Start fixture server
+      # The fixture has two modes and the suite needs both:
+      #  * --strict is a modern-only 2026-07-28 server. It is what scores the
+      #    stateless scenarios (per-request _meta, 404 for removed methods) and
+      #    the mirrored-header validation.
+      #  * the default is dual-era, needed by scenarios whose client still opens
+      #    with the legacy `initialize` handshake (json-schema-2020-12 among
+      #    them) and by the 2025-11-25 revision.
+      - name: Start fixture server (strict, 2026-07-28)
         run: |
-          ./bin/conformance_server --port 8099 &
-          # The endpoint answers GET with 405 (POST-only transport), so probe
-          # with curl -f off and accept 405 as "ready".
+          ./bin/conformance_server --port 8099 --strict &
           for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/mcp || true)
             if [ "$code" = "405" ] || [ "$code" = "200" ]; then break; fi
             sleep 1
           done
-      - name: Run conformance suite
+      - name: Run conformance suite (2026-07-28 requirements, strict fixture)
         run: |
           npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.12 server \
             --url http://127.0.0.1:8099/mcp \
+            --requirements 2026-07-28 \
+            -o conformance/out-strict
+      - name: Stop strict fixture
+        run: pkill -f 'conformance_server --port 8099' || true
+      - name: Start fixture server (dual-era)
+        run: |
+          ./bin/conformance_server --port 8099 &
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/mcp || true)
+            if [ "$code" = "405" ] || [ "$code" = "200" ]; then break; fi
+            sleep 1
+          done
+      - name: Run conformance suite (2025-11-25, dual-era fixture)
+        run: |
+          npx --yes @modelcontextprotocol/conformance@0.2.0-alpha.12 server \
+            --url http://127.0.0.1:8099/mcp \
+            --spec-version 2025-11-25 \
             --expected-failures conformance/expected-failures.yaml \
             -o conformance/out
       - name: Upload report
@@ -297,7 +319,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: conformance-report
-          path: conformance/out
+          path: |
+            conformance/out
+            conformance/out-strict
 
   # Client mode: the harness starts its own scenario servers and drives OUR
   # client (examples/conformance_client.cpp). This covers the whole required

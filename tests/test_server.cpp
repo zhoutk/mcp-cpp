@@ -234,11 +234,15 @@ TEST(ServerConcurrency, ParallelDispatchIsSerialized) {
   EXPECT_EQ(failures.load(), 0);
 }
 
-#if MCP_WORKERS > 1
 // Multi-worker build: two handlers must be able to overlap. Each waits for a
 // peer to enter its handler, which can only succeed when the server hands out
-// more than one dispatch slot.
+// more than one dispatch slot. The width is a build setting of the LIBRARY
+// (private definition), so the test asks at runtime rather than branching on a
+// macro it might disagree about.
 TEST(ServerConcurrency, WorkersRunHandlersConcurrently) {
+  if (Server::workerCount() < 2) {
+    GTEST_SKIP() << "serialized build (MCP_WORKERS=1)";
+  }
   std::mutex gateMutex;
   std::condition_variable gate;
   int inside = 0;
@@ -270,7 +274,6 @@ TEST(ServerConcurrency, WorkersRunHandlersConcurrently) {
   second.join();
   EXPECT_EQ(successes.load(), 2);
 }
-#endif
 
 TEST(ServerConcurrency, CancellationIsObservedByTheMatchingRequest) {
   // A cancellation arriving for an id that a concurrent dispatch is running
@@ -1462,10 +1465,17 @@ TEST(ServerLogging, LegacySetLevelStillEmits) {
 TEST(ServerProgress, ArbitraryNotificationReachesTransport) {
   Builder b;
   b.simpleTool("log", "logs", [](Ctx& c) -> McpResult<Json> {
+    // A custom notification (not a protocol logging message) must pass
+    // unfiltered: Ctx::notify is the escape hatch for application events.
     Json p;
-    p.add("level", Json::str("info"));
-    p.add("data", Json::str("hello"));
-    c.notify("notifications/message", std::move(p));
+    p.add("detail", Json::str("hello"));
+    c.notify("x-example/progress", std::move(p));
+    // notifications/message is gated on _meta.logLevel, so it is dropped for
+    // this request (see ServerLogging tests).
+    Json log;
+    log.add("level", Json::str("info"));
+    log.add("data", Json::str("gated"));
+    c.notify("notifications/message", std::move(log));
     return Ok(Json(R"({"resultType":"complete"})"));
   });
   auto server = b.build();
@@ -1473,11 +1483,29 @@ TEST(ServerProgress, ArbitraryNotificationReachesTransport) {
       makeRequest("1", "tools/call", Json(R"({"name":"log","arguments":{}})"));
   MemTransport t({line});
   server->processLine(line, t);
-  ASSERT_EQ(t.output_.size(), 2u);
+  ASSERT_EQ(t.output_.size(), 2u);  // the custom notification + the result
   auto n = parseMessage(t.output_[0]);
   auto* notif = std::get_if<JsonRpcNotification>(&n);
   ASSERT_NE(notif, nullptr);
-  EXPECT_EQ(notif->method, "notifications/message");
+  EXPECT_EQ(notif->method, "x-example/progress");
+}
+
+// G2: the log gate lives in the server, not only in Ctx::log, so a raw
+// notifications/message cannot escape a request that did not opt in.
+TEST(ServerLogging, RawNotifyIsGatedToo) {
+  Builder b;
+  b.simpleTool("log", "logs", [](Ctx& c) -> McpResult<Json> {
+    Json p;
+    p.add("level", Json::str("error"));
+    p.add("data", Json::str("should be dropped"));
+    c.notify("notifications/message", std::move(p));
+    return Ok(Json(R"({"resultType":"complete"})"));
+  });
+  auto server = b.build();
+  MemTransport t({});
+  server->processLine(
+      makeRequest("1", "tools/call", Json(R"({"name":"log","arguments":{}})")), t);
+  EXPECT_EQ(t.output_.size(), 1u) << "only the result may be written";
 }
 
 // ---- outputSchema enforcement (server/tools.md "Output Schema") ------------------

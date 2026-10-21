@@ -186,12 +186,26 @@ int main(int argc, char** argv) {
                                      "Tool execution completed"};
            for (int i = 0; i < 3; ++i) {
              if (i > 0) sleepMs(50);
-             Json params;
-             params.add("level", Json::str("info"));
-             params.add("data", Json::str(messages[i]));
-             c.notify("notifications/message", std::move(params));
+             // Ctx::log (not a raw notification): the server drops the message
+             // for a modern request that did not set _meta.logLevel, which is
+             // exactly the MUST the server-no-log-without-loglevel check probes.
+             c.log("info", messages[i]);
            }
            return Ok(oneText("Tool execution completed"));
+         });
+
+  // The stateless scenario's logging probe: same tool under the name it looks
+  // for. It attempts to log with no _meta.logLevel, so nothing may be emitted.
+  b.tool(toolDef("test_logging_tool", "Attempts to log without opt-in",
+                 R"({"type":"object"})"),
+         [](Ctx& c) -> McpResult<Json> {
+           c.log("error", "this must not reach a client that did not opt in");
+           Json params;
+           params.add("level", Json::str("error"));
+           params.add("data", Json::str("raw notify must be gated too"));
+           // Raw escape hatch: the server gates notifications/message itself.
+           c.notify("notifications/message", std::move(params));
+           return Ok(oneText("logging attempted"));
          });
 
   b.tool(toolDef("test_tool_with_progress", "Reports progress 0/50/100",
@@ -206,7 +220,8 @@ int main(int argc, char** argv) {
          });
 
   // JSON Schema 2020-12 keyword preservation (SEP-1613): the suite checks that
-  // $schema, $defs and additionalProperties survive in the tool listing.
+  // these keywords survive verbatim in the tool listing, so the fixture carries
+  // one of each (composition, conditional, $anchor alongside $defs/$ref).
   b.tool(Json(R"({
         "name": "json_schema_2020_12_tool",
         "description": "Tool with JSON Schema 2020-12 features",
@@ -215,6 +230,7 @@ int main(int argc, char** argv) {
           "type": "object",
           "$defs": {
             "address": {
+              "$anchor": "addressAnchor",
               "type": "object",
               "properties": { "street": {"type":"string"}, "city": {"type":"string"} }
             }
@@ -223,6 +239,16 @@ int main(int argc, char** argv) {
             "name": {"type":"string"},
             "address": {"$ref": "#/$defs/address"}
           },
+          "allOf": [
+            {"properties": {"name": {"type":"string"}}},
+            {"anyOf": [
+              {"properties": {"address": {"type":"object"}}},
+              {"required": ["name"]}
+            ]}
+          ],
+          "if": {"properties": {"name": {"type":"string"}}, "required": ["name"]},
+          "then": {"properties": {"address": {"type":"object"}}},
+          "else": {"properties": {"address": {"type":"object"}}},
           "additionalProperties": false
         }
       })"),
@@ -231,6 +257,366 @@ int main(int argc, char** argv) {
   // The sampling / elicitation tools need a server->client REQUEST, which
   // 2026-07-28 replaced with MRTR. They are intentionally absent here; the
   // scenarios are listed in conformance/expected-failures.yaml.
+  //
+  // The MRTR surface (SEP-2322) is different: the server answers the original
+  // request with InputRequiredResult and the client retries, so these tools are
+  // exercised by the input-required-result-* scenarios.
+  //
+  // requestState needs a codec; the key is a fixture value (a real deployment
+  // supplies its own secret).
+  auto codec = RequestStateCodec::create("conformance-fixture-requeststate-key-0001", 600);
+  if (codec.has_value()) b.requestStateCodec(std::move(*codec));
+
+  // This round's inputResponses entry (or Null on round 1). The value is the
+  // client's RESULT for that request: an elicitation result wraps the answers
+  // in `content`, while sampling and roots return their own result shape.
+  const auto inputResult = [](const Ctx& c, const char* key) {
+    return member(member(c.params, kInputResponsesKey), key);
+  };
+  // The elicitation answers of this round (Null when not an elicitation round).
+  const auto inputContent = [inputResult](const Ctx& c, const char* key) {
+    return member(inputResult(c, key), "content");
+  };
+  // The elicitation request shape used by the MRTR scenarios.
+  const auto elicitation = [](const char* message, const char* schemaJson) {
+    Json params;
+    params.add("mode", Json::str("form"));
+    params.add("message", Json::str(message));
+    params.add("requestedSchema", Json(schemaJson));
+    Json request;
+    request.add("method", Json::str("elicitation/create"));
+    request.add("params", std::move(params));
+    return request;
+  };
+
+  // A1: one elicitation, then "Hello, <name>!".
+  b.tool(toolDef("test_input_required_result_elicitation", "MRTR: one elicitation",
+                 R"({"type":"object"})"),
+         [inputContent, elicitation](Ctx& c) -> McpResult<Json> {
+           const Json content = inputContent(c, "user_name");
+           if (!content.isObject()) {
+             Json requests = Json(R"({})");
+             requests.add("user_name",
+                          elicitation("What is your name?",
+                                      R"({"type":"object","properties":{"name":{"type":"string"}},
+                                          "required":["name"]})"));
+             return c.inputRequired(std::move(requests), "");
+           }
+           const Json name = member(content, "name");
+           return Ok(oneText("Hello, " + std::string(name.toString()) + "!"));
+         });
+
+  // A2: one sampling request, then the model's answer.
+  b.tool(toolDef("test_input_required_result_sampling", "MRTR: one sampling request",
+                 R"({"type":"object"})"),
+         [inputResult](Ctx& c) -> McpResult<Json> {
+           const Json content = inputResult(c, "capital_question");
+           if (!content.isObject()) {
+             Json sampling;
+             Json messages = Json("[]");
+             Json message;
+             message.add("role", Json::str("user"));
+             Json text;
+             text.add("type", Json::str("text"));
+             text.add("text", Json::str("What is the capital of France?"));
+             message.add("content", std::move(text));
+             messages.push_back(std::move(message));
+             sampling.add("messages", std::move(messages));
+             sampling.add("maxTokens", Json(static_cast<int64_t>(100)));
+             Json request;
+             request.add("method", Json::str("sampling/createMessage"));
+             request.add("params", std::move(sampling));
+             Json requests = Json(R"({})");
+             requests.add("capital_question", std::move(request));
+             return c.inputRequired(std::move(requests), "");
+           }
+           const Json samplingContent = member(content, "content");
+           const std::string answer =
+               member(samplingContent, "text").isString()
+                   ? std::string(member(samplingContent, "text").toString())
+                   : std::string(content.toString());
+           return Ok(oneText("answer: " + answer));
+         });
+
+  // A3: one roots/list request, then a result referencing the roots.
+  b.tool(toolDef("test_input_required_result_list_roots", "MRTR: roots/list",
+                 R"({"type":"object"})"),
+         [inputResult](Ctx& c) -> McpResult<Json> {
+           const Json content = inputResult(c, "client_roots");
+           if (!content.isObject()) {
+             Json request;
+             request.add("method", Json::str("roots/list"));
+             request.add("params", Json(R"({})"));
+             Json requests = Json(R"({})");
+             requests.add("client_roots", std::move(request));
+             return c.inputRequired(std::move(requests), "");
+           }
+           const Json roots = member(content, "roots");
+           std::string first;
+           if (roots.isArray()) {
+             for (const auto& root : roots.toVector()) {
+               first = std::string(member(root, "uri").toString());
+               break;
+             }
+           }
+           return Ok(oneText("roots: " + first));
+         });
+
+  // A4: requestState round-trips; the completion must say "state-ok".
+  b.tool(toolDef("test_input_required_result_request_state",
+                 "MRTR: requestState round trip", R"({"type":"object"})"),
+         [inputContent, elicitation](Ctx& c) -> McpResult<Json> {
+           const Json content = inputContent(c, "confirm");
+           if (!content.isObject()) {
+             Json requests = Json(R"({})");
+             requests.add("confirm",
+                          elicitation("Please confirm",
+                                      R"({"type":"object","properties":{"ok":{"type":"boolean"}},
+                                          "required":["ok"]})"));
+             auto state = c.sealRequestState("fixture-state");
+             if (!state.has_value()) return Err(state.error());
+             return c.inputRequired(std::move(requests), state.value());
+           }
+           // A forged or stale state makes openRequestState fail with -32602.
+           auto opened = c.openRequestState();
+           if (!opened.has_value()) return Err(opened.error());
+           if (!opened->has_value()) return Err(McpErrorCode::InvalidParams, "missing requestState");
+           return Ok(oneText("state-ok"));
+         });
+
+  // A5: three simultaneous input requests plus state.
+  b.tool(toolDef("test_input_required_result_multiple_inputs",
+                 "MRTR: elicitation + sampling + roots", R"({"type":"object"})"),
+         [inputContent, inputResult, elicitation](Ctx& c) -> McpResult<Json> {
+           const bool done = inputContent(c, "user_name").isObject() &&
+                             inputResult(c, "greeting").isObject() &&
+                             inputResult(c, "client_roots").isObject();
+           if (!done) {
+             Json requests = Json(R"({})");
+             requests.add("user_name",
+                          elicitation("What is your name?",
+                                      R"({"type":"object","properties":{"name":{"type":"string"}},
+                                          "required":["name"]})"));
+             Json sampling;
+             Json messages = Json("[]");
+             Json message;
+             message.add("role", Json::str("user"));
+             Json text;
+             text.add("type", Json::str("text"));
+             text.add("text", Json::str("Generate a greeting"));
+             message.add("content", std::move(text));
+             messages.push_back(std::move(message));
+             sampling.add("messages", std::move(messages));
+             sampling.add("maxTokens", Json(static_cast<int64_t>(50)));
+             Json samplingRequest;
+             samplingRequest.add("method", Json::str("sampling/createMessage"));
+             samplingRequest.add("params", std::move(sampling));
+             requests.add("greeting", std::move(samplingRequest));
+             Json rootsRequest;
+             rootsRequest.add("method", Json::str("roots/list"));
+             rootsRequest.add("params", Json(R"({})"));
+             requests.add("client_roots", std::move(rootsRequest));
+             auto state = c.sealRequestState("multi-round-1");
+             if (!state.has_value()) return Err(state.error());
+             return c.inputRequired(std::move(requests), state.value());
+           }
+           auto opened = c.openRequestState();
+           if (!opened.has_value()) return Err(opened.error());
+           return Ok(oneText("all inputs received"));
+         });
+
+  // A6: three rounds with evolving state.
+  b.tool(toolDef("test_input_required_result_multi_round", "MRTR: multi round",
+                 R"({"type":"object"})"),
+         [inputContent, elicitation](Ctx& c) -> McpResult<Json> {
+           Json requests = Json(R"({})");
+           // Each retry carries ONLY the newly answered key, so the round is
+           // selected by which key arrived, not by which are absent.
+           const Json step1 = inputContent(c, "step1");
+           const Json step2 = inputContent(c, "step2");
+           if (!step1.isObject() && !step2.isObject()) {
+             requests.add("step1",
+                          elicitation("Step 1: What is your name?",
+                                      R"({"type":"object","properties":{"name":{"type":"string"}},
+                                          "required":["name"]})"));
+             auto state = c.sealRequestState("step=1");
+             if (!state.has_value()) return Err(state.error());
+             return c.inputRequired(std::move(requests), state.value());
+           }
+           if (!step2.isObject()) {
+             // Step 1 arrived: the state must be the one step 1 issued.
+             auto opened = c.openRequestState();
+             if (!opened.has_value()) return Err(opened.error());
+             if (!opened->has_value() || **opened != "step=1") {
+               return Err(McpErrorCode::InvalidParams, "unexpected requestState");
+             }
+             requests.add("step2",
+                          elicitation("Step 2: What is your favorite color?",
+                                      R"({"type":"object","properties":{"color":{"type":"string"}},
+                                          "required":["color"]})"));
+             auto state = c.sealRequestState("step=2");
+             if (!state.has_value()) return Err(state.error());
+             return c.inputRequired(std::move(requests), state.value());
+           }
+           // Step 2 arrived: the state must be the one step 2 issued.
+           auto verified = c.openRequestState();
+           if (!verified.has_value()) return Err(verified.error());
+           if (!verified->has_value() || **verified != "step=2") {
+             return Err(McpErrorCode::InvalidParams, "unexpected requestState");
+           }
+           return Ok(oneText("multi round complete"));
+         });
+
+  // A7: integrity-protected state; a tampered value must be rejected.
+  b.tool(toolDef("test_input_required_result_tampered_state",
+                 "MRTR: rejects tampered requestState", R"({"type":"object"})"),
+         [inputContent, elicitation](Ctx& c) -> McpResult<Json> {
+           const Json content = inputContent(c, "answer");
+           if (!content.isObject()) {
+             Json requests = Json(R"({})");
+             requests.add("answer",
+                          elicitation("Answer to continue",
+                                      R"({"type":"object","properties":{"v":{"type":"string"}}})"));
+             auto state = c.sealRequestState("tamper-check");
+             if (!state.has_value()) return Err(state.error());
+             return c.inputRequired(std::move(requests), state.value());
+           }
+           auto opened = c.openRequestState();
+           if (!opened.has_value()) return Err(opened.error());
+           if (!opened->has_value() || **opened != "tamper-check") {
+             return Err(McpErrorCode::InvalidParams, "requestState verification failed");
+           }
+           return Ok(oneText("state valid"));
+         });
+
+  // A8b: only request what the client declared. The suite sends sampling-only
+  // capabilities and rejects any elicitation/create request in the answer.
+  b.tool(toolDef("test_input_required_result_capabilities",
+                 "MRTR: requests only declared capabilities", R"({"type":"object"})"),
+         [elicitation](Ctx& c) -> McpResult<Json> {
+           const Json capabilities = c.meta.clientCapabilities;
+           Json requests = Json(R"({})");
+           if (capabilitiesInclude(capabilities, "sampling")) {
+             Json sampling;
+             Json messages = Json("[]");
+             Json message;
+             message.add("role", Json::str("user"));
+             Json text;
+             text.add("type", Json::str("text"));
+             text.add("text", Json::str("Declared-capability probe"));
+             message.add("content", std::move(text));
+             messages.push_back(std::move(message));
+             sampling.add("messages", std::move(messages));
+             sampling.add("maxTokens", Json(static_cast<int64_t>(16)));
+             Json request;
+             request.add("method", Json::str("sampling/createMessage"));
+             request.add("params", std::move(sampling));
+             requests.add("sampling_probe", std::move(request));
+           }
+           if (capabilitiesInclude(capabilities, "elicitation")) {
+             requests.add("elicit_probe",
+                          elicitation("Declared-capability probe",
+                                      R"({"type":"object","properties":{"v":{"type":"string"}}})"));
+           }
+           if (capabilitiesInclude(capabilities, "roots")) {
+             Json request;
+             request.add("method", Json::str("roots/list"));
+             request.add("params", Json(R"({})"));
+             requests.add("roots_probe", std::move(request));
+           }
+           // requestState keeps the result valid even when nothing was
+           // declared (InputRequiredResult requires one of the two).
+           auto state = c.sealRequestState("capability-probe");
+           if (!state.has_value()) return Err(state.error());
+           return c.inputRequired(std::move(requests), state.value());
+         });
+
+  // A8: the same contract on prompts/get (InputRequiredResult is universal).
+  Json mrtrPrompt;
+  mrtrPrompt.add("name", Json::str("test_input_required_result_prompt"));
+  mrtrPrompt.add("description", Json::str("MRTR prompt"));
+  b.prompt(mrtrPrompt, [inputContent, elicitation](Ctx& c) -> McpResult<Json> {
+    const Json content = inputContent(c, "user_context");
+    if (!content.isObject()) {
+      Json requests = Json(R"({})");
+      requests.add("user_context",
+                   elicitation("What context should the prompt use?",
+                               R"({"type":"object","properties":{"context":{"type":"string"}},
+                                   "required":["context"]})"));
+      return c.inputRequired(std::move(requests), "");
+    }
+    Json message;
+    message.add("role", Json::str("user"));
+    Json text;
+    text.add("type", Json::str("text"));
+    text.add("text", Json::str("context: " + std::string(member(content, "context").toString())));
+    message.add("content", std::move(text));
+    Json messages = Json("[]");
+    messages.push_back(std::move(message));
+    Json result;
+    result.add("messages", std::move(messages));
+    return Ok(std::move(result));
+  });
+
+  // Stateless scenario: a tool that needs a capability the caller did not
+  // declare. It asks for sampling, so the -32021 payload names "sampling".
+  b.tool(toolDef("test_missing_capability", "Requires the sampling capability",
+                 R"({"type":"object"})"),
+         [](Ctx& c) -> McpResult<Json> {
+           Json sampling;
+           Json messages = Json("[]");
+           Json message;
+           message.add("role", Json::str("user"));
+           Json text;
+           text.add("type", Json::str("text"));
+           text.add("text", Json::str("probe"));
+           message.add("content", std::move(text));
+           messages.push_back(std::move(message));
+           sampling.add("messages", std::move(messages));
+           sampling.add("maxTokens", Json(static_cast<int64_t>(8)));
+           Json request;
+           request.add("method", Json::str("sampling/createMessage"));
+           request.add("params", std::move(sampling));
+           Json requests = Json(R"({})");
+           requests.add("probe", std::move(request));
+           return c.inputRequired(std::move(requests), "");
+         });
+
+  // Stateless scenario: an MRTR answer delivered on the request's own stream.
+  b.tool(toolDef("test_streaming_elicitation", "MRTR answer on a stream",
+                 R"({"type":"object"})"),
+         [](Ctx& c) -> McpResult<Json> {
+           Json requests = Json(R"({})");
+           Json params;
+           params.add("mode", Json::str("form"));
+           params.add("message", Json::str("Streaming elicitation"));
+           params.add("requestedSchema",
+                      Json(R"({"type":"object","properties":{"v":{"type":"string"}}})"));
+           Json request;
+           request.add("method", Json::str("elicitation/create"));
+           request.add("params", std::move(params));
+           requests.add("stream_input", std::move(request));
+           return c.inputRequired(std::move(requests), "");
+         });
+
+  // SEP-2243: a tool whose string parameter is mirrored into a header. The
+  // suite drives its Base64/literal validation cases through this definition.
+  b.tool(Json(R"({
+        "name": "test_header_param",
+        "description": "Mirrors a string parameter into Mcp-Param-X-Region",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "region": {"type": "string", "x-mcp-header": "X-Region"},
+            "query": {"type": "string"}
+          },
+          "required": ["region"]
+        }
+      })"),
+         [](Ctx& c) -> McpResult<Json> {
+           const Json region = member(c.params["arguments"], "region");
+           return Ok(oneText("region=" + std::string(region.toString())));
+         });
 
   // ---- tasks extension (SEP-2663) -----------------------------------------
   // The suite's tasks-* scenarios drive these tools. `taskSupport = required`
@@ -239,10 +625,10 @@ int main(int argc, char** argv) {
   auto store = std::make_shared<tasks::InMemoryTaskStore>();
   b.tasks(store);
 
-  const auto hasTasks = [](Ctx& c) {
-    return capabilitiesIncludeExtension(c.meta.clientCapabilities,
-                                        std::string(tasks::kExtensionId));
-  };
+  // tasks::clientSupports() reads the per-request extension advertisement; the
+  // fixture's own missingTasks() builds the -32021 the suite expects when a
+  // task-required tool is called without it.
+  const auto hasTasks = [](Ctx& c) { return tasks::clientSupports(c); };
 
   auto missingTasks = [] {
     McpError error;

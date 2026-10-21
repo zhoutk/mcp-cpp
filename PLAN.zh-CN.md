@@ -569,3 +569,56 @@ handler 确实重叠执行。
 **否决。** 每请求独立 `Server`（隔离性收益不足以支撑当前改动量）；缓存
 `ttlMs: 0` 的结果；向未声明扩展的客户端提供扩展方法；在 TaskStore 里起后台
 TTL 清扫线程（改在协议入口机会式清扫）。
+
+### 2026-10-21 Update 12 —— 里程碑 G：一致性覆盖面，以及 v0.4.0
+
+**动机**：Update 11 之后功能已经存在，但官方套件无法给其中大部分计分——夹具
+（`examples/conformance_server.cpp`）缺少场景所调用的工具。`--suite all` 仍有 36 个
+失败场景，包括整个 `input-required-result-*` 家族和刚刚实现的每个 `tasks-*` 场景。
+一个库本身是绿的、但夹具不可用，并不构成证据。
+
+**改动**：
+
+1. **MRTR 夹具面。** 九个工具外加一个 prompt，对应规范自身的示例：
+   `test_input_required_result_elicitation`、`..._sampling`、`..._list_roots`、
+   `..._request_state`、`..._multiple_inputs`、`..._multi_round`、
+   `..._tampered_state`、`..._capabilities`、`test_streaming_elicitation`，以及
+   `prompts/get` 的 prompt。编写过程中得到两条教训：
+   - 重试请求**只携带本轮新应答**的 `inputResponses` 键，因此多轮 handler 必须按
+     "哪个键到达"选择轮次，绝不能按"哪些键缺失"；
+   - 只有 elicitation 把答案包在 `content` 里；sampling 与 `roots/list` 返回各自的
+     result 形状，一个访问器无法同时服务三者。
+2. **时代区分下沉到传输层。** 仅现代服务器必须对 2026-07-28 移除的五个方法返回
+   **404**，而不是 200 搭配 `-32601` 正文。`MethodRoute` 增加 `legacyOnly` 标记，
+   HTTP 闸门改用 `Server::isServedMethod()`；`isKnownMethod()` 保持"所有规范路由"的
+   含义，使扩展绑定仍不能遮蔽 legacy 方法。
+3. **两种夹具模式、两轮 CI。** `--strict` 是仅现代服务器（`server-stateless` 28/28、
+   头校验 14/14）；双时代默认模式服务 `json-schema-2020-12` 与整个 2025-11-25 修订。
+   CI 对严格夹具跑 `--requirements 2026-07-28`，对双时代夹具跑
+   `--spec-version 2025-11-25`。
+4. **日志门控移入服务器。** `Ctx::log` 本已门控，但
+   `Ctx::notify("notifications/message", …)` 可以绕过——在套件开始探测后，这距 MUST
+   违规只有一行。现在包装层会对缺少 `_meta.logLevel` 的现代请求丢弃该消息；legacy
+   请求保留 `logging/setLevel` 的语义。
+5. **哨兵载荷校验。** 解码器现在要求格式正确的 Base64（长度为四的倍数、仅字母表、
+   填充在末尾），因为 SEP-2243 的用例表要求拒绝未填充写法。`base64Decode` 本身仍宽松：
+   只有头部哨兵路径变严格。
+6. **`MCP_WORKERS` 改为 PRIVATE。** 它曾是 PUBLIC 定义，会把值放进安装目标的接口，
+   并进入头文件的成员初始化——对自行定义不同值的消费者是 ODR 隐患。头文件不再提及
+   它；`Server::workerCount()` 报告库构建时的宽度，并发测试改为运行时询问。
+7. **客户端任务面。** `Client::getTask` / `updateTask` / `cancelTask` /
+   `waitForTask`（遵守服务端 `pollIntervalMs`），以及静态辅助
+   `isTaskResult` / `taskIdOf` / `isTerminalTask`。
+8. **较小的加固。** `setSseKeepAlive` 上限一小时（泵内部转 `int`）；
+   `tasks::clientSupports(Ctx)` 与 `tasks::notifyStatus` 补齐 handler 侧人体工学；
+   响应缓存按 `ITransport::authorizationContext()` 分键，并在列表变更通知时失效。
+
+**验证。** 严格夹具：`--requirements 2026-07-28` 下 **193/193**。双时代夹具：
+2025-11-25 上 55 项通过 + 4 个已基线 legacy 场景。客户端：2026-07-28 上 399/399。
+单元测试 16/16，并在三种 CI 形态（默认、`MCP_DISABLE_HTTP=ON`、`-std=c++23`）下
+`-Werror` 构建通过，另有 `MCP_WORKERS=4` 运行。
+
+**否决。** 为让某个 2025 时代场景在严格模式下通过而放宽 `MCP-Protocol-Version`
+头的强制要求（规范使其强制；该场景属于双时代运行）；放宽 Base64 解码接受未填充输入
+（套件用例表禁止）；把 `MCP_WORKERS` 暴露成运行时设置（派发宽度是构建属性，运行时
+改变会静默破坏 handler 的线程安全假设）。

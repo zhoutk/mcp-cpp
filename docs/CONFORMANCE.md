@@ -1,5 +1,5 @@
 > Language: **English** | [中文](CONFORMANCE.zh-CN.md)
-> Date: 2026-10-09
+> Date: 2026-10-21
 
 # Conformance
 
@@ -8,22 +8,27 @@ MCP SDKs are scored by the official
 suite. Tier 1 requires **100%** of applicable required scenarios; Tier 2 requires
 **80%**. This document explains how mcp-cpp is wired to that suite.
 
-> **Status (2026-10-13), both spec versions:**
+> **Status (2026-10-21, suite `@modelcontextprotocol/conformance@0.2.0-alpha.12`):**
 >
-> - **2026-07-28: 42/42 checks, 20/20 scenarios — 100%** of the scored (active)
->   suite, with `@modelcontextprotocol/conformance@0.2.0-alpha.12` — see
->   [`conformance/report-2026-07-28.json`](../conformance/report-2026-07-28.json).
-> - **2025-11-25: 26/30** with v0.1.16 — see
->   [`conformance/report.json`](../conformance/report.json). The four failures
->   all require the **server to send a request to the client** mid-call
->   (`sampling/createMessage` / `elicitation/create`); 2026-07-28 replaced that
->   mechanism with MRTR, which this SDK implements. Recorded in
+> - **2026-07-28: 193/193 checks — 100%**, run as
+>   `server --requirements 2026-07-28` against the fixture in `--strict` mode
+>   (a modern-only server: per-request `_meta` required, removed methods answer
+>   404). This scores the tasks extension, the whole MRTR family, stateless
+>   per-request metadata, header mirroring and custom-header validation.
+> - **2025-11-25: 55 passed + 4 baselined** against the dual-era fixture. The
+>   four (`tools-call-sampling`, `tools-call-elicitation`,
+>   `elicitation-sep1034-defaults`, `elicitation-sep1330-enums`) need the
+>   **server to send a request to the client** mid-call; 2026-07-28 replaced
+>   that mechanism with MRTR, which this SDK implements. Recorded in
 >   [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml).
+> - **Client mode 2026-07-28: 32/32 scenarios, 399/399 checks**, including all
+>   25 `auth/*` OAuth 2.1 + CIMD scenarios.
 >
-> The unscored *pending* 2026 scenarios additionally run with `--suite all`:
-> `sep-2164-resource-not-found` passes; `server-stateless` needs the fixture's
-> `--strict` flag (15/28); the `input-required-*` scenarios need the fixture to
-> expose MRTR tools — tracked as follow-up work in the 2026 report.
+> **Why two fixture modes.** A modern-only server must answer 404 for the RPCs
+> 2026-07-28 removed, and must reject requests without per-request `_meta`; the
+> 2025-era scenarios expect the opposite (the `initialize` handshake, no
+> mirrored headers). The fixture therefore has `--strict` and dual-era modes and
+> CI runs the suite once per mode. See section 2.
 
 ---
 
@@ -51,21 +56,35 @@ cmake --preset clang-rlz && cmake --build build -j 8
 
 ### Server mode (Streamable HTTP)
 
-Server mode takes a `--url`; there is no stdio option. `examples/conformance_server.cpp`
-is the fixture the suite expects — it exposes the required tool/resource/prompt
-surface and runs in legacy-client mode so the 2025-era handshake and missing
-mirrored headers are accepted:
+Server mode takes a `--url`; there is no stdio option.
+`examples/conformance_server.cpp` is the fixture the suite expects — it exposes
+the tool / resource / prompt surface, the tasks extension, the MRTR tools, an
+`x-mcp-header` tool, and two era modes.
+
+**2026-07-28 (scored, modern-only fixture):**
+
+```bash
+./bin/conformance_server.exe --port 8099 --strict &
+npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server \
+  --url http://127.0.0.1:8099/mcp --requirements 2026-07-28 -o conformance/out-strict
+```
+
+`--requirements <revision>` runs exactly the scenarios that revision requires
+(frozen at release) and is the number quoted in the status block above.
+
+**2025-11-25 (dual-era fixture):**
 
 ```bash
 ./bin/conformance_server.exe --port 8099 &
-npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp \
-  -o conformance/out
+npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server \
+  --url http://127.0.0.1:8099/mcp --spec-version 2025-11-25 \
+  --expected-failures conformance/expected-failures.yaml -o conformance/out
 ```
 
-Useful flags: `--scenario <name>` (one scenario), `--suite active|all|pending`,
-`--spec-version <v>` (only 2025-xx are valid), `--expected-failures <file>.yaml`,
-`--verbose`. There is no `--output json` on `server` in v0.1.16; the per-scenario
-`checks.json` files under `-o` are the raw results.
+Useful flags: `--scenario <name>` (one scenario), `--suite active|all|pending|draft`,
+`--spec-version <v>` (only 2025-xx are valid), `--requirements <revision>`,
+`--expected-failures <file>.yaml`, `--verbose`. The per-scenario `checks.json`
+files under `-o` are the raw results.
 
 ### Client mode
 
@@ -117,30 +136,25 @@ npx @modelcontextprotocol/conformance tier-check \
 
 ## 3. CI integration
 
-The suite ships a GitHub Action (v0.1.11+). It runs in server mode against a
-locally built fixture server, and in client mode against the scenario server:
+The `.github/workflows/ci.yml` `conformance` job runs the CLI twice, once per
+fixture mode, and uploads both reports as an artifact:
 
-```yaml
-- name: Conformance (server)
-  uses: modelcontextprotocol/conformance@v0.1.16
-  with:
-    mode: server
-    url: http://127.0.0.1:8099/mcp
-```
+1. `conformance_server --strict` + `server --requirements 2026-07-28`
+   (fails the job on any unexpected result: this run has no baseline);
+2. `conformance_server` (dual-era) + `server --spec-version 2025-11-25
+   --expected-failures conformance/expected-failures.yaml`.
 
-The `.github/workflows/ci.yml` conformance job starts `conformance_server`,
-invokes the action with `--expected-failures conformance/expected-failures.yaml`,
-and uploads the report as an artifact. A non-zero exit (an unexpected failure)
-fails the job, so regressions are caught while the known four stay baselined.
+A non-zero exit (an unexpected failure) fails the job, so regressions are caught
+while the four known legacy scenarios stay baselined.
 
 ## 3b. The in-repo 2026-07-28 suite
 
-Because the official suite's 2026-07-28 scenarios are still unscored (the
-*pending* set noted at the top), the repository carries its own:
+The official suite now scores the 2026-07-28 surface, but the repository still
+carries its own focused suite:
 **`tests/test_conformance_2026.cpp`** (`mcp_test_conformance_2026`,
 registered with CTest and run by CI). It is written as named scenarios, one per
-spec requirement, so the 2026 surface is covered the way the official suite will
-cover it once it catches up.
+spec requirement, so a regression points at the clause it breaks instead of at a
+suite scenario name.
 
 | Scenario | Spec section |
 | --- | --- |
@@ -175,9 +189,10 @@ ctest --test-dir build -R mcp_test_conformance_2026 -V
 
 - The pass rate and the suite version are published in `README.md` and
   `ROADMAP.md`.
-- `conformance/report.json` is the machine-readable summary committed with each
-  release; `CHANGELOG.md` records the score.
-- Attach it to the SDK Working Group proposal when one is submitted.
+- `conformance/report-2026-07-28.json` holds the 2026-07-28
+  `--requirements` run and `conformance/report.json` the 2025-11-25 run; both are
+  regenerated for each release, and `CHANGELOG.md` records the score.
+- Attach them to the SDK Working Group proposal when one is submitted.
 
 ---
 

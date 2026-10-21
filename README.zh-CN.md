@@ -3,7 +3,7 @@
 # mcp-cpp
 
 [![CI](https://github.com/zhoutk/mcp-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/zhoutk/mcp-cpp/actions/workflows/ci.yml)
-[![Conformance server 2026-07-28](https://img.shields.io/badge/conformance%20server-100%25%20(42%2F42)-brightgreen)](conformance/report-2026-07-28.json)
+[![Conformance server 2026-07-28](https://img.shields.io/badge/conformance%20server-100%25%20(193%2F193)-brightgreen)](docs/CONFORMANCE.zh-CN.md)
 [![Conformance client 2026-07-28](https://img.shields.io/badge/conformance%20client-100%25%20(32%2F32%20scenarios%2C%20399%2F399)-brightgreen)](docs/CONFORMANCE.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](https://en.cppreference.com/w/cpp/17)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -21,19 +21,16 @@ SDK**；本项目即是作为其中之一而提供的（见 [ROADMAP.md](ROADMAP
 CMake ≥ 3.18 · C++17 · MIT · no external deps beyond a bundled JSON header
 ```
 
-**状态：** v0.3.1，按 [PLAN.md](PLAN.md) §5 功能已完备。针对官方一致性测试套件
-（v0.2.0-alpha.12），它通过了 **100% 的计分 2026-07-28 服务端场景（42/42 项检查）**——参见
-[`conformance/report-2026-07-28.json`](conformance/report-2026-07-28.json) 和
-[docs/CONFORMANCE.md](docs/CONFORMANCE.md)。2025-11-25 套件为 26/30；其余四个需要服务器
-在调用中途向客户端*请求*某些东西，而 2026-07-28 已用 MRTR 取代了该机制。公开路线图见
-[ROADMAP.md](ROADMAP.md)。
+**状态：** v0.4.0，按 [PLAN.md](PLAN.md) §5 功能已完备。针对官方一致性测试套件
+（v0.2.0-alpha.12），在严格（仅现代）夹具下以 `--requirements 2026-07-28` 通过
+**193/193 项检查**；同一修订的客户端模式为 **399/399**——参见
+[docs/CONFORMANCE.zh-CN.md](docs/CONFORMANCE.zh-CN.md)。2025-11-25 套件由双时代夹具运行，
+得分 55 项通过 + 4 个已基线场景（它们需要服务器在调用中途向客户端*请求*，而 2026-07-28
+已用 MRTR 取代该机制）。公开路线图见 [ROADMAP.md](ROADMAP.md)。
 
-v0.3.0 是评审加固版本（见 `CHANGELOG.md`）：HTTP 派发在 httplib worker 池上串行化，订阅
-能熬过空闲期并自动重连，安装后的 CMake 包带上了平台链接依赖，
-[docs/CODE-REVIEW-2026-10.md](docs/CODE-REVIEW-2026-10.md) 中的全部 P1 项已收口——协议级
-拒绝回 HTTP 400，OAuth 与 schema 输入对恶意对端加固，并发套件在 CI 中跑 TSan。
-v0.3.1（2026-10-19）发布了 v0.3.0 评审发现的两个订阅传输缺陷修复（200 + JSON-RPC
-错误拒绝、认证质询丢失）及一个构建系统修复；见 `CHANGELOG.md`。
+v0.4.0 完成了路线图中的校准与参考实现里程碑：2026-07-28 规范修订（D）、Tasks 扩展 /
+时代协商 / 响应缓存 / 扩展接缝（E）、评审加固（F），以及让这些能力可被计分的一致性覆盖面
+（G）。逐项清单见 `CHANGELOG.md`。
 
 ---
 
@@ -70,19 +67,22 @@ v0.3.1（2026-10-19）发布了 v0.3.0 评审发现的两个订阅传输缺陷�
 | `notifications/cancelled` + 可查询的取消标志 | ✅ | ✅ |
 | MRTR：`input_required` 结果 + `inputResponses` 重试、`requestState` 回显、带能力门控的 `Ctx::elicit`/`Ctx::inputRequired` | ✅ | ✅ |
 | 签名 `requestState`（`RequestStateCodec`：HMAC-SHA256、绑定上下文、TTL）+ `Client::callToolWithInput` 自动履行循环 | ✅ | ✅ |
-| 官方一致性套件——**服务端模式**（2026-07-28：42/42 项检查） | ✅ | ✅ |
+| 官方一致性套件——**服务端模式**（2026-07-28 需求：193/193 项检查） | ✅ | ✅ |
 | 官方一致性套件——**客户端模式**（2026-07-28：32/32 场景，含全部 25 个 `auth/*`） | ✅ | ✅ |
 | OAuth 2.1 客户端：PRM + AS 元数据发现、DCR / CIMD / 预注册、PKCE（S256）、RFC 8707 `resource`、RFC 9207 `iss`、scope 升级、SEP-2352 迁移 | ✅ | ✅ |
 | 进度通知（`Ctx::progress`，客户端通过 `progressToken` 选择性加入） | ✅ | ✅ |
 | `completion/complete`（服务端 + 客户端） | ✅ | ✅ |
-| discover、`*/list`、`resources/read` 上的 CacheableResult（`ttlMs`/`cacheScope`） | ✅ | ✅ |
+| discover、`*/list`、`resources/read` 上的 CacheableResult（`ttlMs`/`cacheScope`）；客户端缓存遵守二者并在 `*_list_changed` 时失效 | ✅ | ✅ |
+| 客户端时代自动协商（`Client::negotiateEra`：探测 → 分类 → 回退 legacy） | ✅ | ✅ |
 | JSON Schema 2020-12 校验器；强制执行工具的 `inputSchema` **与** `outputSchema` | ✅ | ✅ |
 | `x-mcp-header` 镜像（客户端）+ 服务端校验 | ✅ | ✅ |
 | 结构化结果（`structuredResult()` + 规范推荐的文本块） | ✅ | ✅ |
 | 2026-07-28 一致性测试套件（仓库内，`mcp_test_conformance_2026`） | ✅ | n/a |
 | CMake 包（`find_package(mcp CONFIG)`，导出 `mcp::mcp`） | ✅ | n/a |
 | Roots / Sampling（已被 SEP-2577 弃用） | ❌ 有意不支持 | Tier-1 保留兼容垫片 |
-| Tasks 扩展（`io.modelcontextprotocol/tasks`） | ✅ `Builder::tasks()` + `mcp/tasks.hpp` | 扩展 |
+| Tasks 扩展（`io.modelcontextprotocol/tasks`） | ✅ `Builder::tasks()` + `mcp/tasks.hpp`；客户端 `getTask`/`updateTask`/`cancelTask`/`waitForTask` | 扩展 |
+| 扩展方法接缝（`Builder::extension(id, method, version, handler)`，SEP-2133 形状） | ✅ | 扩展 |
+| 多 worker 派发（`MCP_WORKERS=N`，默认 1 = 串行） | ✅ | n/a |
 
 值语义的消息模型、不抛异常的协议层、带 `Ok`/`Err` 工厂的 `[[nodiscard]]`
 结果类型——无论 `McpResult<T>` 是 `std::expected` 的别名还是使用内置回退，
@@ -140,7 +140,7 @@ target_link_libraries(my_server PRIVATE mcp::mcp)
 # vcpkg（overlay port）
 vcpkg install --overlay-ports=<仓库>/packaging/vcpkg mcp-cpp
 # Conan
-conan build <仓库>/packaging/conan --version=0.3.1
+conan build <仓库>/packaging/conan --version=0.4.0
 ```
 
 httplib 与 zjson 均已内置，两个包都不引入额外依赖。
@@ -257,7 +257,7 @@ transport.setHeader("Authorization", "Bearer " + auth.accessToken());
 ```
 include/mcp/   public headers (mcp.hpp aggregates everything)
 src/           compiled implementation (oauth.cpp is the OAuth 2.1 client)
-tests/         googletest unit tests (13 CTest registrations, incl. real
+tests/         googletest unit tests (16 CTest registrations, incl. real
                subprocess stdio e2e and loopback HTTP/SSE e2e)
 bench/         B1 parse / B2 dispatch / B3 stdio e2e benchmarks
 examples/      minimal_server (Inspector-ready) + 两个官方一致性 fixture

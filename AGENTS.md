@@ -54,7 +54,8 @@ also works. Executables land in `bin/` (`RUNTIME_OUTPUT_DIRECTORY`), intermediat
 CMake options: `MCP_BUILD_TESTS` (ON), `MCP_BUILD_EXAMPLES` (ON), `MCP_DISABLE_HTTP` (OFF — pure-stdio
 build), `MCP_ZJSON_DIR` (override zjson location; defaults to `thirds/zjson`, then the zorm sibling dir),
 `MCP_WORKERS` (1 — concurrent dispatch slots; values > 1 require thread-safe handlers; CI has a
-`MCP_WORKERS=4` job).
+`MCP_WORKERS=4` job). `MCP_WORKERS` is a **PRIVATE** compile definition: consumers learn the width at
+runtime from `Server::workerCount()`, so an installed package cannot disagree with the library.
 
 Single suite / single gtest case:
 
@@ -94,7 +95,7 @@ aggregate include; use it in examples/tests.
 | `include/mcp/server.hpp` / `src/server.cpp` | `Server` dispatch loop + `Builder` registration API |
 | `include/mcp/request_state.hpp` / `src/request_state.cpp` | `RequestStateCodec` — HMAC-sealed MRTR `requestState` (`src/sha256.*` is the in-tree primitive); enabled per-server via `Builder::requestStateCodec()`, surfaced to handlers as `Ctx::sealRequestState`/`Ctx::openRequestState` |
 | `include/mcp/client.hpp` / `src/client.cpp` | blocking `Client` over any `ITransport` |
-| `include/mcp/tasks.hpp` / `src/tasks.cpp` | Tasks extension (SEP-2663): `TaskRecord`/TTL/pluggable `TaskStore`, `Builder::tasks()` wiring `tasks/get`/`tasks/update`/`tasks/cancel` |
+| `include/mcp/tasks.hpp` / `src/tasks.cpp` | Tasks extension (SEP-2663): `TaskRecord`/TTL/pluggable `TaskStore`, `Builder::tasks()` wiring `tasks/get`/`tasks/update`/`tasks/cancel`, plus `tasks::clientSupports(Ctx)` / `tasks::notifyStatus`. Client wrappers (`getTask`, `updateTask`, `cancelTask`, `waitForTask`) live on `Client` |
 | `include/mcp/schema.hpp` / `src/schema.cpp` | JSON Schema 2020-12 validator (local `$ref` only) |
 | `include/mcp/transport_http.hpp` / `src/transport_http.cpp` | Streamable HTTP + SSE (httplib), both sides |
 | `include/mcp/oauth.hpp` / `src/oauth.cpp` | `mcp::oauth::OAuthClient` — OAuth 2.1 client for remote HTTP servers: PRM/AS metadata discovery, DCR/CIMD/pre-registration, PKCE (S256), RFC 8707 `resource`, RFC 9207 `iss`, scope step-up, SEP-2352 migration. HTTP-only, like `transport_http` |
@@ -118,6 +119,13 @@ Key runtime facts:
 - **Capability gating via a route table** (`kRoutes` in `src/server.cpp`): calling a method whose
   capability the server never advertised (no tool/resource/prompt registered) is `MethodNotFound`
   (`-32601`); an unknown *tool name* is `InvalidParams` (`-32602`). Keep new methods in `kRoutes`.
+  Routes flagged `legacyOnly` (`initialize`, `ping`, `logging/setLevel`, `resources/subscribe`,
+  `resources/unsubscribe`) are served only when legacy mode is on; `Server::isServedMethod()` drives
+  the HTTP transport's 404, so a modern-only server answers 404 for them. `Server::isKnownMethod()`
+  still reports them (extension bindings must not shadow any spec method).
+- **Extension methods.** `Builder::extension(id, method, version, handler)` adds an additive route;
+  a request must advertise `id` under `clientCapabilities.extensions` or it answers `-32021` with
+  `data.requiredCapabilities.extensions`. `Builder::tasks()` is built on this seam.
 - **The server never initiates requests.** Server-to-client interaction travels only inside an
   `input_required` result (MRTR). A response arriving at the server is ignored. `notifications/cancelled`
   sets a queryable per-id flag (exposed to handlers as `Ctx::isCancelled`). Cancellation is handled
@@ -125,6 +133,15 @@ Key runtime facts:
   handler over HTTP; a cancel that arrives first parks a set flag for the request to adopt.
 - **`resultType` is injected.** `processLine` adds `"complete"` to any object result that omits it; a
   handler returning `input_required` (MRTR) must set it itself.
+- **`notifications/message` is gated in the transport-facing `notify` wrapper.** A modern request
+  (`meta.complete`) without `_meta.logLevel` gets no logging message through EITHER `Ctx::log` or a
+  raw `Ctx::notify("notifications/message", …)`; legacy requests keep `logging/setLevel`'s level.
+  Other notification methods pass unfiltered.
+- **The client caches CacheableResults on by default.** Entries key on method + params + the
+  transport's `authorizationContext()` (the HTTP transport returns its `Authorization` header), and
+  `notifications/{tools,prompts,resources}/list_changed` / `resources/updated` invalidate them. A
+  result with a non-positive `ttlMs`, an unknown `cacheScope` or `resultType != "complete"` is never
+  stored; `server/discover` is never cached.
 - **CacheableResult is on by default.** `*/list`, `resources/read`, and `server/discover` emit `ttlMs` +
   `cacheScope`; `listTtlMs_ = 0` (immediately stale) is the conformant default — strict modern clients
   reject results *without* these fields. `Builder::listCache(-1)` opts out entirely.
@@ -140,7 +157,9 @@ Key runtime facts:
   they are distinct). Subscriptions upgrade the response to an SSE stream pumped on its own thread;
   `closeSubscriptions()` must be called (or the destructor) to terminate those threads — see the P0 fix in
   `docs/CODE-REVIEW-2026-10.md`.
-- **A client subscription is a durable stream.** The server sends an SSE keep-alive comment every 5 s, so
+- **A client subscription is a durable stream.** The server sends an SSE keep-alive comment every 5 s
+  (`HttpServerTransport::setSseKeepAlive`, 0 disables it; `[1, 99]` ms and values above one hour are
+  rejected), so
   the subscription stream read timeout is 30 s (a shorter one kills an idle subscription between keep-alives).
   After a drop the client re-subscribes, applies the peer's `retry:` advice clamped to 100 ms–30 s, and
   suppresses duplicate acknowledgments. Peer-controlled `retry:` values are always clamped. A **successful

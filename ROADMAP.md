@@ -29,7 +29,7 @@ Everything a consumer or reviewer needs to take the project seriously.
 
 | Item | Status |
 | --- | --- |
-| Run the official `modelcontextprotocol/conformance` server suite | ✅ 2026-07-28: **42/42 (100%)** · 2025-11-25: 26/30 |
+| Run the official `modelcontextprotocol/conformance` server suite | ✅ 2026-07-28: **193/193 (100%)** at `--requirements` · 2025-11-25: 55 passed + 4 baselined |
 | Reach 100% of applicable required scenarios | ✅ on 2026-07-28 · 🔄 on 2025-11-25 (4 blocked, see below) |
 | Publish `conformance/report.json` + an `--expected-failures` baseline | ✅ |
 | Client-mode conformance run (`examples/conformance_client.cpp`) | ✅ 2026-07-28: **32/32 scenarios (100%)**; 2025-11-25: 17/18 (+2 legacy 2025-03-26; upstream fix pending release) |
@@ -138,11 +138,26 @@ red scenarios into scored evidence.
 
 | Item | Class |
 | --- | --- |
-| G1 · Fixture: the MRTR tools the `input-required-result-*` family calls (single/multiple input requests, multi-round, non-tool request, capability check, tampered state) — 11 scenarios | 🔜 P0 |
-| G2 · Run every suite twice in CI: legacy-mode fixture (2025-era) and `--strict` fixture (2026 stateless), so `server-stateless` and `http-header-validation` stop failing for fixture-policy reasons | 🔜 P0 |
-| G3 · Fixture: tools carrying `x-mcp-header` annotations, so `http-custom-header-server-validation` (5 checks) is scored | 🔜 P1 |
-| G4 · Client-side task surface: `tasks/get` polling, `tasks/update`, cancel helpers (the server side shipped in E1) | 🔜 P1 |
-| G5 · `setSseKeepAlive` upper bound; make `MCP_WORKERS` internal (no PUBLIC define in the installed interface); `tasks::clientSupports(Ctx)` helper; optional `notifications/tasks/status` emitter | 🔜 P2 |
-| G6 · Release **v0.4.0** (Milestones D/E/F + G) with the CHANGELOG entries already staged | 🔜 P0 |
+| G1 · Fixture: the MRTR tools the `input-required-result-*` family calls (single/multiple input requests, multi-round, non-tool request, capability check, tampered state) — 11 scenarios | ✅ P0 |
+| G2 · Run every suite twice in CI: dual-era fixture (2025-era) and `--strict` fixture (2026 stateless), so `server-stateless` and `http-header-validation` stop failing for fixture-policy reasons | ✅ P0 |
+| G3 · Fixture: tools carrying `x-mcp-header` annotations, so `http-custom-header-server-validation` (10 checks) is scored | ✅ P1 |
+| G4 · Client-side task surface: `tasks/get` polling, `tasks/update`, cancel helpers (the server side shipped in E1) | ✅ P1 |
+| G5 · `setSseKeepAlive` upper bound; make `MCP_WORKERS` internal (no PUBLIC define in the installed interface); `tasks::clientSupports(Ctx)` helper; optional `notifications/tasks/status` emitter | ✅ P2 |
+| G6 · Release **v0.4.0** (Milestones D/E/F + G) | ✅ P0 |
+
+**Result:** the strict (modern-only) fixture passes **193/193 checks at
+`--requirements 2026-07-28`** (was 42/42 on the narrower 0.1.x scenario set);
+the dual-era fixture keeps 2025-11-25 at 55 passed + the four baselined legacy
+scenarios; the client suite stays at 399/399.
+
+## Next up (post-v0.4)
+
+Nothing in the milestones is open. The remaining known gaps are tracked as
+issues rather than roadmap items:
+
+- Client-mode task scenarios (the harness scores only server-side tasks today).
+- E8 from Milestone E: subscription-bus abstraction, a middleware chain, and a
+  legacy `input_required` shim for dual-era handlers.
+- Doxygen publication and the zero-copy parse experiment (B1).
 
 *Last updated: 2026-10-21.*

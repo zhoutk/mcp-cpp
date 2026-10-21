@@ -314,6 +314,16 @@ void sweepExpired(TaskStore& store) {
   }
 }
 
+bool clientSupports(const server::Ctx& ctx) {
+  return capabilitiesIncludeExtension(ctx.meta.clientCapabilities, kExtensionId);
+}
+
+bool notifyStatus(const server::Ctx& ctx, const TaskRecord& record) {
+  if (!ctx.notify) return false;
+  ctx.notify(std::string(kNotificationTaskStatus), detailedTaskToJson(record));
+  return true;
+}
+
 }  // namespace tasks
 
 // ---- Builder integration --------------------------------------------------------

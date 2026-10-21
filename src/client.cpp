@@ -582,6 +582,82 @@ McpResult<Json> Client::callTool(const std::string& name, const Json& arguments,
   return request("tools/call", extra, progressToken);
 }
 
+// ---- Tasks extension (SEP-2663) ------------------------------------------------
+
+bool Client::isTaskResult(const Json& result) {
+  if (!result.isObject()) return false;
+  const Json type = member(result, "resultType");
+  if (type.isString()) {
+    // Compare without assuming the caller linked mcp/tasks.hpp.
+    return type.toString() == "task";
+  }
+  return false;
+}
+
+std::string Client::taskIdOf(const Json& result) {
+  if (!isTaskResult(result)) return {};
+  const Json id = member(result, "taskId");
+  return id.isString() ? std::string(id.toString()) : std::string();
+}
+
+McpResult<Json> Client::getTask(const std::string& taskId) {
+  Json extra;
+  extra.add("taskId", Json::str(taskId));
+  return request("tasks/get", extra);
+}
+
+McpResult<Json> Client::updateTask(const std::string& taskId, const Json& inputResponses) {
+  if (!inputResponses.isObject()) {
+    return Err(McpErrorCode::InvalidParams, "tasks/update requires an inputResponses object");
+  }
+  Json extra;
+  extra.add("taskId", Json::str(taskId));
+  extra.add("inputResponses", inputResponses);
+  return request("tasks/update", extra);
+}
+
+McpResult<Json> Client::cancelTask(const std::string& taskId) {
+  Json extra;
+  extra.add("taskId", Json::str(taskId));
+  return request("tasks/cancel", extra);
+}
+
+bool Client::isTerminalTask(const Json& detailedTask) {
+  if (!detailedTask.isObject()) return false;
+  const Json status = member(detailedTask, "status");
+  if (!status.isString()) return false;
+  const std::string text(status.toString());
+  return text == "completed" || text == "failed" || text == "cancelled";
+}
+
+McpResult<Json> Client::waitForTask(const std::string& taskId) {
+  return waitForTask(taskId, TaskWaitOptions{});
+}
+
+McpResult<Json> Client::waitForTask(const std::string& taskId, TaskWaitOptions options) {
+  const auto deadline = std::chrono::steady_clock::now() + options.timeout;
+  for (;;) {
+    auto result = getTask(taskId);
+    if (!result.has_value()) return result;
+    if (isTerminalTask(*result)) return result;
+
+    // Poll cadence: the caller's explicit interval wins; otherwise honour the
+    // server's pollIntervalMs (a hint, not a mandate) with a 1 s fallback.
+    std::chrono::milliseconds delay = options.pollInterval;
+    if (delay.count() <= 0) {
+      const Json hint = member(*result, "pollIntervalMs");
+      delay = hint.isNumber() && hint.toInt64() > 0
+                  ? std::chrono::milliseconds(hint.toInt64())
+                  : std::chrono::milliseconds(1000);
+    }
+    if (std::chrono::steady_clock::now() + delay > deadline) {
+      return Err(McpErrorCode::InternalError,
+                 "task " + taskId + " did not reach a terminal status before the timeout");
+    }
+    std::this_thread::sleep_for(delay);
+  }
+}
+
 McpResult<Json> Client::readResource(const std::string& uri) {
   Json extra;
   extra.add("uri", Json::str(uri));

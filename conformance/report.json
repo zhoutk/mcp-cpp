@@ -1,41 +1,172 @@
 {
   "tool": "@modelcontextprotocol/conformance",
-  "toolVersion": "0.1.16",
+  "toolVersion": "0.2.0-alpha.12",
   "mode": "server",
-  "server": "examples/conformance_server.cpp (legacy-client mode, versions 2025-03-26/2025-06-18/2025-11-25/2026-07-28)",
-  "specVersionsCoveredBySuite": [
-    "2025-03-26",
-    "2025-06-18",
-    "2025-11-25"
-  ],
-  "note": "The suite has no scenarios for 2026-07-28 (the revision this SDK targets); it drives the server with the 2025-era handshake.",
-  "date": "2026-10-09",
-  "scenariosScored": 30,
-  "passed": 26,
-  "failed": 4,
-  "passRate": 0.8667,
-  "failures": [
+  "specVersion": "2025-11-25",
+  "suite": "--spec-version 2025-11-25 (dual-era fixture)",
+  "server": "examples/conformance_server.cpp",
+  "date": "2026-10-21",
+  "scenariosScored": 31,
+  "checksPassed": 55,
+  "checksFailed": 4,
+  "result": "55/59 checks passed across 31 scenarios",
+  "expectedFailures": "conformance/expected-failures.yaml (4 scenarios whose mechanism 2026-07-28 replaced with MRTR)",
+  "reproduce": "./bin/conformance_server.exe --port 8099 & npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server --url http://127.0.0.1:8099/mcp --spec-version 2025-11-25 --expected-failures conformance/expected-failures.yaml -o conformance/out",
+  "scenarios": [
+    {
+      "scenario": "completion-complete",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "dns-rebinding-protection",
+      "checks": 2,
+      "failed": 0
+    },
     {
       "scenario": "elicitation-sep1034-defaults",
-      "reason": "Failed: MCP error -32602: Unknown tool: test_elicitation_sep1034_defaults"
+      "checks": 2,
+      "failed": 1
     },
     {
       "scenario": "elicitation-sep1330-enums",
-      "reason": "Failed: MCP error -32602: Unknown tool: test_elicitation_sep1330_enums"
+      "checks": 2,
+      "failed": 1
+    },
+    {
+      "scenario": "logging-set-level",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "ping",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-embedded-resource",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-simple",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-with-args",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-get-with-image",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "prompts-list",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-list",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-read-binary",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-read-text",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-subscribe",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-templates-read",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "resources-unsubscribe",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "server-initialize",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "server-session-lifecycle",
+      "checks": 0,
+      "failed": 0
+    },
+    {
+      "scenario": "server-sse-multiple-streams",
+      "checks": 0,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-audio",
+      "checks": 2,
+      "failed": 0
     },
     {
       "scenario": "tools-call-elicitation",
-      "reason": "Failed: MCP error -32602: Unknown tool: test_elicitation"
+      "checks": 2,
+      "failed": 1
+    },
+    {
+      "scenario": "tools-call-embedded-resource",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-error",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-image",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-mixed-content",
+      "checks": 2,
+      "failed": 0
     },
     {
       "scenario": "tools-call-sampling",
-      "reason": "Failed: MCP error -32602: Unknown tool: test_sampling"
+      "checks": 2,
+      "failed": 1
+    },
+    {
+      "scenario": "tools-call-simple-text",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-with-logging",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-call-with-progress",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tools-list",
+      "checks": 3,
+      "failed": 0
     }
-  ],
-  "notScored": {
-    "scenario": "server-sse-multiple-streams",
-    "reason": "2025-only GET SSE stream scenario; 2026-07-28 removed the GET stream, so the suite records zero checks. Listed in expected-failures.yaml for the baseline gate."
-  },
-  "baseline": "conformance/expected-failures.yaml",
-  "reproduce": "./bin/conformance_server.exe --port 8099 & npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp --expected-failures conformance/expected-failures.yaml -o conformance/out"
+  ]
 }

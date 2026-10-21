@@ -52,8 +52,9 @@ option(MCP_BUILD_EXAMPLES "Build mcp-cpp examples and benchmarks" ON)
 option(MCP_DISABLE_HTTP "Build without the Streamable HTTP transport" OFF)
 # Dispatch concurrency: 1 = serialized (the historical model), N > 1 lets up
 # to N request handlers run concurrently. With N > 1 handlers (and anything
-# they touch) must be thread-safe. The define is PUBLIC because the header
-# defaults to the same value and tests branch on it.
+# they touch) must be thread-safe. PRIVATE: the value shapes the compiled
+# library only; consumers query it at runtime through Server::workerCount(), so
+# an installed package can never disagree with the library it links.
 set(MCP_WORKERS 1 CACHE STRING "Concurrent request handlers inside Server")
 if(NOT MCP_WORKERS MATCHES "^[0-9]+$")
   message(FATAL_ERROR "mcp-cpp: MCP_WORKERS must be a positive integer")
@@ -104,7 +105,7 @@ target_include_directories(mcp PUBLIC
   $<BUILD_INTERFACE:${MCP_ZJSON_DIR}>
   $<INSTALL_INTERFACE:include>)
 target_compile_features(mcp PUBLIC cxx_std_17)
-target_compile_definitions(mcp PUBLIC MCP_WORKERS=${MCP_WORKERS})
+target_compile_definitions(mcp PRIVATE MCP_WORKERS=${MCP_WORKERS})
 
 set(MCP_CXX_WARNINGS -Wall -Wextra -Wpedantic)
 if(MSVC)

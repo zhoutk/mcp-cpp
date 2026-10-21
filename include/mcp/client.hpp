@@ -129,6 +129,46 @@ class Client {
                                     const InputHandler& handle,
                                     int maxRounds = kDefaultMaxInputRounds);
 
+  // --- Tasks extension (SEP-2663, io.modelcontextprotocol/tasks) -------------
+  // The server half lives in mcp/tasks.hpp. These wrappers cover the client
+  // half: a tool call may answer with a CreateTaskResult (`resultType: "task"`)
+  // and the work then lives in the server's task store.
+  //
+  // True when `result` is a CreateTaskResult (as opposed to a complete
+  // ToolResult or an InputRequiredResult).
+  static bool isTaskResult(const Json& result);
+  // The taskId of a CreateTaskResult, empty when `result` is not one.
+  static std::string taskIdOf(const Json& result);
+
+  // tasks/get. The result is a DetailedTask: base fields plus the
+  // status-specific payload (`inputRequests`, `result` or `error`).
+  McpResult<Json> getTask(const std::string& taskId);
+  // tasks/update: delivers inputResponses for outstanding inputRequests. The
+  // server acknowledges with an empty complete result; observe progress with
+  // getTask().
+  McpResult<Json> updateTask(const std::string& taskId, const Json& inputResponses);
+  // tasks/cancel: cooperative cancellation. Also an empty complete ack; the
+  // task settles asynchronously (a task may legitimately still complete).
+  McpResult<Json> cancelTask(const std::string& taskId);
+
+  struct TaskWaitOptions {
+    std::chrono::milliseconds timeout;
+    // 0 = honour the server's pollIntervalMs (defaulting to 1 s when absent).
+    std::chrono::milliseconds pollInterval;
+
+    TaskWaitOptions()
+        : timeout(std::chrono::milliseconds(30000)), pollInterval(std::chrono::milliseconds(0)) {}
+  };
+  // Polls tasks/get until the task reaches a terminal status (completed /
+  // failed / cancelled), then returns that DetailedTask. Fails with
+  // InternalError on timeout. A task that asks for input (`input_required`)
+  // stops the wait: answer it with updateTask() and call waitForTask() again.
+  McpResult<Json> waitForTask(const std::string& taskId);
+  McpResult<Json> waitForTask(const std::string& taskId, TaskWaitOptions options);
+
+  // True for a DetailedTask whose status is terminal.
+  static bool isTerminalTask(const Json& detailedTask);
+
   // subscriptions/listen: opens a long-lived notification stream. Returns
   // after the acknowledged notification; subsequent notifications flow
   // through onNotification, each carrying io.modelcontextprotocol/

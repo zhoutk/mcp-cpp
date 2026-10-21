@@ -9,8 +9,10 @@
 # Every entry is a scenario mcp-cpp knowingly does not pass. Keep this list
 # small and shrinking; each entry needs a reason.
 #
-# Server suite, 2026-07-28 (suite 0.2.0-alpha.12): 42/42 checks, 20/20 scenarios - 100%.
-# Server suite, 2025-11-25 (suite v0.1.16): 26/30.
+# Server suite, 2026-07-28 requirements (suite 0.2.0-alpha.12), --strict fixture:
+#   193/193 checks - 100%. Nothing from this revision is baselined below.
+# Server suite, 2025-11-25 (suite 0.2.0-alpha.12), dual-era fixture: 55 passed,
+#   the four server->client scenarios below fail by mechanism.
 #
 # Client suite (suite 0.2.0-alpha.12, sequential/parallel):
 #   2026-07-28: 399/399 checks, 32/32 scenarios - 100% (incl. all 25 auth/*)

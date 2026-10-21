@@ -3,14 +3,21 @@
   "toolVersion": "0.2.0-alpha.12",
   "mode": "server",
   "specVersion": "2026-07-28",
-  "suite": "active (required scenarios)",
-  "server": "examples/conformance_server.cpp",
-  "date": "2026-10-13",
-  "scenariosScored": 20,
-  "checksPassed": 42,
+  "suite": "--requirements 2026-07-28 (strict, modern-only fixture)",
+  "server": "examples/conformance_server.cpp --strict",
+  "date": "2026-10-21",
+  "scenariosScored": 50,
+  "checksPassed": 193,
   "checksFailed": 0,
-  "result": "42/42 checks passed across 20/20 scenarios (100%)",
+  "result": "193/193 checks passed across 50 scenarios (100%)",
+  "pendingSuiteNote": "The whole 2026-07-28 required set, including the tasks extension (9 scenarios), the input-required-result family (13), server-stateless and the header-validation scenarios, scores 100% with the strict fixture. The 2025-11-25 revision is run separately against the dual-era fixture (see expected-failures.yaml).",
+  "reproduce": "./bin/conformance_server.exe --port 8099 --strict & npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server --url http://127.0.0.1:8099/mcp --requirements 2026-07-28 -o conformance/out-strict",
   "scenarios": [
+    {
+      "scenario": "caching",
+      "checks": 8,
+      "failed": 0
+    },
     {
       "scenario": "completion-complete",
       "checks": 2,
@@ -19,6 +26,91 @@
     {
       "scenario": "dns-rebinding-protection",
       "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "http-custom-header-server-validation",
+      "checks": 10,
+      "failed": 0
+    },
+    {
+      "scenario": "http-header-validation",
+      "checks": 14,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-basic-elicitation",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-basic-list-roots",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-basic-sampling",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-capability-check",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-ignore-extra-params",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-missing-input-response",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-multi-round",
+      "checks": 4,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-multiple-input-requests",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-non-tool-request",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-request-state",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-result-type",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-tampered-state",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-unsupported-methods",
+      "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "input-required-result-validate-input",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "json-schema-2020-12",
+      "checks": 8,
       "failed": 0
     },
     {
@@ -67,8 +159,68 @@
       "failed": 0
     },
     {
-      "scenario": "",
+      "scenario": "sep-2164-resource-not-found",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "server-sse-multiple-streams",
+      "checks": 1,
+      "failed": 0
+    },
+    {
+      "scenario": "server-stateless",
+      "checks": 28,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-capability-negotiation",
+      "checks": 5,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-dispatch-and-envelope",
+      "checks": 9,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-lifecycle",
+      "checks": 9,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-mrtr-composition",
       "checks": 2,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-mrtr-input",
+      "checks": 4,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-request-headers",
+      "checks": 5,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-request-state-removal",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-required-task-error",
+      "checks": 3,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-status-notifications",
+      "checks": 0,
+      "failed": 0
+    },
+    {
+      "scenario": "tasks-wire-fields",
+      "checks": 4,
       "failed": 0
     },
     {
@@ -111,7 +263,5 @@
       "checks": 4,
       "failed": 0
     }
-  ],
-  "pendingSuiteNote": "With --suite all, the unscored pending 2026 scenarios additionally run. sep-2164-resource-not-found passes (3/3). server-stateless needs a strict fixture (--strict): 15/28, the failures are requests with invalid _meta that legacy mode accepts. The input-required-* pending scenarios need the fixture to expose MRTR tools (elicitation/sampling/roots) - tracked as follow-up work.",
-  "reproduce": "./bin/conformance_server.exe --port 8099 & npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server --url http://127.0.0.1:8099/mcp --spec-version 2026-07-28 -o conformance/out2026"
+  ]
 }

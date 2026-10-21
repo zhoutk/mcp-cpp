@@ -1,7 +1,7 @@
 # Conan 2.x recipe for mcp-cpp. Build with:
-#   conan build packaging/conan --version=0.3.1
+#   conan build packaging/conan --version=0.4.0
 # or consume it after exporting:
-#   conan export packaging/conan --version=0.3.1
+#   conan export packaging/conan --version=0.4.0
 import os
 
 from conan import ConanFile

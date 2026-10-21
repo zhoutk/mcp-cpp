@@ -703,3 +703,72 @@ the concurrency win justifies today); caching `ttlMs: 0` results; serving
 extension methods to clients that did not advertise the extension; a
 background TTL sweeper thread in the task store (the protocol entry points
 sweep opportunistically instead).
+
+### 2026-10-21 Update 12 — Milestone G: the conformance surface, and v0.4.0
+
+**Motivation**: after Update 11 the features existed but the official suite could
+not score many of them — the fixture (`examples/conformance_server.cpp`) lacked
+the tools the scenarios call. `--suite all` still showed 36 failing scenarios,
+including the whole `input-required-result-*` family and every `tasks-*`
+scenario that had just been implemented. A green library with an unusable
+fixture is not evidence.
+
+**What changed**:
+
+1. **MRTR fixture surface.** Nine tools plus one prompt mirror the spec's own
+   examples: `test_input_required_result_elicitation`, `..._sampling`,
+   `..._list_roots`, `..._request_state`, `..._multiple_inputs`,
+   `..._multi_round`, `..._tampered_state`, `..._capabilities`,
+   `test_streaming_elicitation`, and the `prompts/get` prompt. Two lessons came
+   out of writing them:
+   - a retry carries **only the newly answered** `inputResponses` key, so a
+     multi-round handler must select its round by which key arrived, never by
+     which keys are absent;
+   - only elicitation wraps its answers in `content`; sampling and `roots/list`
+     return their own result shape, so one accessor cannot serve all three.
+2. **Era separation reaches the transport.** A modern-only server must answer
+   **404** for the five methods 2026-07-28 removed, not 200 with a `-32601`
+   body. `MethodRoute` gained a `legacyOnly` flag and `Server::isServedMethod()`
+   is what the HTTP gate consults; `isKnownMethod()` keeps its "every spec
+   route" meaning so extension bindings still cannot shadow a legacy method.
+3. **Two fixture modes, two CI runs.** `--strict` is a modern-only server
+   (`server-stateless` 28/28, header validation 14/14); the dual-era default
+   serves `json-schema-2020-12` and the whole 2025-11-25 revision. CI runs
+   `--requirements 2026-07-28` against the strict fixture and
+   `--spec-version 2025-11-25` against the dual-era one.
+4. **Log gating moved into the server.** `Ctx::log` was already gated, but
+   `Ctx::notify("notifications/message", …)` bypassed it — one line away from a
+   MUST violation now that the suite probes it. The wrapper drops the message
+   for a modern request without `_meta.logLevel`; legacy requests keep
+   `logging/setLevel`.
+5. **Sentinel payloads are validated.** The decoder now requires well-formed
+   Base64 (multiple of four, alphabet only, padding at the end) because
+   SEP-2243's test-case table rejects the unpadded spelling. `base64Decode`
+   itself stays lenient: only the header sentinel path is strict.
+6. **`MCP_WORKERS` became PRIVATE.** It used to be a PUBLIC definition, which
+   put the value into the installed target's interface and into header member
+   initializers — an ODR hazard for a consumer that defined it differently.
+   The header no longer mentions it; `Server::workerCount()` reports the width
+   the library was built with, and the concurrency test asks at runtime.
+7. **Client task surface.** `Client::getTask` / `updateTask` / `cancelTask` /
+   `waitForTask` (honouring the server's `pollIntervalMs`), plus the static
+   `isTaskResult` / `taskIdOf` / `isTerminalTask` helpers.
+8. **Smaller hardening.** `setSseKeepAlive` is capped at one hour (the pump
+   casts to `int`); `tasks::clientSupports(Ctx)` and `tasks::notifyStatus` fill
+   the handler-side ergonomics gap; the response cache keys on
+   `ITransport::authorizationContext()` and invalidates on list-change
+   notifications.
+
+**Verification.** Strict fixture: **193/193** at `--requirements 2026-07-28`.
+Dual-era fixture: 55 passed + the four baselined legacy scenarios on
+2025-11-25. Client: 399/399 on 2026-07-28. Unit tests: 16/16, plus `-Werror`
+builds in all three CI shapes (default, `MCP_DISABLE_HTTP=ON`, `-std=c++23`) and
+a `MCP_WORKERS=4` run.
+
+**Rejected.** Teaching the server to accept a missing `MCP-Protocol-Version`
+header to make one 2025-era scenario pass in strict mode (the spec makes the
+header mandatory; the dual-era run is the correct place for that scenario);
+relaxing Base64 decoding to accept unpadded input (the suite's table forbids
+it); exposing `MCP_WORKERS` as a runtime setter (dispatch width is a build
+property, and a runtime change would silently invalidate handler thread-safety
+assumptions).

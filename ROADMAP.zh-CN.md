@@ -28,7 +28,7 @@
 
 | 事项 | 状态 |
 | --- | --- |
-| 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 2026-07-28：**42/42（100%）** · 2025-11-25：26/30 |
+| 运行官方 `modelcontextprotocol/conformance` 服务端套件 | ✅ 2026-07-28：`--requirements` 下 **193/193（100%）** · 2025-11-25：55 通过 + 4 基线 |
 | 达到所有适用必需场景的 100% | ✅ 2026-07-28 · 🔄 2025-11-25（4 个受阻，见下文） |
 | 发布 `conformance/report.json` + 一份 `--expected-failures` 基线 | ✅ |
 | 客户端模式的一致性运行（`examples/conformance_client.cpp`） | ✅ 2026-07-28：**32/32 场景（100%）**；2025-11-25：17/18（另加两个 2025-03-26 legacy 场景；上游修复待正式发布） |
@@ -131,11 +131,24 @@
 
 | 事项 | 级别 |
 | --- | --- |
-| G1 · 夹具：补齐 `input-required-result-*` 家族调用的 MRTR 工具（单/多输入请求、多轮、非工具请求、能力校验、篡改 state）——共 11 个场景 | 🔜 P0 |
-| G2 · CI 中把每个套件跑两遍：legacy 模式夹具（2025 时代）与 `--strict` 夹具（2026 无状态），使 `server-stateless` 与 `http-header-validation` 不再因夹具策略而失败 | 🔜 P0 |
-| G3 · 夹具：提供带 `x-mcp-header` 注解的工具，使 `http-custom-header-server-validation`（5 项检查）可计分 | 🔜 P1 |
-| G4 · 客户端任务面：`tasks/get` 轮询、`tasks/update`、取消封装（服务端已在 E1 交付） | 🔜 P1 |
-| G5 · `setSseKeepAlive` 加上限；`MCP_WORKERS` 改为内部定义（不进入安装目标的 PUBLIC 接口）；`tasks::clientSupports(Ctx)` 便利函数；可选的 `notifications/tasks/status` 发送助手 | 🔜 P2 |
-| G6 · 发布 **v0.4.0**（里程碑 D/E/F + G），CHANGELOG 条目已就位 | 🔜 P0 |
+| G1 · 夹具：补齐 `input-required-result-*` 家族调用的 MRTR 工具（单/多输入请求、多轮、非工具请求、能力校验、篡改 state）——共 11 个场景 | ✅ P0 |
+| G2 · CI 中把每个套件跑两遍：双时代夹具（2025 时代）与 `--strict` 夹具（2026 无状态），使 `server-stateless` 与 `http-header-validation` 不再因夹具策略而失败 | ✅ P0 |
+| G3 · 夹具：提供带 `x-mcp-header` 注解的工具，使 `http-custom-header-server-validation`（10 项检查）可计分 | ✅ P1 |
+| G4 · 客户端任务面：`tasks/get` 轮询、`tasks/update`、取消封装（服务端已在 E1 交付） | ✅ P1 |
+| G5 · `setSseKeepAlive` 加上限；`MCP_WORKERS` 改为内部定义（不进入安装目标的 PUBLIC 接口）；`tasks::clientSupports(Ctx)` 便利函数；可选的 `notifications/tasks/status` 发送助手 | ✅ P2 |
+| G6 · 发布 **v0.4.0**（里程碑 D/E/F + G） | ✅ P0 |
+
+**结果：** 严格（仅现代）夹具在 `--requirements 2026-07-28` 下通过
+**193/193 项检查**（此前在更窄的 0.1.x 场景集上为 42/42）；双时代夹具让 2025-11-25
+保持 55 项通过 + 4 个已基线 legacy 场景；客户端套件维持 399/399。
+
+## 后续（v0.4 之后）
+
+里程碑内已无未完成项。剩余已知缺口以 issue 形式跟踪，而不再列为路线图条目：
+
+- 客户端模式的任务场景（套件目前只给服务端任务计分）。
+- 里程碑 E 的 E8：订阅总线抽象、中间件链，以及面向双时代 handler 的 legacy
+  `input_required` shim。
+- Doxygen 发布与零拷贝解析实验（B1）。
 
 *最后更新：2026-10-21。*

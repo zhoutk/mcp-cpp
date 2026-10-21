@@ -35,6 +35,6 @@ std::string_view toString(ProtocolVersion v);
 std::optional<ProtocolVersion> fromString(std::string_view s);
 
 // SDK release version (keep in sync with version.txt).
-inline constexpr std::string_view kSdkVersion = "0.3.1";
+inline constexpr std::string_view kSdkVersion = "0.4.0";
 
 }  // namespace mcp

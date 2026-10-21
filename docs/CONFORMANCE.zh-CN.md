@@ -1,5 +1,5 @@
 > 语言 / Language: **中文** | [English](CONFORMANCE.md)
-> 日期：2026-10-09
+> 日期：2026-10-21
 
 # 一致性
 
@@ -8,22 +8,25 @@ MCP SDK 由官方
 套件评分。Tier 1 要求所有适用必需场景的 **100%**；Tier 2 要求 **80%**。本文档
 说明 mcp-cpp 是如何接入该套件的。
 
-> **状态（2026-10-13），双规范版本：**
+> **状态（2026-10-21，套件 `@modelcontextprotocol/conformance@0.2.0-alpha.12`）：**
 >
-> - **2026-07-28：42/42 检查项、20/20 场景——计分（active）套件 100%**，使用
->   `@modelcontextprotocol/conformance@0.2.0-alpha.12`——参见
->   [`conformance/report-2026-07-28.json`](../conformance/report-2026-07-28.json)。
-> - **2025-11-25：26/30**（v0.1.16）——参见
->   [`conformance/report.json`](../conformance/report.json)。四个失败都需要
->   **服务器在调用中途向客户端发送请求**（`sampling/createMessage` /
->   `elicitation/create`）；2026-07-28 已用 MRTR 取代该机制，而本 SDK 已实现
->   MRTR。记录在
+> - **2026-07-28：193/193 项检查——100%**，以
+>   `server --requirements 2026-07-28` 对 `--strict` 模式夹具运行（仅现代服务器：
+>   强制逐请求 `_meta`，已移除方法回 404）。该运行覆盖 Tasks 扩展、整个 MRTR 家族、
+>   无状态逐请求元数据、头镜像与自定义头校验。
+> - **2025-11-25：55 项通过 + 4 个已基线**，使用双时代夹具。四项
+>   （`tools-call-sampling`、`tools-call-elicitation`、
+>   `elicitation-sep1034-defaults`、`elicitation-sep1330-enums`）都需要
+>   **服务器在调用中途向客户端发送请求**；2026-07-28 已用 MRTR 取代该机制，而本
+>   SDK 已实现 MRTR。记录在
 >   [`conformance/expected-failures.yaml`](../conformance/expected-failures.yaml) 中。
+> - **客户端模式 2026-07-28：32/32 场景、399/399 检查项**，含全部 25 个
+>   `auth/*` OAuth 2.1 + CIMD 场景。
 >
-> 未计分的 *pending* 2026 场景可用 `--suite all` 额外运行：
-> `sep-2164-resource-not-found` 通过；`server-stateless` 需要 fixture 的
-> `--strict` 旗标（15/28）；`input-required-*` 系列需要 fixture 暴露 MRTR
-> 工具——已作为后续工作记录在 2026 报告中。
+> **为什么需要两种夹具模式。** 仅现代服务器必须对 2026-07-28 移除的 RPC 返回 404，
+> 并拒绝缺少逐请求 `_meta` 的请求；2025 时代场景的期望相反（`initialize` 握手、
+> 不要求镜像头）。因此夹具提供 `--strict` 与双时代两种模式，CI 每种模式各跑一次
+> 套件。参见第 2 节。
 
 ---
 
@@ -51,19 +54,33 @@ cmake --preset clang-rlz && cmake --build build -j 8
 ### 服务端模式（Streamable HTTP）
 
 服务端模式接收一个 `--url`；没有 stdio 选项。`examples/conformance_server.cpp`
-是该套件所期望的 fixture——它暴露了所需的 tool/resource/prompt 接口面，并以
-旧版客户端模式运行，以便接受 2025 时代的握手和缺失的镜像头：
+是该套件所期望的夹具——它暴露 tool / resource / prompt 接口面、Tasks 扩展、
+MRTR 工具、一个 `x-mcp-header` 工具，并支持两种时代模式。
+
+**2026-07-28（计分，仅现代夹具）：**
+
+```bash
+./bin/conformance_server.exe --port 8099 --strict &
+npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server \
+  --url http://127.0.0.1:8099/mcp --requirements 2026-07-28 -o conformance/out-strict
+```
+
+`--requirements <revision>` 只运行该修订要求的场景（发布时冻结），也是上文状态块
+引用的数字。
+
+**2025-11-25（双时代夹具）：**
 
 ```bash
 ./bin/conformance_server.exe --port 8099 &
-npx @modelcontextprotocol/conformance server --url http://127.0.0.1:8099/mcp \
-  -o conformance/out
+npx @modelcontextprotocol/conformance@0.2.0-alpha.12 server \
+  --url http://127.0.0.1:8099/mcp --spec-version 2025-11-25 \
+  --expected-failures conformance/expected-failures.yaml -o conformance/out
 ```
 
-有用的标志：`--scenario <name>`（单个场景）、`--suite active|all|pending`、
-`--spec-version <v>`（只有 2025-xx 有效）、`--expected-failures <file>.yaml`、
-`--verbose`。在 v0.1.16 中，`server` 上没有 `--output json`；`-o` 下每个场景的
-`checks.json` 文件就是原始结果。
+有用的标志：`--scenario <name>`（单个场景）、`--suite active|all|pending|draft`、
+`--spec-version <v>`（只有 2025-xx 有效）、`--requirements <revision>`、
+`--expected-failures <file>.yaml`、`--verbose`。`-o` 下每个场景的 `checks.json`
+文件就是原始结果。
 
 ### 客户端模式
 
@@ -110,28 +127,23 @@ npx @modelcontextprotocol/conformance tier-check \
 
 ## 3. CI 集成
 
-该套件附带一个 GitHub Action（v0.1.11+）。它以服务端模式针对本地构建的 fixture
-服务器运行，以客户端模式针对场景服务器运行：
+`.github/workflows/ci.yml` 的 `conformance` 任务把 CLI 跑两遍（每种夹具模式一次），
+并把两份报告都作为产物上传：
 
-```yaml
-- name: Conformance (server)
-  uses: modelcontextprotocol/conformance@v0.1.16
-  with:
-    mode: server
-    url: http://127.0.0.1:8099/mcp
-```
+1. `conformance_server --strict` + `server --requirements 2026-07-28`
+   （任何意外结果都会使任务失败：该运行没有基线）；
+2. `conformance_server`（双时代）+ `server --spec-version 2025-11-25
+   --expected-failures conformance/expected-failures.yaml`。
 
-`.github/workflows/ci.yml` 中的一致性任务会启动 `conformance_server`，以
-`--expected-failures conformance/expected-failures.yaml` 调用该 action，并将报告
-作为产物上传。非零退出码（即一次意外失败）会使该任务失败，因此在已知的四个失败
-保持基线化的同时，回归也能被捕获。
+非零退出码（即一次意外失败）会使该任务失败，因此在四个已知 legacy 场景保持
+基线化的同时，回归也能被捕获。
 
 ## 3b. 仓库内的 2026-07-28 套件
 
-由于官方套件的 2026-07-28 场景仍处于未计分的 *pending* 状态（见文首说明），
-本仓库自带了一套：**`tests/test_conformance_2026.cpp`**（`mcp_test_conformance_2026`，已注册到
+官方套件现在已能为 2026-07-28 接口面计分，但仓库仍保留了自己的一套聚焦测试：
+**`tests/test_conformance_2026.cpp`**（`mcp_test_conformance_2026`，已注册到
 CTest 并由 CI 运行）。它以具名场景的形式编写，每个场景对应一条规范要求，因此
-2026 接口面能像官方套件将来补齐后那样得到覆盖。
+回归会直接指向被破坏的条款，而不是套件场景名。
 
 | 场景 | 规范章节 |
 | --- | --- |
@@ -164,8 +176,9 @@ ctest --test-dir build -R mcp_test_conformance_2026 -V
 ## 5. 报告
 
 - 通过率和套件版本发布在 `README.md` 和 `ROADMAP.md` 中。
-- `conformance/report.json` 是随每次发布提交的机器可读摘要；`CHANGELOG.md`
-  记录得分。
+- `conformance/report-2026-07-28.json` 保存 2026-07-28 的 `--requirements`
+  运行结果，`conformance/report.json` 保存 2025-11-25 的结果；两者在每次发布时
+  重新生成，`CHANGELOG.md` 记录得分。
 - 提交 SDK 工作组提案时将其一并附上。
 
 ---
