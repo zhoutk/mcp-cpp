@@ -227,13 +227,18 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
   Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}, {}, {}};
   ctx.principal = std::move(principal);
   ctx.notify = notify;
+  std::string configuredLevel;
+  {
+    std::lock_guard<std::mutex> lock(logLevelMutex_);
+    configuredLevel = logLevel_;
+  }
   // Structured logging (see Ctx::log in server.hpp). A 2026-07-28 request
   // opts in through _meta.logLevel and MUST NOT receive notifications/message
   // without it; Builder::logLevel only raises the threshold for opted-in
   // requests. A legacy (pre-2026) request has no per-request field - it opts
   // in through logging/setLevel, which sets the server-wide level - so the
   // configured level is the whole threshold there.
-  ctx.log = [notify, logger = name_, configuredLevel = logLevel_,
+  ctx.log = [notify, logger = name_, configuredLevel = std::move(configuredLevel),
              requestLevel = meta.logLevel,
              modern = meta.complete](const std::string& level, const std::string& message) {
     static constexpr std::string_view kLevels[] = {"debug",    "info",     "notice",
@@ -397,6 +402,20 @@ McpResult<void> Server::run(ITransport& transport) {
   }
 }
 
+void Server::acquireDispatchSlot() {
+  std::unique_lock<std::mutex> lock(dispatchMutex_);
+  dispatchSlotsCv_.wait(lock, [this] { return dispatchSlots_ > 0; });
+  --dispatchSlots_;
+}
+
+void Server::releaseDispatchSlot() {
+  {
+    std::lock_guard<std::mutex> lock(dispatchMutex_);
+    ++dispatchSlots_;
+  }
+  dispatchSlotsCv_.notify_one();
+}
+
 void Server::processLine(const std::string& line, ITransport& out) {
   processLine(line, out, std::string());
 }
@@ -449,10 +468,14 @@ void Server::processLine(const std::string& line, ITransport& out,
     return;
   }
 
-  // The HTTP transport calls this from its worker pool; serialize the dispatch
-  // (logLevel_, handler invocation, per-request bookkeeping). See the member
-  // comment in server.hpp. Cancellation deliberately bypasses this lock.
-  std::lock_guard<std::mutex> dispatchLock(dispatchMutex_);
+  // The HTTP transport calls this from its worker pool. Wait for a dispatch
+  // slot: one slot reproduces the serialized model, MCP_WORKERS slots allow
+  // that many handlers at once. Cancellation deliberately bypasses this gate.
+  acquireDispatchSlot();
+  struct SlotRelease {
+    Server* server;
+    ~SlotRelease() { server->releaseDispatchSlot(); }
+  } slotRelease{this};
 
   if (const auto* invalid = std::get_if<InvalidMessage>(&parsed)) {
     JsonRpcErrorValue v = toErrorValue(invalid->code, invalid->message);
@@ -680,7 +703,10 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     // emitted through Ctx::notify; filtering is the handler's concern).
     if (req.method == "logging/setLevel") {
       const Json level = member(req.params, "level");
-      if (level.isString()) logLevel_ = std::string(level.toString());
+      if (level.isString()) {
+        std::lock_guard<std::mutex> lock(logLevelMutex_);
+        logLevel_ = std::string(level.toString());
+      }
     }
     return Ok(Json(R"({})"));
   }

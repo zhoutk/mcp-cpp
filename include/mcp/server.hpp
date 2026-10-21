@@ -34,6 +34,7 @@
 #include <mcp/types.hpp>
 
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <functional>
 #include <map>
@@ -43,6 +44,15 @@
 #include <set>
 #include <string>
 #include <vector>
+
+// Compile-time dispatch concurrency (CMake: -DMCP_WORKERS=N). 1 keeps the
+// serialized model: handlers run one at a time. N > 1 lets up to N handlers
+// run concurrently, which requires handler code (and anything it touches) to
+// be thread-safe.
+#if !defined(MCP_WORKERS)
+#define MCP_WORKERS 1
+#endif
+static_assert(MCP_WORKERS >= 1, "MCP_WORKERS must be at least 1");
 
 namespace mcp {
 
@@ -298,6 +308,10 @@ class Server {
   bool acceptLegacy_ = false;
   std::string listCacheScope_ = "public";
   std::string logLevel_;  // legacy logging/setLevel value (informational)
+  // Guards logLevel_: logging/setLevel writes it during dispatch while another
+  // worker may be building a Ctx (MCP_WORKERS > 1). `mutable` because makeCtx
+  // is const.
+  mutable std::mutex logLevelMutex_;
   std::string name_ = "mcp-cpp-server";
   // Default serverInfo.version tracks the SDK release, so a server that does
   // not call Builder::version() still reports a real version.
@@ -332,13 +346,19 @@ class Server {
   std::map<std::string, Subscription> subscriptions_;
   std::mutex subscriptionsMutex_;  // guards subscriptions_ (publish from any thread)
 
-  // Serializes processLine(). The HTTP transport dispatches from an httplib
-  // worker pool (64 threads by default), so the per-request state that is not
+  // Dispatch concurrency control (MCP_WORKERS slots: a counting semaphore
+  // built from mutex + condition_variable, since C++17 has no
+  // std::counting_semaphore). With the default of one slot this is exactly the
+  // old serialized model. The HTTP transport dispatches from an httplib worker
+  // pool (64 threads by default), so the per-request state that is not
   // otherwise synchronized - cancellations_ above all - must be protected.
-  // This keeps the documented "single-threaded dispatch" model (handlers run
-  // one at a time, no handler locking required) while making concurrent HTTP
-  // POSTs correct. Re-entering processLine() from a handler is not supported.
+  // Re-entering processLine() from a handler is not supported (it would block
+  // on the slot it already holds with one worker, and nest with more).
   std::mutex dispatchMutex_;
+  std::condition_variable dispatchSlotsCv_;
+  int dispatchSlots_ = MCP_WORKERS;
+  void acquireDispatchSlot();
+  void releaseDispatchSlot();
 };
 
 // ---- builder ---------------------------------------------------------------------

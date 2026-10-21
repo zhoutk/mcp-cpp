@@ -33,13 +33,13 @@ error → version → json → jsonrpc → types → transport → server / clie
 
 ## 线程模型
 
-- **派发被串行化**。`Server::run()` 读一条消息、处理、回写；handler 同步执行，同一时刻只有一个。`processLine()` 在整段派发期间持有 `dispatchMutex_`，因此自带 worker 池的传输层无需 handler 加锁。
+- **派发槽位（`MCP_WORKERS`）**。`Server::run()` 读一条消息、处理、回写。`processLine()` 等待 `MCP_WORKERS` 个槽位之一（用 mutex + 条件变量实现的计数信号量）；默认值 1 与历史上的串行模型完全一致。`N > 1` 时最多 N 个 handler 并发执行，handler 代码必须线程安全。
 - **HTTP 服务端传输从 httplib 线程池派发**（默认 64 线程）。并发改变的是延迟，而非 handler 的顺序语义；handler 不得重入 `processLine()`（互斥量不可重入）。
 - **取消通知绕过派发锁。** `notifications/cancelled` 在 `cancellationsMutex_` 下置位对应请求的 `shared_ptr<atomic_bool>`，因此长 handler 仍持有派发锁时取消也能生效。这是正确性要求而非时延优化：被取消的请求正是持锁者，排在派发锁之后的取消会死锁。若取消早于请求到达，则留下已置位的标志供请求接管。
 - `subscriptions_` 有自己的互斥量（`subscriptionsMutex_`），因为通知扇出可能来自其他线程（HTTP SSE pump）。
 - **服务器从不主动发起请求。** 服务端到客户端的交互只通过 `input_required` 结果（MRTR）承载；到达服务器的响应会被忽略。
 - **但 pre-2026 服务器会。** 客户端对此仍能应答：对端发起的请求（sampling/elicitation/roots）交给 `Client::onServerRequest`，应答作为一条新消息发回；客户端循环随后继续等待自己的响应。
-- 阻塞的 handler 会阻塞所有连接，而不仅是它自己那条：派发是串行的。长任务应轮询 `Ctx::isCancelled` 并用 `Ctx::progress` 上报进度（取消也才能生效）。
+- 只有一个派发槽位时，阻塞的 handler 会阻塞所有连接；`MCP_WORKERS > 1` 时它只占用一个槽位。长任务应轮询 `Ctx::isCancelled` 并用 `Ctx::progress` 上报进度（取消也才能生效）。
 - **HTTP 客户端传输自带线程。** 每个请求 POST 在 worker 线程上流式读取响应（响应可能是长寿命 SSE 流，同步读取会让客户端循环无法应答调用中途的 elicitation），GET 监听流还拥有自己的重连循环。回到 `read()` 的唯一通道是消息队列。三个句柄负责停止它们——`closeSubscriptions()`、`closeRequestStreams()`、`closeListenStreams()`（后两者仅析构）——析构函数会 join，确保没有线程比队列活得更久。
 - **旧版 `initialize` 响应会先被扣住，直到读出其 session id。** 有状态的 pre-2026 服务器在该响应上发放 `Mcp-Session-Id`，没有它就会拒绝下一个请求；若在 worker 存下该头之前就把消息入队，`notifications/initialized` 会抢先发出。
 - **`HttpClientTransport::setAuthChallengeHandler` 上报 401/403 的 `WWW-Authenticate` 质询**；传输层自身不做认证。这正是 `mcp::oauth`（以及一致性 fixture）所驱动的入口。
@@ -67,6 +67,6 @@ error → version → json → jsonrpc → types → transport → server / clie
 
 ## 有意为之的简化
 
-- 派发串行化，无异步运行时。`processLine()` 经 `dispatchMutex_` 串行化，因此 HTTP worker 池带来的是传输层并发，handler 仍然逐个执行。若将来确实需要真多 worker（每请求独立 `Server`，对齐官方 SDK 的工厂模型），仍可作为后续选项。
+- 最多 `MCP_WORKERS` 个派发槽位（1 = 串行），无异步运行时。`processLine()` 在槽位上排队，因此 HTTP worker 池带来传输层并发，而 `MCP_WORKERS` 限定 handler 并发的上限。若将来需要每请求独立 `Server`（对齐官方 SDK 的工厂模型，兼顾隔离与并发），仍可作为后续选项。
 - 长寿命服务器实例（每请求状态归 handler；MRTR 状态由 `requestState` 承载，`RequestStateCodec` 用 HMAC-SHA256 绑定方法与目标进行签名，回显的状态既不能重放到其他工具，也能在服务器重启后（密钥不变时）存活）。因此水平扩展需要有状态路由，与官方 SDK 的每请求工厂模型不同——这是已记录的权衡，有真实负载需求时再改。
 - OAuth 仅在**客户端侧**实现（`mcp::oauth`，供一致性 fixture 使用）。服务器仍需在 HTTP 端点之前完成认证；SDK 不校验 bearer token。

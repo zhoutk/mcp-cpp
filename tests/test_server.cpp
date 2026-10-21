@@ -9,6 +9,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <variant>
@@ -230,6 +233,44 @@ TEST(ServerConcurrency, ParallelDispatchIsSerialized) {
   for (auto& worker : workers) worker.join();
   EXPECT_EQ(failures.load(), 0);
 }
+
+#if MCP_WORKERS > 1
+// Multi-worker build: two handlers must be able to overlap. Each waits for a
+// peer to enter its handler, which can only succeed when the server hands out
+// more than one dispatch slot.
+TEST(ServerConcurrency, WorkersRunHandlersConcurrently) {
+  std::mutex gateMutex;
+  std::condition_variable gate;
+  int inside = 0;
+
+  Builder builder;
+  builder.name("workers").version("1.0");
+  builder.simpleTool("sync", "waits for a peer handler", [&](Ctx&) -> McpResult<Json> {
+    std::unique_lock<std::mutex> lock(gateMutex);
+    ++inside;
+    gate.notify_all();
+    if (!gate.wait_for(lock, std::chrono::seconds(5), [&] { return inside >= 2; })) {
+      return Err(McpErrorCode::InternalError, "handlers did not overlap");
+    }
+    return Ok(Json(R"({"ok":true})"));
+  });
+  auto server = builder.build();
+
+  std::atomic<int> successes{0};
+  const auto run = [&](const std::string& id) {
+    MemTransport out({});
+    server->processLine(makeRequest(id, "tools/call", Json(R"({"name":"sync"})")), out);
+    if (out.output_.size() != 1u) return;
+    const ParsedMessage parsed = parseMessage(out.output_[0]);
+    if (std::get_if<JsonRpcResult>(&parsed) != nullptr) ++successes;
+  };
+  std::thread first(run, "w1");
+  std::thread second(run, "w2");
+  first.join();
+  second.join();
+  EXPECT_EQ(successes.load(), 2);
+}
+#endif
 
 TEST(ServerConcurrency, CancellationIsObservedByTheMatchingRequest) {
   // A cancellation arriving for an id that a concurrent dispatch is running

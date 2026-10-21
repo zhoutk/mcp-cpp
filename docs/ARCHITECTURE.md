@@ -38,13 +38,15 @@ viable. The direction is a review convention (there is no automated check yet).
 
 ## Threading model
 
-- **Serialized dispatch.** `Server::run()` reads one message, processes it and
-  writes the reply; handlers run synchronously, one at a time. `processLine()`
-  holds `dispatchMutex_` for the whole dispatch, so a transport with its own
-  worker pool is safe without handlers locking anything.
+- **Dispatch slots (`MCP_WORKERS`).** `Server::run()` reads one message,
+  processes it and writes the reply. `processLine()` waits for one of
+  `MCP_WORKERS` slots (a counting semaphore built from mutex + cv); the default
+  of 1 reproduces the historical serialized model exactly. With `N > 1`, up to
+  N handlers run concurrently and handler code must be thread-safe.
 - **The HTTP server transport dispatches from httplib's pool** (64 threads by
   default). Concurrency therefore changes latency, not handler ordering; a
-  handler must not re-enter `processLine()` (the mutex is not recursive).
+  handler must not re-enter `processLine()` (it would wait on a slot it already
+  holds with one worker, and nest with more).
 - **Cancellation bypasses the dispatch lock.** `notifications/cancelled` flips a
   per-request `shared_ptr<atomic_bool>` under `cancellationsMutex_`, so it takes
   effect while a long handler still holds the dispatch lock. This is required
@@ -61,9 +63,10 @@ viable. The direction is a review convention (there is no automated check yet).
   the peer initiated (sampling/elicitation/roots) is handed to
   `Client::onServerRequest`, and the answer goes back as a fresh message; the
   client loop then keeps waiting for its own response.
-- A blocking handler blocks every connection, not just its own: dispatch is
-  serialized. For long work, poll `Ctx::isCancelled` and emit `Ctx::progress`
-  so the client can watch (and so a cancel can take effect).
+- With one dispatch slot a blocking handler blocks every connection; with
+  `MCP_WORKERS > 1` it occupies one slot. For long work, poll
+  `Ctx::isCancelled` and emit `Ctx::progress` so the client can watch (and so a
+  cancel can take effect).
 - **The HTTP client transport runs its own threads.** Every request POST streams
   its response on a worker thread (a response may be a long-lived SSE stream, so
   a synchronous read would block the client loop from answering a mid-call
@@ -139,11 +142,12 @@ viable. The direction is a review convention (there is no automated check yet).
 
 ## Deliberate simplifications
 
-- Serialized dispatch, no async runtime. `processLine()` serializes through
-  `dispatchMutex_`, so the HTTP worker pool adds transport concurrency while
-  handlers still run one at a time. A true multi-worker model (per-request
-  `Server` instances, like the official SDK factories) remains a possible
-  future option if a workload demands it.
+- Dispatch through at most `MCP_WORKERS` slots (1 = serialized), no async
+  runtime. `processLine()` gates on the slots, so the HTTP worker pool adds
+  transport concurrency and `MCP_WORKERS` bounds how much handler concurrency
+  results. A per-request `Server` instance model (like the official SDK
+  factories) remains a possible future option if a workload demands isolation
+  as well as concurrency.
 - Long-lived server instance (per-request state is the handler's business;
   MRTR state is carried by `requestState`, which `RequestStateCodec` seals with
   HMAC-SHA256 bound to the method and target, so an echoed state cannot be

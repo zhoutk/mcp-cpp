@@ -112,7 +112,7 @@
 | 事项 | 状态 |
 | --- | --- |
 | Tasks 扩展（`io.modelcontextprotocol/tasks`） | ✅ `Builder::tasks()` + `mcp/tasks.hpp` |
-| 多 worker 分发（编译期 `MCP_WORKERS`） | ⏳ |
+| 多 worker 分发（编译期 `MCP_WORKERS`） | ✅ `MCP_WORKERS=N` 派发槽位（默认 1） |
 | 旧版修订语义（选择性启用） | ✅ 双时代模式：`initialize`、无 `_meta` 请求、`ping`、`logging/setLevel`、资源订阅 |
 | MCP Apps（UI 扩展） | ❌ 超出范围 |
 | Roots / Sampling | ❌ 已被 SEP-2577 弃用 |

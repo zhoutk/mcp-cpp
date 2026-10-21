@@ -52,7 +52,9 @@ with `-G Ninja` and the clang64 toolchain. Plain `cmake -S . -B build -DCMAKE_BU
 also works. Executables land in `bin/` (`RUNTIME_OUTPUT_DIRECTORY`), intermediates in `build/`.
 
 CMake options: `MCP_BUILD_TESTS` (ON), `MCP_BUILD_EXAMPLES` (ON), `MCP_DISABLE_HTTP` (OFF — pure-stdio
-build), `MCP_ZJSON_DIR` (override zjson location; defaults to `thirds/zjson`, then the zorm sibling dir).
+build), `MCP_ZJSON_DIR` (override zjson location; defaults to `thirds/zjson`, then the zorm sibling dir),
+`MCP_WORKERS` (1 — concurrent dispatch slots; values > 1 require thread-safe handlers; CI has a
+`MCP_WORKERS=4` job).
 
 Single suite / single gtest case:
 
@@ -100,10 +102,12 @@ aggregate include; use it in examples/tests.
 
 Key runtime facts:
 
-- **Serialized dispatch.** `Server::run()` reads one line, calls `processLine()`, writes the reply.
-  `processLine()` holds `dispatchMutex_` for the whole dispatch, so the HTTP transport's httplib
-  worker pool (64 threads) is safe and handlers still run one at a time. Handlers must not re-enter
-  `processLine()` (the mutex is not recursive). Other members are plain except `subscriptions_`
+- **Dispatch slots.** `Server::run()` reads one line, calls `processLine()`, writes the reply.
+  `processLine()` waits for one of `MCP_WORKERS` slots (default 1 = the serialized model, so the HTTP
+  transport's httplib worker pool is safe and handlers run one at a time; with `N > 1` up to N run
+  concurrently and handler code must be thread-safe). Handlers must not re-enter `processLine()`.
+  `logLevel_` is guarded by `logLevelMutex_` (legacy `logging/setLevel` mutates it during dispatch).
+  Other members are plain except `subscriptions_`
   (`subscriptionsMutex_`, notification fan-out from any thread) and `cancellations_`
   (`cancellationsMutex_`; keys are type-tagged so the number `1` and the string `"1"` differ, and
   pre-registered "parked" flags are capped at 1024 with FIFO eviction).

@@ -60,6 +60,11 @@ while auditing it.
 
 ### Changed
 
+- Multi-worker dispatch (`MCP_WORKERS`, Beyond Tier 1): `processLine()` now
+  waits for one of `MCP_WORKERS` dispatch slots instead of a single mutex.
+  The default of 1 preserves the serialized model; `N > 1` allows up to N
+  handlers to overlap and requires thread-safe handler code.
+
 - MRTR hardening (E7): `RequestStateCodec` zeroizes its key on destruction, and
   `Client::callToolWithInput()` enforces a hard ceiling
   (`Client::kMaxInputRounds`, 100) on server-driven rounds; a negative

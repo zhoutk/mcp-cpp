@@ -50,6 +50,17 @@ option(MCP_BUILD_EXAMPLES "Build mcp-cpp examples and benchmarks" ON)
 # Reserved now, effective from M3 (Streamable HTTP transport); a pure-stdio
 # build for low-footprint hosts must stay possible.
 option(MCP_DISABLE_HTTP "Build without the Streamable HTTP transport" OFF)
+# Dispatch concurrency: 1 = serialized (the historical model), N > 1 lets up
+# to N request handlers run concurrently. With N > 1 handlers (and anything
+# they touch) must be thread-safe. The define is PUBLIC because the header
+# defaults to the same value and tests branch on it.
+set(MCP_WORKERS 1 CACHE STRING "Concurrent request handlers inside Server")
+if(NOT MCP_WORKERS MATCHES "^[0-9]+$")
+  message(FATAL_ERROR "mcp-cpp: MCP_WORKERS must be a positive integer")
+endif()
+if(MCP_WORKERS LESS 1)
+  message(FATAL_ERROR "mcp-cpp: MCP_WORKERS must be at least 1")
+endif()
 
 # ---- zjson discovery -------------------------------------------------------
 # Default: a copy bundled under ./thirds/zjson (standalone layout); falls back
@@ -93,6 +104,7 @@ target_include_directories(mcp PUBLIC
   $<BUILD_INTERFACE:${MCP_ZJSON_DIR}>
   $<INSTALL_INTERFACE:include>)
 target_compile_features(mcp PUBLIC cxx_std_17)
+target_compile_definitions(mcp PUBLIC MCP_WORKERS=${MCP_WORKERS})
 
 set(MCP_CXX_WARNINGS -Wall -Wextra -Wpedantic)
 if(MSVC)

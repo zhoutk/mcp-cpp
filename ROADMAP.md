@@ -117,7 +117,7 @@ no async runtime.
 | Item | Status |
 | --- | --- |
 | Tasks extension (`io.modelcontextprotocol/tasks`) | ✅ `Builder::tasks()` + `mcp/tasks.hpp` |
-| Multi-worker dispatch (compile-time `MCP_WORKERS`) | ⏳ |
+| Multi-worker dispatch (compile-time `MCP_WORKERS`) | ✅ `MCP_WORKERS=N` dispatch slots (default 1) |
 | Legacy revision semantics (opt-in) | ✅ dual-era mode: `initialize`, meta-less requests, `ping`, `logging/setLevel`, resource subscriptions |
 | MCP Apps (UI extension) | ❌ out of scope |
 | Roots / Sampling | ❌ deprecated by SEP-2577 |
