@@ -99,7 +99,7 @@
 | 事项 | 来源 |
 | --- | --- |
 | E1 · Tasks 扩展（SEP-2663，`io.modelcontextprotocol/tasks`）：任务记录、TTL、可插拔 TaskStore、`tasks/get`/`tasks/update`/`tasks/cancel`、`Mcp-Name` 镜像 | 三家皆有 |
-| E2 · 客户端时代自动协商：探测 `server/discover` → 分类（现代错误/legacy/超时）→ 回退 `initialize` 或锁定版本 | ts `versionNegotiation`、py `_probe` |
+| E2 · 客户端时代自动协商：探测 `server/discover` → 分类（现代错误/legacy/超时）→ 回退 `initialize` 或锁定版本 | ✅ ts `versionNegotiation`、py `_probe` |
 | E3 · 客户端响应缓存：遵守 `ttlMs`、尊重 `cacheScope`、discover 单条豁免 | ts `responseCache.ts` |
 | E4 · 扩展接缝：`Builder::extension()` 以 `(method, version)` 绑定、禁遮蔽规范方法（SEP-2133 形状） | py `server/extension.py` |
 | E5 · SSE keep-alive 可配置（禁用值校验） | ✅ ts `sseKeepAlive.ts` |

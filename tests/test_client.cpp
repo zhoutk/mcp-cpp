@@ -691,6 +691,91 @@ TEST(ClientTimeout, NonInterruptibleTransportIgnoresTheDeadline) {
   ASSERT_TRUE(result.has_value());
 }
 
+// ---- era auto-negotiation (E2) ----------------------------------------------------
+
+TEST(ClientEra, ModernDiscoverPinsNewestMutualRevision) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(request, nullptr);
+    out.push_back(makeResultLine(
+        request->id,
+        Json(R"({"resultType":"complete","supportedVersions":["2025-11-25","2026-07-28"]})")));
+  };
+  Client c("c", "1");
+  c.connect(t);
+
+  auto negotiated = c.negotiateEra();
+  ASSERT_TRUE(negotiated.has_value());
+  EXPECT_TRUE(negotiated->modern);
+  EXPECT_EQ(negotiated->protocolVersion, "2026-07-28");
+  EXPECT_EQ(t.sent_.size(), 1u);
+}
+
+TEST(ClientEra, UnsupportedRevisionRetriesWithServerSupportedVersion) {
+  ScriptedTransport t({}, {});
+  int discovers = 0;
+  t.responder_ = [&](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    if (request == nullptr) return;  // notifications/initialized
+    if (discovers++ == 0) {
+      JsonRpcErrorValue v;
+      v.code = -32022;
+      v.message = "Unsupported protocol version";
+      Json data;
+      data.add("supported", Json(R"(["2025-03-26"])"));
+      v.data = std::move(data);
+      out.push_back(encodeErrorResponse(request->id, v));
+      return;
+    }
+    out.push_back(makeResultLine(
+        request->id, Json(R"({"resultType":"complete","supportedVersions":["2025-03-26"]})")));
+  };
+  Client c("c", "1");
+  c.connect(t);
+
+  auto negotiated = c.negotiateEra();
+  ASSERT_TRUE(negotiated.has_value());
+  EXPECT_TRUE(negotiated->modern);
+  EXPECT_EQ(negotiated->protocolVersion, "2025-03-26");
+  ASSERT_EQ(t.sent_.size(), 2u);
+  // The retry carried the pinned revision in params._meta.
+  ParsedMessage retryParsed = parseMessage(t.sent_[1]);
+  const auto* retry = std::get_if<JsonRpcRequest>(&retryParsed);
+  ASSERT_NE(retry, nullptr);
+  EXPECT_EQ(member(member(retry->params, "_meta"), kMetaProtocolVersion).toString(),
+            "2025-03-26");
+}
+
+TEST(ClientEra, FallsBackToLegacyInitialize) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    if (request == nullptr) return;  // notifications/initialized
+    if (request->method == "server/discover") {
+      out.push_back(makeErrorLine(request->id, -32601, "Method not found: server/discover"));
+      return;
+    }
+    if (request->method == "initialize") {
+      out.push_back(makeResultLine(request->id,
+                                   Json(R"({"protocolVersion":"2025-11-25","capabilities":{},
+          "serverInfo":{"name":"legacy","version":"1"}})")));
+    }
+  };
+  Client c("c", "1");
+  c.connect(t);
+
+  auto negotiated = c.negotiateEra();
+  ASSERT_TRUE(negotiated.has_value());
+  EXPECT_FALSE(negotiated->modern);
+  EXPECT_EQ(negotiated->protocolVersion, "2025-11-25");
+  // discover + initialize + notifications/initialized
+  EXPECT_EQ(t.sent_.size(), 3u);
+}
+
 // ---- SEP-2243 x-mcp-header validation (D4/D5) -------------------------------------
 
 namespace {

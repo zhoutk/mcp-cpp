@@ -11,6 +11,11 @@ while auditing it.
 
 ### Added
 
+- `Client::negotiateEra()` (E2) auto-negotiates the protocol era: it probes
+  `server/discover`, pins the newest mutually supported revision (retrying once
+  when the server answers `-32022` with its `supported` list), and falls back
+  to the legacy `initialize` handshake for pre-2026 servers.
+
 - `Builder::listChanged(capability)` / `Builder::resourceSubscribe()` advertise
   `listChanged` and `resources.subscribe`; `Builder::extension(id, settings)`
   advertises namespaced extensions; `Builder::resultServerInfo(bool)` controls

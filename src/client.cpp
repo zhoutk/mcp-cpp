@@ -270,6 +270,83 @@ McpResult<Json> Client::exchange(std::string_view method, const Json& params) {
 
 McpResult<Json> Client::discover() { return request("server/discover", Json(nullptr)); }
 
+namespace {
+
+// Newest protocol revision present in a wire `supported`/`supportedVersions`
+// array that this SDK can speak. nullopt when the list is absent or names only
+// unknown revisions.
+std::optional<ProtocolVersion> newestSupportedVersion(const Json& versions) {
+  if (!versions.isArray()) return std::nullopt;
+  std::optional<ProtocolVersion> best;
+  int bestRank = -1;
+  for (const auto& item : versions.toVector()) {
+    if (!item.isString()) continue;
+    const auto parsed = fromString(item.toString());
+    if (!parsed) continue;
+    const int rank = static_cast<int>(*parsed);
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = *parsed;
+    }
+  }
+  return best;
+}
+
+}  // namespace
+
+McpResult<Client::EraNegotiation> Client::negotiateEra(
+    std::string_view legacyVersion, std::chrono::milliseconds probeTimeout) {
+  // Bound the probe when the caller has no request timeout of their own.
+  // Restore it before returning, so negotiation does not silently impose a
+  // deadline on later calls.
+  const auto savedTimeout = requestTimeout_;
+  const bool boundedProbe = probeTimeout > std::chrono::milliseconds(0) &&
+                            savedTimeout == std::chrono::milliseconds(0);
+  if (boundedProbe) setRequestTimeout(probeTimeout);
+  struct RestoreTimeout {
+    Client* c;
+    std::chrono::milliseconds timeout;
+    bool active;
+    ~RestoreTimeout() {
+      if (active) c->setRequestTimeout(timeout);
+    }
+  } restore{this, savedTimeout, boundedProbe};
+
+  McpResult<Json> probe = discover();
+  if (!probe.has_value() && probe.error().code == McpErrorCode::UnsupportedProtocolVersion) {
+    // The server IS modern but rejects our revision. It names the revisions it
+    // speaks in error.data.supported; retry once with the newest one we know.
+    const auto pick = newestSupportedVersion(member(probe.error().data, "supported"));
+    if (pick) {
+      setProtocolVersion(*pick);
+      probe = discover();
+    }
+  }
+  if (probe.has_value()) {
+    if (const auto pick = newestSupportedVersion(member(*probe, "supportedVersions"))) {
+      setProtocolVersion(*pick);
+    }
+    EraNegotiation negotiated;
+    negotiated.modern = true;
+    negotiated.protocolVersion = protocolVersion_;
+    negotiated.result = *probe;
+    return Ok(std::move(negotiated));
+  }
+
+  // Legacy fallback: a pre-2026 server answers discover with method-not-found
+  // (or the transport failed). Run the era's initialize handshake; it adopts
+  // the version the server negotiates.
+  const Implementation info{clientName_, std::string(), clientVersion_, std::string(),
+                            std::string(), Json(nullptr)};
+  McpResult<Json> init = initialize(legacyVersion, info);
+  if (!init.has_value()) return Err(init.error());
+  EraNegotiation negotiated;
+  negotiated.modern = false;
+  negotiated.protocolVersion = protocolVersion_;
+  negotiated.result = *init;
+  return Ok(std::move(negotiated));
+}
+
 McpResult<Json> Client::listTools(const std::string& cursor) {
   Json extra;
   if (!cursor.empty()) extra.add("cursor", Json::str(cursor));

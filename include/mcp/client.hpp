@@ -53,6 +53,28 @@ class Client {
   // server/discover: supportedVersions, capabilities, instructions, ttl.
   McpResult<Json> discover();
 
+  // E2: era auto-negotiation. Probes server/discover, then classifies the
+  // answer:
+  //  - a modern result -> "modern" (2026-07-28 stateless protocol); the
+  //    protocol version is pinned to the newest revision both sides speak
+  //    (from the result's supportedVersions).
+  //  - -32022 UnsupportedProtocolVersion carrying data.supported -> retry
+  //    discover once with the newest mutually supported revision ("pin the
+  //    version"), still modern.
+  //  - any other error (method-not-found, transport error, timeout) -> fall
+  //    back to the legacy `initialize` handshake at `legacyVersion`.
+  // On success, setProtocolVersion() reflects the negotiated revision.
+  // `probeTimeout` bounds the probe when no request timeout is configured; a
+  // transport that cannot interrupt a blocked read (stdio) ignores it.
+  struct EraNegotiation {
+    bool modern = false;          // false = legacy initialize handshake
+    std::string protocolVersion;  // negotiated wire revision
+    Json result;                  // discover result (modern) / initialize result
+  };
+  McpResult<EraNegotiation> negotiateEra(
+      std::string_view legacyVersion = "2025-11-25",
+      std::chrono::milliseconds probeTimeout = std::chrono::milliseconds(5000));
+
   // tools/list with optional pagination cursor.
   McpResult<Json> listTools(const std::string& cursor = "");
 
