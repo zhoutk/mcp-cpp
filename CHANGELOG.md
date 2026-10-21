@@ -17,6 +17,9 @@ while auditing it.
   `_meta.serverInfo`.
 - `HttpServerTransport::setTokenValidator()` — a resource-server authentication
   seam (returns 401 plus an optional `WWW-Authenticate` challenge).
+- `HttpServerTransport::setSseKeepAlive()` (E5) configures the subscription
+  stream's keep-alive cadence; `0` disables it, and intervals in `[1, 99]` ms
+  are rejected as a misconfiguration.
 - `RequestStateCodec::sealFor()/openFor()` bind a sealed state to an
   authenticated principal; the unbound `seal()/open()` wire form is unchanged
   (a frozen test vector now guards it).

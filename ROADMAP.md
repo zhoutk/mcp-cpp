@@ -107,7 +107,7 @@ no async runtime.
 | E2 · Client era auto-negotiation: probe `server/discover` → classify (modern error / legacy / timeout) → fall back to `initialize` or pin the version | ts `versionNegotiation`, py `_probe` |
 | E3 · Client-side response cache honoring `ttlMs`, respecting `cacheScope`, discover exempt | ts `responseCache.ts` |
 | E4 · Extension seam: `Builder::extension()` with `(method, version)` bindings, no shadowing of spec methods (SEP-2133 shape) | py `server/extension.py` |
-| E5 · Configurable SSE keep-alive (validation on disable) | ts `sseKeepAlive.ts` |
+| E5 · Configurable SSE keep-alive (validation on disable) | ✅ ts `sseKeepAlive.ts` |
 | E6 · Golden wire fixtures: pinned spec schema twins + error-surface pin tests | ts corpus, py pinned schemas |
 | E7 · MRTR hardening: client retry-round cap, key zeroize | ✅ py defaults, rust zeroize |
 | E8 · Optional: subscription-bus abstraction; middleware chain; legacy `input_required` shim (dual-era handlers) | hard, deferred |

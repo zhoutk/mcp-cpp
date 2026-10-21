@@ -28,6 +28,7 @@
 #include <mcp/server.hpp>
 #include <mcp/transport.hpp>
 
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -90,6 +91,15 @@ class HttpServerTransport {
   // transport never parses tokens itself.
   using PrincipalExtractor = std::function<std::string(const std::string& authorizationHeader)>;
   void setPrincipalExtractor(PrincipalExtractor extractor);
+
+  // E5: SSE keep-alive cadence for subscription streams (default 5 s). A
+  // keep-alive is an SSE comment (`:` line), so it is invisible to JSON-RPC
+  // parsers while still bounding how long a client waits to notice a dead
+  // connection. 0 disables keep-alives entirely (a quiet subscription then
+  // emits no traffic at all, which some proxies treat as idle); disabling it
+  // is validated, not silently accepted: values in [1, 99] ms are rejected as
+  // a chattering misconfiguration. Call before run().
+  McpResult<void> setSseKeepAlive(std::chrono::milliseconds interval);
 
   // True while the listener is accepting.
   bool running() const;

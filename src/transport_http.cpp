@@ -100,6 +100,9 @@ struct HttpServerTransport::Impl {
   HttpServerTransport::TokenValidator tokenValidator;
   HttpServerTransport::PrincipalExtractor principalExtractor;
   std::atomic_bool running{false};
+  // E5: SSE keep-alive cadence in ms (0 = disabled). Atomic because it is read
+  // by every subscription's pump thread.
+  std::atomic<long long> sseKeepAliveMs{5000};
   std::thread thread;
   std::mutex pumpMutex;                        // guards pumps
   std::vector<std::shared_ptr<Pump>> pumps;    // active subscription streams
@@ -477,15 +480,22 @@ struct HttpServerTransport::Impl {
           // next keep-alive. 5 s keeps shutdown responsive without chattering.
           while (running.load()) {
             std::string line;
-            const int got = pump->waitPop(line, 5000);  // keep-alive cadence
+            // When keep-alives are disabled the pump still wakes periodically
+            // so stop() (which closes the pump) is not the only exit path;
+            // it just writes nothing on an idle tick.
+            const long long keepAliveMs = sseKeepAliveMs.load();
+            const int waitMs = keepAliveMs > 0 ? static_cast<int>(keepAliveMs) : 60000;
+            const int got = pump->waitPop(line, waitMs);
             if (got == 1) {
               std::string event = "data: ";
               event += line;
               event += "\n\n";
               if (!sink.write(event.data(), event.size())) break;
             } else if (got == 0) {
-              static const char kKeepAlive[] = ":\n\n";
-              if (!sink.write(kKeepAlive, 3)) break;  // SSE comment keep-alive
+              if (keepAliveMs > 0) {
+                static const char kKeepAlive[] = ":\n\n";
+                if (!sink.write(kKeepAlive, 3)) break;  // SSE comment keep-alive
+              }
             } else {
               break;
             }
@@ -579,6 +589,19 @@ void HttpServerTransport::setTokenValidator(TokenValidator validator) {
 
 void HttpServerTransport::setPrincipalExtractor(PrincipalExtractor extractor) {
   impl_->principalExtractor = std::move(extractor);
+}
+
+McpResult<void> HttpServerTransport::setSseKeepAlive(std::chrono::milliseconds interval) {
+  const long long ms = static_cast<long long>(interval.count());
+  if (ms < 0) {
+    return Err(McpErrorCode::InvalidParams, "SSE keep-alive interval must not be negative");
+  }
+  if (ms > 0 && ms < 100) {
+    return Err(McpErrorCode::InvalidParams,
+               "SSE keep-alive interval must be 0 (disabled) or at least 100 ms");
+  }
+  impl_->sseKeepAliveMs.store(ms);
+  return Ok();
 }
 
 // ---- client transport -----------------------------------------------------------

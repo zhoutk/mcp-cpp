@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -508,6 +509,56 @@ TEST(HttpClientTransport, SubscriptionAuthChallengeIsReported) {
 
   transport.closeSubscriptions();
   svr.stop();
+  runner.join();
+}
+
+// E5: keep-alive cadence is configurable and disabling it is validated (a
+// sub-100 ms interval is a misconfiguration, not a quiet stream).
+TEST(HttpServerTransport, SseKeepAliveValidation) {
+  Builder b;
+  b.simpleTool("noop", "x", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({})")); });
+  auto server = b.build();
+  HttpServerTransport http(*server);
+  EXPECT_FALSE(http.setSseKeepAlive(std::chrono::milliseconds(-1)).has_value());
+  EXPECT_FALSE(http.setSseKeepAlive(std::chrono::milliseconds(50)).has_value());
+  EXPECT_TRUE(http.setSseKeepAlive(std::chrono::milliseconds(0)).has_value());   // disabled
+  EXPECT_TRUE(http.setSseKeepAlive(std::chrono::milliseconds(100)).has_value());
+}
+
+// E5: a short configured cadence is observable as SSE comment lines on the
+// subscription stream.
+TEST(HttpServerTransport, SendsConfiguredSseKeepAlives) {
+  Builder b;
+  b.name("keep-alive").version("1.0");
+  b.simpleTool("noop", "x", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({})")); });
+  auto server = b.build();
+  HttpServerTransport http(*server);
+  ASSERT_TRUE(http.setSseKeepAlive(std::chrono::milliseconds(100)).has_value());
+  auto bound = http.bind("127.0.0.1");
+  ASSERT_TRUE(bound.has_value());
+  std::thread runner([&] { (void)http.run(); });
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  httplib::Client cli("127.0.0.1", *bound);
+  cli.set_read_timeout(5, 0);
+  httplib::Headers headers;
+  headers.emplace("Accept", "text/event-stream");
+  headers.emplace("MCP-Protocol-Version", "2026-07-28");
+  headers.emplace("Mcp-Method", "subscriptions/listen");
+  const std::string body = makeModernRequestLine(
+      "1", "subscriptions/listen", Json(R"({"notifications":{"toolsListChanged":true}})"));
+
+  std::string acc;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(700);
+  auto receiver = [&](const char* data, size_t len) {
+    acc.append(data, len);
+    return std::chrono::steady_clock::now() < deadline;
+  };
+  (void)cli.Post("/mcp", headers, body, "application/json", receiver);
+  EXPECT_NE(acc.find(":\n\n"), std::string::npos) << "expected SSE comment keep-alives";
+
+  http.stop();
   runner.join();
 }
 
