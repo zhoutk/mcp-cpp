@@ -69,6 +69,15 @@ class RequestStateCodec {
 
   int64_t ttlSeconds() const noexcept { return ttl_; }
 
+  // E7: the key is zeroized on destruction (best effort - the compiler may
+  // keep a copy in a register, and copies of the codec hold their own key).
+  // Moves are cheap: the source's buffer is transferred, not duplicated.
+  RequestStateCodec(const RequestStateCodec&) = default;
+  RequestStateCodec& operator=(const RequestStateCodec&) = default;
+  RequestStateCodec(RequestStateCodec&&) noexcept = default;
+  RequestStateCodec& operator=(RequestStateCodec&&) noexcept = default;
+  ~RequestStateCodec();
+
  private:
   RequestStateCodec(std::string key, int64_t ttlSeconds)
       : key_(std::move(key)), ttl_(ttlSeconds) {}

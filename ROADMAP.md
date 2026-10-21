@@ -109,7 +109,7 @@ no async runtime.
 | E4 · Extension seam: `Builder::extension()` with `(method, version)` bindings, no shadowing of spec methods (SEP-2133 shape) | py `server/extension.py` |
 | E5 · Configurable SSE keep-alive (validation on disable) | ts `sseKeepAlive.ts` |
 | E6 · Golden wire fixtures: pinned spec schema twins + error-surface pin tests | ts corpus, py pinned schemas |
-| E7 · MRTR hardening: client retry-round cap, key zeroize | py defaults, rust zeroize |
+| E7 · MRTR hardening: client retry-round cap, key zeroize | ✅ py defaults, rust zeroize |
 | E8 · Optional: subscription-bus abstraction; middleware chain; legacy `input_required` shim (dual-era handlers) | hard, deferred |
 
 ## Beyond Tier 1

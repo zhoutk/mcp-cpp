@@ -30,6 +30,11 @@ while auditing it.
 
 ### Changed
 
+- MRTR hardening (E7): `RequestStateCodec` zeroizes its key on destruction, and
+  `Client::callToolWithInput()` enforces a hard ceiling
+  (`Client::kMaxInputRounds`, 100) on server-driven rounds; a negative
+  `maxRounds` means no automatic retry round.
+
 - `Client::listTools()` excludes tools whose `x-mcp-header` annotations are
   invalid (SEP-2243 client MUST), and no longer caches them for mirroring. The
   filter now applies only to transports that mirror headers

@@ -262,6 +262,58 @@ TEST(ClientMrtr, CallToolWithInputStopsAtMaxRounds) {
   EXPECT_EQ(t.sent_.size(), 3u);  // initial call + one retry per round
 }
 
+// E7: the round cap is a client-enforced ceiling, not a caller courtesy. A
+// server that never completes must not drive more than kMaxInputRounds rounds
+// even when the caller asks for more.
+TEST(ClientMrtr, MaxRoundsIsCappedAtTheClientCeiling) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(request, nullptr);
+    out.push_back(makeResultLine(request->id,
+                                 Json(R"({"resultType":"input_required","requestState":"loop"})")));
+  };
+
+  int handlerCalls = 0;
+  Client client("c", "1");
+  client.connect(t);
+  auto result = client.callToolWithInput("pay", Json(R"({})"),
+      [&](const Json&) -> McpResult<Json> {
+        ++handlerCalls;
+        return Ok(Json(R"({})"));
+      },
+      /*maxRounds=*/100000);
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(handlerCalls, Client::kMaxInputRounds);
+}
+
+// A negative cap means "no automatic retry round": the first input_required
+// result is reported as the limit error without invoking the handler.
+TEST(ClientMrtr, NegativeMaxRoundsDisablesRetries) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [](const std::string& req, std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    ASSERT_NE(request, nullptr);
+    out.push_back(makeResultLine(request->id,
+                                 Json(R"({"resultType":"input_required","requestState":"x"})")));
+  };
+
+  int handlerCalls = 0;
+  Client client("c", "1");
+  client.connect(t);
+  auto result = client.callToolWithInput("pay", Json(R"({})"),
+      [&](const Json&) -> McpResult<Json> {
+        ++handlerCalls;
+        return Ok(Json(R"({})"));
+      },
+      /*maxRounds=*/-5);
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(handlerCalls, 0);
+  EXPECT_EQ(t.sent_.size(), 1u);
+}
+
 TEST(ClientMrtr, CallToolWithInputPropagatesHandlerError) {
   ScriptedTransport t({}, {});
   t.responder_ = [](const std::string& req, std::deque<std::string>& out) {

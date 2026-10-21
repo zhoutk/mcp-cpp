@@ -176,4 +176,15 @@ McpResult<std::string> RequestStateCodec::openFor(std::string_view state,
   return openWith(key_, state, context, principal, nowUnix);
 }
 
+RequestStateCodec::~RequestStateCodec() {
+  // E7: overwrite the key before releasing its buffer. `volatile` stops the
+  // optimizer from deleting the stores as dead writes (std::memset is not
+  // guaranteed to survive that either in portable C++).
+  if (!key_.empty()) {
+    volatile char* p = &key_[0];
+    for (size_t i = 0; i < key_.size(); ++i) p[i] = 0;
+    key_.clear();
+  }
+}
+
 }  // namespace mcp

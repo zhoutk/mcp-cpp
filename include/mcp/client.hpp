@@ -99,8 +99,13 @@ class Client {
   // passed to `handle`, and the retry echoes requestState and inputResponses.
   // Returns the first complete result. Fails with InternalError once
   // `maxRounds` input rounds have been used, or with the handler's error.
+  // E7: the cap is bounded by kMaxInputRounds (a server that keeps answering
+  // input_required cannot drive an unbounded loop whatever the caller passed).
+  static constexpr int kDefaultMaxInputRounds = 10;
+  static constexpr int kMaxInputRounds = 100;
   McpResult<Json> callToolWithInput(const std::string& name, const Json& arguments,
-                                    const InputHandler& handle, int maxRounds = 10);
+                                    const InputHandler& handle,
+                                    int maxRounds = kDefaultMaxInputRounds);
 
   // subscriptions/listen: opens a long-lived notification stream. Returns
   // after the acknowledged notification; subsequent notifications flow

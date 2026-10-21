@@ -352,6 +352,11 @@ McpResult<Json> Client::retryToolCall(const std::string& name, const Json& argum
 
 McpResult<Json> Client::callToolWithInput(const std::string& name, const Json& arguments,
                                           const InputHandler& handle, int maxRounds) {
+  // E7: a hard ceiling on server-driven rounds. A hostile/buggy server that
+  // always answers input_required must not turn one call into an endless loop,
+  // and a negative value is meaningless (clamp to 0 = no retry round).
+  if (maxRounds < 0) maxRounds = 0;
+  if (maxRounds > kMaxInputRounds) maxRounds = kMaxInputRounds;
   McpResult<Json> current = callTool(name, arguments);
   int rounds = 0;
   while (current.has_value() && isInputRequiredResult(current.value())) {
