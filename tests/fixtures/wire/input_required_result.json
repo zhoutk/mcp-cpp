@@ -1,0 +1,7 @@
+{
+  "resultType": "input_required",
+  "requestState": "golden-state",
+  "_meta": {
+    "io.modelcontextprotocol/serverInfo": {"name": "fixture", "version": "1.0"}
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "resultType": "complete",
+  "tools": [
+    {
+      "name": "echo",
+      "description": "echoes",
+      "inputSchema": {"type": "object"}
+    }
+  ],
+  "ttlMs": 0,
+  "cacheScope": "public",
+  "_meta": {
+    "io.modelcontextprotocol/serverInfo": {"name": "fixture", "version": "1.0"}
+  }
+}

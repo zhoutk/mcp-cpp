@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mcp-cpp/wire/cacheable-result",
+  "title": "CacheableResult twin (2026-07-28): required on */list and resources/read",
+  "type": "object",
+  "required": ["resultType", "ttlMs", "cacheScope"],
+  "properties": {
+    "resultType": {"const": "complete"},
+    "ttlMs": {"type": "integer", "minimum": 0},
+    "cacheScope": {"enum": ["public", "private"]}
+  }
+}

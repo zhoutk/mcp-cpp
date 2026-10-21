@@ -1,0 +1,11 @@
+{
+  "resultType": "complete",
+  "contents": [
+    {"uri": "file:///x", "text": "hi"}
+  ],
+  "ttlMs": 0,
+  "cacheScope": "public",
+  "_meta": {
+    "io.modelcontextprotocol/serverInfo": {"name": "fixture", "version": "1.0"}
+  }
+}

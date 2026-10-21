@@ -259,6 +259,16 @@ if(MCP_BUILD_TESTS)
   add_test(NAME mcp_test_conformance_2026 COMMAND mcp_test_conformance_2026)
   list(APPEND MCP_TEST_EXECUTABLES mcp_test_conformance_2026)
 
+  # E6: golden wire fixtures + spec-schema twins. The fixture directory is an
+  # absolute source path so the suite works from any CTest working directory.
+  add_executable(mcp_test_wire_fixtures tests/test_wire_fixtures.cpp)
+  target_link_libraries(mcp_test_wire_fixtures PRIVATE mcp gtest gtest_main)
+  target_compile_definitions(mcp_test_wire_fixtures PRIVATE
+    MCP_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+  target_compile_options(mcp_test_wire_fixtures PRIVATE ${MCP_CXX_WARNINGS})
+  add_test(NAME mcp_test_wire_fixtures COMMAND mcp_test_wire_fixtures)
+  list(APPEND MCP_TEST_EXECUTABLES mcp_test_wire_fixtures)
+
   target_link_libraries(mcp_test_stdio_e2e PRIVATE mcp gtest)
   target_compile_options(mcp_test_stdio_e2e PRIVATE ${MCP_CXX_WARNINGS})
   add_test(NAME mcp_test_stdio_e2e COMMAND mcp_test_stdio_e2e)

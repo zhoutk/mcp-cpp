@@ -27,6 +27,10 @@ while auditing it.
   `_meta.serverInfo`.
 - `HttpServerTransport::setTokenValidator()` — a resource-server authentication
   seam (returns 401 plus an optional `WWW-Authenticate` challenge).
+- Golden wire fixtures + spec-schema twins (E6): `tests/fixtures/wire/` pins
+  the emitted result/error/notification shapes and `tests/fixtures/schema/`
+  holds minimal CacheableResult / InputRequiredResult / JSON-RPC error schemas
+  that the new `mcp_test_wire_fixtures` suite validates against.
 - `Builder::extension(id, method, protocolVersion, handler)` (E4, SEP-2133):
   binds an additive extension request method, advertised with the extension
   and served only to clients that advertise it at the bound protocol revision.

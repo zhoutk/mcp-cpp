@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mcp-cpp/wire/jsonrpc-error",
+  "title": "JSON-RPC 2.0 error response twin",
+  "type": "object",
+  "required": ["jsonrpc", "error"],
+  "properties": {
+    "jsonrpc": {"const": "2.0"},
+    "id": {},
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {"type": "integer"},
+        "message": {"type": "string"},
+        "data": {}
+      }
+    }
+  }
+}

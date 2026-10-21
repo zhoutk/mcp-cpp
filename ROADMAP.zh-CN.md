@@ -103,7 +103,7 @@
 | E3 · 客户端响应缓存：遵守 `ttlMs`、尊重 `cacheScope`、discover 单条豁免 | ✅ ts `responseCache.ts` |
 | E4 · 扩展接缝：`Builder::extension()` 以 `(method, version)` 绑定、禁遮蔽规范方法（SEP-2133 形状） | ✅ py `server/extension.py` |
 | E5 · SSE keep-alive 可配置（禁用值校验） | ✅ ts `sseKeepAlive.ts` |
-| E6 · 黄金线缆夹具：钉住的规范 schema twins + 错误面 pin 测试 | ts corpus、py pinned schema |
+| E6 · 黄金线缆夹具：钉住的规范 schema twins + 错误面 pin 测试 | ✅ ts corpus、py pinned schema |
 | E7 · MRTR 加固：客户端重试轮次上限、密钥 zeroize | ✅ py 默认值、rust zeroize |
 | E8 · 可选：订阅总线抽象；中间件链；legacy `input_required` shim（双时代 handler） | 困难，延后 |
 

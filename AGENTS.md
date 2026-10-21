@@ -63,7 +63,7 @@ bin/mcp_test_server.exe --gtest_filter=ServerTest.DiscoverAdvertisesCapabilities
 
 The `mcp_test_*` names are exactly the CTest registration names (`mcp_test_version`, `_error`, `_jsonrpc`,
 `_types`, `_transport`, `_server`, `_client`, `_schema`, `_request_state`, `_stdio_e2e`, `_http_e2e`,
-`_oauth`, `_oauth_server`, `_conformance_2026`).
+`_oauth`, `_oauth_server`, `_conformance_2026`, `_wire_fixtures`).
 Benchmarks
 (`mcp_bench_parse|dispatch|e2e`) are **not** registered with CTest — run them manually from `bin/`.
 

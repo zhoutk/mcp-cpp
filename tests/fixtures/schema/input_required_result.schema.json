@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mcp-cpp/wire/input-required-result",
+  "title": "InputRequiredResult twin (2026-07-28 MRTR)",
+  "type": "object",
+  "required": ["resultType"],
+  "properties": {
+    "resultType": {"const": "input_required"},
+    "inputRequests": {"type": "object", "minProperties": 1},
+    "requestState": {"type": "string"}
+  },
+  "anyOf": [{"required": ["inputRequests"]}, {"required": ["requestState"]}]
+}
