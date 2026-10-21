@@ -11,6 +11,11 @@ while auditing it.
 
 ### Added
 
+- `Client` honors CacheableResult hints (E3) by default: `tools/list`,
+  `resources/list`, `resources/templates/list`, `prompts/list` and
+  `resources/read` are cached for their positive `ttlMs` when `cacheScope` is
+  `public`/`private`; `server/discover` is never cached.
+  `setResponseCache(false)` / `clearResponseCache()` control it.
 - `Client::negotiateEra()` (E2) auto-negotiates the protocol era: it probes
   `server/discover`, pins the newest mutually supported revision (retrying once
   when the server answers `-32022` with its `supported` list), and falls back

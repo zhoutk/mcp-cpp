@@ -111,10 +111,81 @@ Json Client::buildParams(const Json& extraParams,
   return params;
 }
 
+namespace {
+
+// Methods whose results carry CacheableResult hints. tools/call and the MRTR
+// retries are never cached (a tool call is an action, not a resource read).
+bool isCacheableMethod(std::string_view method) {
+  return method == "tools/list" || method == "resources/list" ||
+         method == "resources/templates/list" || method == "prompts/list" ||
+         method == "resources/read";
+}
+
+}  // namespace
+
 McpResult<Json> Client::request(std::string_view method, const Json& extraParams,
                                 const std::optional<RequestId>& progressToken) {
-  return exchange(method, buildParams(extraParams, progressToken));
+  // E3: server/discover is deliberately absent from isCacheableMethod - it is
+  // the era/version probe and must always reach the server.
+  const bool cacheable = responseCache_ && !progressToken && isCacheableMethod(method);
+  std::string key;
+  if (cacheable) {
+    key.assign(method.data(), method.size());
+    key += '\n';
+    key += extraParams.toString();  // explicit params only (no _meta envelope)
+    if (auto hit = cacheLookup(key)) return Ok(std::move(*hit));
+  }
+  auto result = exchange(method, buildParams(extraParams, progressToken));
+  if (cacheable && result.has_value()) cacheStore(key, *result);
+  return result;
 }
+
+std::optional<Json> Client::cacheLookup(const std::string& key) {
+  auto it = responseCacheEntries_.find(key);
+  if (it == responseCacheEntries_.end()) return std::nullopt;
+  if (std::chrono::steady_clock::now() >= it->second.expires) {
+    responseCacheEntries_.erase(it);
+    return std::nullopt;
+  }
+  it->second.lastUsed = ++cacheClock_;
+  return it->second.result;
+}
+
+void Client::cacheStore(const std::string& key, const Json& result) {
+  // Only a complete CacheableResult with a positive ttl and a known scope is
+  // cacheable. Everything else (missing/zero ttl, unknown scope, an
+  // input_required result) is passed through and re-fetched next time.
+  if (!result.isObject()) return;
+  if (resultTypeOf(result) != std::string(kResultTypeComplete)) return;
+  const Json ttl = member(result, "ttlMs");
+  if (!ttl.isNumber()) return;
+  const int64_t ttlMs = ttl.toInt64();
+  if (ttlMs <= 0) return;  // immediately stale
+  const Json scope = member(result, "cacheScope");
+  if (!scope.isString()) return;
+  const std::string scopeText(scope.toString());
+  if (scopeText != "public" && scopeText != "private") return;  // unknown scope: never cache
+
+  if (responseCacheEntries_.size() >= kMaxCacheEntries) {
+    auto oldest = responseCacheEntries_.begin();
+    for (auto it = responseCacheEntries_.begin(); it != responseCacheEntries_.end(); ++it) {
+      if (it->second.lastUsed < oldest->second.lastUsed) oldest = it;
+    }
+    responseCacheEntries_.erase(oldest);
+  }
+  CacheEntry entry;
+  entry.result = result;
+  entry.expires = std::chrono::steady_clock::now() + std::chrono::milliseconds(ttlMs);
+  entry.lastUsed = ++cacheClock_;
+  responseCacheEntries_[key] = std::move(entry);
+}
+
+void Client::setResponseCache(bool enabled) {
+  responseCache_ = enabled;
+  if (!enabled) responseCacheEntries_.clear();
+}
+
+void Client::clearResponseCache() { responseCacheEntries_.clear(); }
 
 McpResult<Json> Client::initialize(std::string_view protocolVersion,
                                    const Implementation& clientInfo) {

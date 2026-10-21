@@ -776,6 +776,104 @@ TEST(ClientEra, FallsBackToLegacyInitialize) {
   EXPECT_EQ(t.sent_.size(), 3u);
 }
 
+// ---- client-side response cache (E3) ----------------------------------------------
+
+namespace {
+// Counts requests and answers each with the supplied result object.
+ScriptedTransport makeCachingTransport(int& requests, const std::string& resultJson) {
+  ScriptedTransport t({}, {});
+  t.responder_ = [&requests, resultJson](const std::string& req,
+                                         std::deque<std::string>& out) {
+    ParsedMessage parsed = parseMessage(req);
+    const auto* request = std::get_if<JsonRpcRequest>(&parsed);
+    if (request == nullptr) return;
+    ++requests;
+    out.push_back(makeResultLine(request->id, Json(resultJson)));
+  };
+  return t;
+}
+}  // namespace
+
+TEST(ClientCache, ServesCachedListWithinTtl) {
+  int requests = 0;
+  ScriptedTransport t = makeCachingTransport(
+      requests, R"({"resultType":"complete","tools":[],"ttlMs":60000,"cacheScope":"public"})");
+  Client c("c", "1");
+  c.connect(t);
+
+  ASSERT_TRUE(c.listTools().has_value());
+  ASSERT_TRUE(c.listTools().has_value());
+  EXPECT_EQ(requests, 1) << "the second call must be served from the cache";
+
+  // A different request key is a different entry.
+  ASSERT_TRUE(c.listTools("cursor-2").has_value());
+  EXPECT_EQ(requests, 2);
+}
+
+TEST(ClientCache, ExpiredEntryIsRefetched) {
+  int requests = 0;
+  ScriptedTransport t = makeCachingTransport(
+      requests, R"({"resultType":"complete","tools":[],"ttlMs":1,"cacheScope":"public"})");
+  Client c("c", "1");
+  c.connect(t);
+
+  ASSERT_TRUE(c.listTools().has_value());
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  ASSERT_TRUE(c.listTools().has_value());
+  EXPECT_EQ(requests, 2);
+}
+
+TEST(ClientCache, ZeroTtlIsNotCached) {
+  int requests = 0;
+  ScriptedTransport t = makeCachingTransport(
+      requests, R"({"resultType":"complete","tools":[],"ttlMs":0,"cacheScope":"public"})");
+  Client c("c", "1");
+  c.connect(t);
+
+  ASSERT_TRUE(c.listTools().has_value());
+  ASSERT_TRUE(c.listTools().has_value());
+  EXPECT_EQ(requests, 2);
+}
+
+TEST(ClientCache, UnknownCacheScopeIsNotCached) {
+  int requests = 0;
+  ScriptedTransport t = makeCachingTransport(
+      requests, R"({"resultType":"complete","tools":[],"ttlMs":60000,"cacheScope":"shared"})");
+  Client c("c", "1");
+  c.connect(t);
+
+  ASSERT_TRUE(c.listTools().has_value());
+  ASSERT_TRUE(c.listTools().has_value());
+  EXPECT_EQ(requests, 2);
+}
+
+TEST(ClientCache, DiscoverIsNeverCached) {
+  int requests = 0;
+  ScriptedTransport t = makeCachingTransport(
+      requests,
+      R"({"resultType":"complete","supportedVersions":["2026-07-28"],
+          "ttlMs":60000,"cacheScope":"public"})");
+  Client c("c", "1");
+  c.connect(t);
+
+  ASSERT_TRUE(c.discover().has_value());
+  ASSERT_TRUE(c.discover().has_value());
+  EXPECT_EQ(requests, 2);
+}
+
+TEST(ClientCache, DisabledCacheAlwaysRefetches) {
+  int requests = 0;
+  ScriptedTransport t = makeCachingTransport(
+      requests, R"({"resultType":"complete","tools":[],"ttlMs":60000,"cacheScope":"public"})");
+  Client c("c", "1");
+  c.connect(t);
+  c.setResponseCache(false);
+
+  ASSERT_TRUE(c.listTools().has_value());
+  ASSERT_TRUE(c.listTools().has_value());
+  EXPECT_EQ(requests, 2);
+}
+
 // ---- SEP-2243 x-mcp-header validation (D4/D5) -------------------------------------
 
 namespace {

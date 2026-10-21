@@ -151,6 +151,21 @@ class Client {
   McpResult<Json> request(std::string_view method, const Json& extraParams,
                           const std::optional<RequestId>& progressToken = std::nullopt);
 
+  // --- client-side response cache (E3) ---------------------------------------
+  // CacheableResult clients SHOULD honor `ttlMs` + `cacheScope`. The cache is
+  // on by default and covers `tools/list`, `resources/list`,
+  // `resources/templates/list`, `prompts/list` and `resources/read`:
+  //  - an entry is only stored when the result carries a positive `ttlMs` and
+  //    a `cacheScope` of "public" or "private"; a missing/zero ttl or an
+  //    unknown scope means "do not cache" (conservative, spec-safe).
+  //  - `server/discover` is NEVER cached (it is the negotiation/version probe
+  //    and must always reach the server).
+  //  - requests carrying a progressToken, and results that are not complete,
+  //    are never cached.
+  // A hit returns the stored result without touching the transport.
+  void setResponseCache(bool enabled);
+  void clearResponseCache();
+
   // --- legacy-era client (pre-2026) -----------------------------------------
   // Runs the initialize handshake: sends the legacy `initialize` request
   // (protocolVersion/capabilities/clientInfo at the params ROOT - no _meta
@@ -213,6 +228,21 @@ class Client {
   std::map<std::string, Json> toolSchemas_;
   std::vector<std::string> lastParamHeaders_;  // cleared before each call
   void mirrorHeaderParams(const std::string& toolName, const Json& arguments);
+
+  // E3 response cache. Entries are keyed by method + the request's explicit
+  // params; expiries use steady_clock (immune to wall-clock jumps). The cache
+  // is bounded: the least recently used entry is evicted beyond kMaxEntries.
+  static constexpr size_t kMaxCacheEntries = 256;
+  struct CacheEntry {
+    Json result;
+    std::chrono::steady_clock::time_point expires;
+    uint64_t lastUsed = 0;
+  };
+  bool responseCache_ = true;
+  uint64_t cacheClock_ = 0;
+  std::map<std::string, CacheEntry> responseCacheEntries_;
+  std::optional<Json> cacheLookup(const std::string& key);
+  void cacheStore(const std::string& key, const Json& result);
 
   // Request timeout. A watchdog thread (lazily started by setRequestTimeout)
   // fires transport_->interruptRead() when the in-flight exchange passes its
