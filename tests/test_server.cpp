@@ -800,6 +800,88 @@ TEST(ServerRequestState, NoCodecConfiguredIsInternalError) {
   EXPECT_EQ(std::string(member(probe.result->result, "code").toString()), "-32603");
 }
 
+// F1: the transport-supplied principal is exposed as Ctx::principal and binds
+// sealed requestState - a state issued to one principal cannot be replayed by
+// another even though the MAC itself is valid.
+namespace {
+
+Out serveOnceAs(const std::shared_ptr<Server>& server, const std::string& requestLine,
+                const std::string& principal) {
+  MemTransport t({requestLine});
+  server->processLine(requestLine, t, principal);
+  EXPECT_EQ(t.output_.size(), 1u);
+  Out o;
+  if (t.output_.empty()) return o;
+  o.parsed = parseMessage(t.output_[0]);
+  o.result = std::get_if<JsonRpcResult>(&o.parsed);
+  o.error = std::get_if<JsonRpcErrorResponse>(&o.parsed);
+  o.notification = std::get_if<JsonRpcNotification>(&o.parsed);
+  return o;
+}
+
+Out callToolAs(const std::shared_ptr<Server>& server, const std::string& id,
+               const std::string& tool, const std::string& principal,
+               const std::string& state = {}) {
+  Json extra;
+  extra.add("name", Json::str(tool));
+  extra.add("arguments", Json(R"({})"));
+  if (!state.empty()) extra.add("requestState", Json::str(state));
+  return serveOnceAs(server, makeRequest(id, "tools/call", extra), principal);
+}
+
+}  // namespace
+
+TEST(ServerRequestState, PrincipalBindingRejectsCrossPrincipalReplay) {
+  auto server = makeStatefulServer(true);
+  Out round1 = callToolAs(server, "q1", "stateful", "alice");
+  ASSERT_NE(round1.result, nullptr);
+  const std::string state = requestStateOf(round1.result->result);
+  ASSERT_FALSE(state.empty());
+
+  // Same principal: the state opens.
+  Out same = callToolAs(server, "q2", "stateful", "alice", state);
+  ASSERT_NE(same.result, nullptr);
+  EXPECT_EQ(std::string(member(same.result->result, "payload").toString()), "step1");
+
+  // Different principal: the MAC verifies but the binding does not.
+  Out other = callToolAs(server, "q3", "stateful", "bob", state);
+  ASSERT_NE(other.error, nullptr);
+  EXPECT_EQ(other.error->error.code, -32602);
+}
+
+TEST(ServerRequestState, BuilderPrincipalResolverFeedsCtx) {
+  Builder b;
+  b.name("principal").version("1.0");
+  b.requestStatePrincipal([](const RequestMeta&, const Json&) { return std::string("svc"); });
+  b.simpleTool("whoami", "reports the principal", [](Ctx& c) -> McpResult<Json> {
+    Json r;
+    r.add("principal", Json::str(c.principal));
+    return Ok(std::move(r));
+  });
+  auto server = b.build();
+
+  Out o = serveOnce(server, makeRequest("w1", "tools/call", Json(R"({"name":"whoami"})")));
+  ASSERT_NE(o.result, nullptr);
+  EXPECT_EQ(std::string(member(o.result->result, "principal").toString()), "svc");
+}
+
+TEST(ServerRequestState, TransportPrincipalWinsOverBuilderResolver) {
+  Builder b;
+  b.name("principal").version("1.0");
+  b.requestStatePrincipal([](const RequestMeta&, const Json&) { return std::string("resolver"); });
+  b.simpleTool("whoami", "reports the principal", [](Ctx& c) -> McpResult<Json> {
+    Json r;
+    r.add("principal", Json::str(c.principal));
+    return Ok(std::move(r));
+  });
+  auto server = b.build();
+
+  Out o = serveOnceAs(server, makeRequest("w1", "tools/call", Json(R"({"name":"whoami"})")),
+                      "transport");
+  ASSERT_NE(o.result, nullptr);
+  EXPECT_EQ(std::string(member(o.result->result, "principal").toString()), "transport");
+}
+
 TEST(ServerM4, CompletionRoute) {
   Builder b;
   b.completions([](Ctx&) -> McpResult<Json> {

@@ -98,6 +98,7 @@ struct HttpServerTransport::Impl {
   std::string endpoint;
   OriginValidator originValidator;
   HttpServerTransport::TokenValidator tokenValidator;
+  HttpServerTransport::PrincipalExtractor principalExtractor;
   std::atomic_bool running{false};
   std::thread thread;
   std::mutex pumpMutex;                        // guards pumps
@@ -372,7 +373,9 @@ struct HttpServerTransport::Impl {
     // capture sink, then answer.
     std::vector<std::string> lines;
     LineCapture sink(lines);
-    server.processLine(req.body, sink);
+    std::string principal;
+    if (principalExtractor) principal = principalExtractor(req.get_header_value("Authorization"));
+    server.processLine(req.body, sink, principal);
 
     if (isNotification) {
       // Accepted notification: 202 with no body (any server error response to
@@ -572,6 +575,10 @@ void HttpServerTransport::setOriginValidator(OriginValidator validator) {
 
 void HttpServerTransport::setTokenValidator(TokenValidator validator) {
   impl_->tokenValidator = std::move(validator);
+}
+
+void HttpServerTransport::setPrincipalExtractor(PrincipalExtractor extractor) {
+  impl_->principalExtractor = std::move(extractor);
 }
 
 // ---- client transport -----------------------------------------------------------

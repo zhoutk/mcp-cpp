@@ -82,6 +82,15 @@ class HttpServerTransport {
                                             std::string& wwwAuthenticateChallenge)>;
   void setTokenValidator(TokenValidator validator);
 
+  // F1: derives the authenticated principal (typically the token subject) for
+  // a request from its Authorization header. The value is passed to
+  // Server::processLine and surfaces as Ctx::principal, binding sealed
+  // requestState to the caller. Called only after the token validator (when
+  // one is installed) accepted the request; empty means "anonymous". The
+  // transport never parses tokens itself.
+  using PrincipalExtractor = std::function<std::string(const std::string& authorizationHeader)>;
+  void setPrincipalExtractor(PrincipalExtractor extractor);
+
   // True while the listener is accepting.
   bool running() const;
 

@@ -107,6 +107,13 @@ struct Ctx {
   // Seals `payload` into a requestState for the next round of this request.
   // Err(InternalError) when no codec is configured or the method cannot carry state.
   std::function<McpResult<std::string>(std::string payload)> sealRequestState;
+
+  // F1: authenticated principal of the caller (empty when the transport or
+  // Builder::requestStatePrincipal() supplied none). When non-empty and a
+  // requestState codec is configured, open/sealRequestState() are bound to it
+  // (RequestStateCodec::openFor/sealFor), so a state issued to one principal
+  // cannot be replayed by another.
+  std::string principal;
 };
 
 // ---- subscriptions -----------------------------------------------------------
@@ -178,6 +185,12 @@ class Server {
   // Processes one raw message and writes any response(s) to `out`.
   // Public so tests can drive the server over in-memory transports.
   void processLine(const std::string& line, ITransport& out);
+  // As above, with the authenticated principal for this message. Transport
+  // integrations that authenticate out of band (the HTTP transport's token
+  // validator / principal extractor) use this overload; the value reaches
+  // handlers as Ctx::principal and binds sealed requestState. An empty
+  // principal falls back to Builder::requestStatePrincipal()'s resolver.
+  void processLine(const std::string& line, ITransport& out, const std::string& principal);
 
   // --- introspection for tests ---
   const Json& serverCapabilities() const { return capabilities_; }
@@ -224,7 +237,7 @@ class Server {
   void addServerInfoToResult(Json& result) const;
   McpResult<Json> dispatchRequest(const JsonRpcRequest& req, const RequestMeta& meta,
                                   const std::function<bool()>& cancelled,
-                                  const NotifyFn& notify);
+                                  const NotifyFn& notify, const std::string& principal);
 
   McpResult<Json> handleDiscover(const RequestMeta& meta);
   McpResult<Json> handleInitialize(const JsonRpcRequest& req);
@@ -232,7 +245,7 @@ class Server {
                                       std::string_view arrayKey);
   McpResult<Json> handleToolCall(const JsonRpcRequest& req, const RequestMeta& meta,
                                  const std::function<bool()>& cancelled,
-                                 const NotifyFn& notify);
+                                 const NotifyFn& notify, const std::string& principal);
 
   // Builds the per-request Ctx, wiring progress/notify/inputRequired against the
   // active transport and this request's metadata. `params`/`meta` must outlive
@@ -241,7 +254,7 @@ class Server {
   // "tools/call\nname"); empty disables requestState for this context.
   Ctx makeCtx(const Json& params, const RequestMeta& meta,
               const std::function<bool()>& cancelled, const NotifyFn& notify,
-              std::string stateContext = {}) const;
+              std::string stateContext = {}, std::string principal = {}) const;
 
   bool versionSupported(std::string_view wire) const;
 
@@ -272,6 +285,9 @@ class Server {
   bool resultServerInfo_ = true;  // D8: serverInfo in every modern result's _meta
   Handler completionsHandler_;
   std::shared_ptr<const RequestStateCodec> stateCodec_;  // null: requestState unsupported
+  // F1: optional per-request principal resolver (see Builder). Consulted only
+  // when the transport did not supply a principal for the message.
+  std::function<std::string(const RequestMeta&, const Json&)> principalResolver_;
 
   // request id (typed form, see cancelKey in server.cpp) -> cancel flag.
   // Guarded by cancellationsMutex_ rather than dispatchMutex_: a cancellation
@@ -383,6 +399,15 @@ class Builder {
   // Enables integrity-protected MRTR requestState (see RequestStateCodec). Without
   // it, Ctx::openRequestState and Ctx::sealRequestState return InternalError.
   Builder& requestStateCodec(RequestStateCodec codec);
+
+  // F1: resolves the authenticated principal for each request. The resolver
+  // runs once per request before dispatch and its result is exposed as
+  // Ctx::principal; with a requestStateCodec configured, sealed state is then
+  // bound to that principal automatically (D7's sealFor/openFor path). Return
+  // an empty string for "no authenticated principal". A principal supplied by
+  // the transport (Server::processLine's overload) takes precedence.
+  using PrincipalResolver = std::function<std::string(const RequestMeta&, const Json&)>;
+  Builder& requestStatePrincipal(PrincipalResolver resolver);
 
   std::shared_ptr<Server> build();
 

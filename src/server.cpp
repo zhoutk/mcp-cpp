@@ -176,6 +176,7 @@ Server::Server(Server&& other) noexcept
       resultServerInfo_(other.resultServerInfo_),
       completionsHandler_(std::move(other.completionsHandler_)),
       stateCodec_(std::move(other.stateCodec_)),
+      principalResolver_(std::move(other.principalResolver_)),
       cancellations_(std::move(other.cancellations_)),
       subscriptions_(std::move(other.subscriptions_)) {}
 
@@ -221,8 +222,9 @@ int64_t unixNowSeconds() {
 
 Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
                     const std::function<bool()>& cancelled, const NotifyFn& notify,
-                    std::string stateContext) const {
-  Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}, {}};
+                    std::string stateContext, std::string principal) const {
+  Ctx ctx{params, meta, cancelled, {}, {}, {}, {}, {}, {}, {}, {}};
+  ctx.principal = std::move(principal);
   ctx.notify = notify;
   // Structured logging (see Ctx::log in server.hpp). A 2026-07-28 request
   // opts in through _meta.logLevel and MUST NOT receive notifications/message
@@ -336,8 +338,11 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
     requests.add("elicit", std::move(request));
     return inputRequired(std::move(requests), std::move(requestState));
   };
+  // F1: a non-empty principal turns the codec's identity binding on for this
+  // request (D7's sealFor/openFor); without one the wire form stays unbound.
+  const std::string identity = ctx.principal;
   ctx.openRequestState = [codec = stateCodec_, context = stateContext,
-                          paramsPtr = &params]() -> McpResult<std::optional<std::string>> {
+                          paramsPtr = &params, identity]() -> McpResult<std::optional<std::string>> {
     if (!codec) {
       return Err(McpErrorCode::InternalError, "requestState requires Builder::requestStateCodec");
     }
@@ -347,11 +352,14 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
     const Json echoed = member(*paramsPtr, kRequestStateKey);
     if (echoed.isNull()) return Ok(std::optional<std::string>{});
     if (!echoed.isString()) return Err(McpErrorCode::InvalidParams, kBadRequestState);
-    auto opened = codec->open(std::string(echoed.toString()), context, unixNowSeconds());
+    const std::string wire(echoed.toString());
+    auto opened = identity.empty()
+                      ? codec->open(wire, context, unixNowSeconds())
+                      : codec->openFor(wire, context, identity, unixNowSeconds());
     if (!opened.has_value()) return Err(McpErrorCode::InvalidParams, kBadRequestState);
     return Ok(std::optional<std::string>(std::move(opened).value()));
   };
-  ctx.sealRequestState = [codec = stateCodec_, context = stateContext](
+  ctx.sealRequestState = [codec = stateCodec_, context = stateContext, identity](
                              std::string payload) -> McpResult<std::string> {
     if (!codec) {
       return Err(McpErrorCode::InternalError, "requestState requires Builder::requestStateCodec");
@@ -359,7 +367,9 @@ Ctx Server::makeCtx(const Json& params, const RequestMeta& meta,
     if (context.empty()) {
       return Err(McpErrorCode::InternalError, "requestState is not available for this method");
     }
-    return Ok(codec->seal(payload, context, unixNowSeconds()));
+    return Ok(identity.empty()
+                  ? codec->seal(payload, context, unixNowSeconds())
+                  : codec->sealFor(payload, context, identity, unixNowSeconds()));
   };
   return ctx;
 }
@@ -374,6 +384,11 @@ McpResult<void> Server::run(ITransport& transport) {
 }
 
 void Server::processLine(const std::string& line, ITransport& out) {
+  processLine(line, out, std::string());
+}
+
+void Server::processLine(const std::string& line, ITransport& out,
+                         const std::string& principal) {
   const ParsedMessage parsed = parseMessage(line);
 
   // Cancellation is handled BEFORE the dispatch lock: the HTTP transport
@@ -552,7 +567,12 @@ void Server::processLine(const std::string& line, ITransport& out) {
     (void)out.write(encodeNotification(method, std::move(params)));
   };
 
-  McpResult<Json> result = dispatchRequest(req, meta, cancelled, notify);
+  // F1: the transport-supplied principal wins; otherwise let the builder's
+  // resolver derive one from this request's metadata (empty = unauthenticated).
+  std::string identity = principal;
+  if (identity.empty() && principalResolver_) identity = principalResolver_(meta, req.params);
+
+  McpResult<Json> result = dispatchRequest(req, meta, cancelled, notify, identity);
   // MRTR: an InputRequiredResult may only answer tools/call, prompts/get and
   // resources/read (basic/patterns/mrtr.md "Supported Requests").
   if (result.has_value() && isInputRequiredResult(*result) && req.method != "tools/call" &&
@@ -599,7 +619,7 @@ void Server::addServerInfoToResult(Json& result) const {
 
 McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const RequestMeta& meta,
                                         const std::function<bool()>& cancelled,
-                                        const NotifyFn& notify) {
+                                        const NotifyFn& notify, const std::string& principal) {
   const MethodRoute* route = findRoute(req.method);
 
   // Capability gate: the server must have advertised the feature.
@@ -637,10 +657,10 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
   if (req.method == "server/discover") return handleDiscover(meta);
   if (req.method == "tools/list") return handlePaginatedList(tools_, req.params, "tools");
   if (req.method == "completion/complete") {
-    Ctx ctx = makeCtx(req.params, meta, cancelled, notify);
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify, {}, principal);
     return completionsHandler_(ctx);
   }
-  if (req.method == "tools/call") return handleToolCall(req, meta, cancelled, notify);
+  if (req.method == "tools/call") return handleToolCall(req, meta, cancelled, notify, principal);
   if (req.method == "resources/list") return handlePaginatedList(resources_, req.params, "resources");
   if (req.method == "prompts/list") return handlePaginatedList(prompts_, req.params, "prompts");
 
@@ -679,7 +699,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     if (handler == nullptr) {
       return Err(McpErrorCode::InvalidParams, "Unknown resource: " + uriText);
     }
-    Ctx ctx = makeCtx(req.params, meta, cancelled, notify, "resources/read\n" + uriText);
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify, "resources/read\n" + uriText, principal);
     McpResult<Json> read = (*handler)(ctx);
     // 2026-07-28 requires CacheableResult (ttlMs + cacheScope) on resources/read
     // too: a strict modern client rejects the result without them, so a handler
@@ -703,7 +723,7 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
       return Err(McpErrorCode::InvalidParams, "Unknown prompt: " + std::string(name.toString()));
     }
     Ctx ctx = makeCtx(req.params, meta, cancelled, notify,
-                      "prompts/get\n" + std::string(name.toString()));
+                      "prompts/get\n" + std::string(name.toString()), principal);
     return it->second(ctx);
   }
 
@@ -773,7 +793,7 @@ McpResult<Json> Server::handlePaginatedList(const Registry& reg, const Json& par
 
 McpResult<Json> Server::handleToolCall(const JsonRpcRequest& req, const RequestMeta& meta,
                                        const std::function<bool()>& cancelled,
-                                       const NotifyFn& notify) {
+                                       const NotifyFn& notify, const std::string& principal) {
   const Json name = member(req.params, "name");
   if (!name.isString()) {
     return Err(McpErrorCode::InvalidParams, "tools/call requires a string name");
@@ -798,7 +818,7 @@ McpResult<Json> Server::handleToolCall(const JsonRpcRequest& req, const RequestM
   // Ctx: handlers may emit progress notifications, arbitrary notifications, and
   // MRTR input requests.
   Ctx ctx = makeCtx(req.params, meta, cancelled, notify,
-                    "tools/call\n" + std::string(name.toString()));
+                    "tools/call\n" + std::string(name.toString()), principal);
 
   McpResult<Json> result = it->second(ctx);
   if (!result.has_value()) return result;
@@ -970,6 +990,11 @@ Builder& Builder::acceptLegacyClients(bool on) {
 
 Builder& Builder::requestStateCodec(RequestStateCodec codec) {
   server_.stateCodec_ = std::make_shared<const RequestStateCodec>(std::move(codec));
+  return *this;
+}
+
+Builder& Builder::requestStatePrincipal(PrincipalResolver resolver) {
+  server_.principalResolver_ = std::move(resolver);
   return *this;
 }
 

@@ -20,6 +20,13 @@ while auditing it.
 - `RequestStateCodec::sealFor()/openFor()` bind a sealed state to an
   authenticated principal; the unbound `seal()/open()` wire form is unchanged
   (a frozen test vector now guards it).
+- `Builder::requestStatePrincipal(resolver)` and `Ctx::principal` (F1) expose
+  the authenticated principal to handlers and make the D7 binding the default
+  MRTR path: with a principal present, `Ctx::sealRequestState/openRequestState`
+  use `sealFor/openFor` automatically. `Server::processLine(line, out,
+  principal)` accepts a transport-supplied identity (which wins over the
+  resolver), and `HttpServerTransport::setPrincipalExtractor()` derives it
+  from the Authorization header after `setTokenValidator()` accepts it.
 
 ### Changed
 
