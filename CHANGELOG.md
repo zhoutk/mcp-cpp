@@ -27,6 +27,11 @@ while auditing it.
   `_meta.serverInfo`.
 - `HttpServerTransport::setTokenValidator()` — a resource-server authentication
   seam (returns 401 plus an optional `WWW-Authenticate` challenge).
+- `Builder::extension(id, method, protocolVersion, handler)` (E4, SEP-2133):
+  binds an additive extension request method, advertised with the extension
+  and served only to clients that advertise it at the bound protocol revision.
+  Spec methods cannot be shadowed; `Server::isKnownMethod()` and the HTTP
+  transport's 404 gate recognise extension routes.
 - `HttpServerTransport::setSseKeepAlive()` (E5) configures the subscription
   stream's keep-alive cadence; `0` disables it, and intervals in `[1, 99]` ms
   are rejected as a misconfiguration.

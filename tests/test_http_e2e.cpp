@@ -1044,3 +1044,42 @@ TEST(HttpE2E, TokenValidatorGatesRequests) {
   http.stop();
   runner.join();
 }
+
+// E4: a registered extension method is a real route - the HTTP layer must
+// answer it (200) instead of the 404 it reserves for unknown methods.
+TEST(ExtensionHttpE2E, ExtensionMethodIsRoutedNot404) {
+  Builder b;
+  b.name("ext-http").version("1.0");
+  b.extension("io.modelcontextprotocol/tasks", "tasks/get", "",
+              [](Ctx& c) -> McpResult<Json> {
+                Json r;
+                r.add("taskId", c.params["taskId"]);
+                return Ok(std::move(r));
+              });
+  auto server = b.build();
+  HttpServerTransport http(*server);
+  auto bound = http.bind("127.0.0.1");
+  ASSERT_TRUE(bound.has_value());
+  std::thread runner([&] { (void)http.run(); });
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  Json params = encodeRequestMeta(
+      "2026-07-28", Json(R"({"extensions":{"io.modelcontextprotocol/tasks":{}}})"),
+      std::nullopt);
+  params.add("taskId", Json::str("t1"));
+  const std::string body = encodeRequest(RequestId("x1"), "tasks/get", params);
+  httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                              {"Mcp-Method", "tasks/get"}};
+  httplib::Client raw("127.0.0.1", *bound);
+  auto res = raw.Post("/mcp", headers, body, "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  const ParsedMessage parsed = parseMessage(res->body);
+  const auto* result = std::get_if<JsonRpcResult>(&parsed);
+  ASSERT_NE(result, nullptr);
+  EXPECT_EQ(std::string(member(result->result, "taskId").toString()), "t1");
+
+  http.stop();
+  runner.join();
+}

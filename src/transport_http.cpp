@@ -357,7 +357,7 @@ struct HttpServerTransport::Impl {
 
     // 4. Unknown method -> 404 + -32601 (distinguishes modern servers from
     // legacy HTTP+SSE hosts, which 404 with an empty body).
-    if (request != nullptr && !server::isKnownMethod(method)) {
+    if (request != nullptr && !server.isKnownMethod(method)) {
       res.status = 404;
       res.set_content(
           errorBody(request->id, static_cast<int32_t>(McpErrorCode::MethodNotFound),

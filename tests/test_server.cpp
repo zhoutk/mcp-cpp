@@ -59,6 +59,20 @@ std::string makeRequest(const std::string& id, const std::string& method,
   return makeRequestTyped(RequestId(id), method, extraParams, version);
 }
 
+// As makeRequest, with an explicit clientCapabilities object (extension
+// negotiation tests need to advertise params._meta.clientCapabilities).
+std::string makeRequestWithCaps(const std::string& id, const std::string& method,
+                                const Json& extraParams, const Json& capabilities,
+                                const std::string& version = "2026-07-28") {
+  Json params = encodeRequestMeta(version, capabilities, std::nullopt);
+  if (extraParams.isObject()) {
+    for (const auto& item : extraParams.getAllKeys().toVector()) {
+      params.add(item.toString(), extraParams[item.toString()]);
+    }
+  }
+  return encodeRequest(RequestId(id), method, params);
+}
+
 std::shared_ptr<Server> makeToolServer() {
   Builder b;
   b.name("test").version("1.0");
@@ -706,6 +720,87 @@ TEST(ServerM4, ArgumentsAreDirectMemberOnly) {
       Json(R"({"name":"strict","inputResponses":{"x":{"arguments":{"text":"nested"}}}})")));
   ASSERT_NE(nested.error, nullptr);
   EXPECT_EQ(nested.error->error.code, -32602);
+}
+
+// ---- extension method seam (E4, SEP-2133) ----------------------------------------
+
+namespace {
+Handler echoTaskId() {
+  return [](Ctx& c) -> McpResult<Json> {
+    Json r;
+    r.add("taskId", c.params["taskId"]);
+    return Ok(std::move(r));
+  };
+}
+}  // namespace
+
+TEST(ServerExtensions, MethodRequiresClientAdvertisement) {
+  Builder b;
+  b.name("ext").version("1.0");
+  b.extension("io.modelcontextprotocol/tasks", "tasks/get", "", echoTaskId());
+  auto server = b.build();
+
+  // server/discover advertises the extension.
+  Out disc = serveOnce(server, makeRequest("d1", "server/discover", Json(nullptr)));
+  ASSERT_NE(disc.result, nullptr);
+  EXPECT_TRUE(capabilitiesIncludeExtension(member(disc.result->result, "capabilities"),
+                                           "io.modelcontextprotocol/tasks"));
+  EXPECT_TRUE(server->isKnownMethod("tasks/get"));
+
+  const Json advertised =
+      Json(R"({"extensions":{"io.modelcontextprotocol/tasks":{}}})");
+  Out ok = serveOnce(server,
+                     makeRequestWithCaps("e1", "tasks/get", Json(R"({"taskId":"t1"})"),
+                                         advertised));
+  ASSERT_NE(ok.result, nullptr);
+  EXPECT_EQ(std::string(member(ok.result->result, "taskId").toString()), "t1");
+
+  // A client that does not advertise the extension cannot call its methods.
+  Out denied = serveOnce(server, makeRequest("e2", "tasks/get", Json(R"({"taskId":"t1"})")));
+  ASSERT_NE(denied.error, nullptr);
+  EXPECT_EQ(denied.error->error.code, -32601);
+}
+
+TEST(ServerExtensions, ProtocolVersionBoundary) {
+  Builder b;
+  b.name("ext").version("1.0");
+  b.supports(ProtocolVersion::V2025_11_25);
+  b.supports(ProtocolVersion::Latest);
+  b.extension("io.modelcontextprotocol/tasks", "tasks/cancel", "2025-11-25", echoTaskId());
+  auto server = b.build();
+
+  const Json advertised =
+      Json(R"({"extensions":{"io.modelcontextprotocol/tasks":{}}})");
+  Out atBound = serveOnce(server,
+                          makeRequestWithCaps("v1", "tasks/cancel", Json(R"({"taskId":"t"})"),
+                                              advertised, "2025-11-25"));
+  ASSERT_NE(atBound.result, nullptr);
+
+  Out otherVersion =
+      serveOnce(server, makeRequestWithCaps("v2", "tasks/cancel", Json(R"({"taskId":"t"})"),
+                                            advertised, "2026-07-28"));
+  ASSERT_NE(otherVersion.error, nullptr);
+  EXPECT_EQ(otherVersion.error->error.code, -32601);
+}
+
+TEST(ServerExtensions, CannotShadowSpecMethods) {
+  int extensionCalls = 0;
+  Builder b;
+  b.name("ext").version("1.0");
+  b.simpleTool("echo", "echo", [](Ctx&) -> McpResult<Json> { return Ok(Json(R"({})")); });
+  b.extension("io.modelcontextprotocol/tasks", "tools/list", "",
+              [&extensionCalls](Ctx&) -> McpResult<Json> {
+                ++extensionCalls;
+                return Ok(Json(R"({"shadowed":true})"));
+              });
+  auto server = b.build();
+  EXPECT_FALSE(server->isKnownMethod("does/not/exist"));
+
+  Out list = serveOnce(server, makeRequest("s1", "tools/list", Json(nullptr)));
+  ASSERT_NE(list.result, nullptr);
+  EXPECT_EQ(extensionCalls, 0);
+  EXPECT_TRUE(member(list.result->result, "shadowed").isNull());
+  EXPECT_TRUE(member(list.result->result, "tools").isArray());
 }
 
 // ---- MRTR requestState -----------------------------------------------------------

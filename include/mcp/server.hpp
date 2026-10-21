@@ -204,6 +204,11 @@ class Server {
   // Used by the HTTP transport to validate Mcp-Param-* mirrored headers.
   Json findToolDefinition(const std::string& name) const;
 
+  // True when this server serves `method`: a spec route or a registered
+  // extension method. The HTTP transport uses it for the 404-vs-405
+  // distinction (the free isKnownMethod() only knows the spec routes).
+  bool isKnownMethod(std::string_view method) const;
+
   // --- subscriptions ----------------------------------------------------------
   // processLine handles subscriptions/listen on the current channel (stdio:
   // acknowledged then later notifications as plain lines). Stream transports
@@ -232,6 +237,16 @@ class Server {
     std::vector<Json> definitions;             // wire form, served by *\/list
     std::map<std::string, Handler> handlers;   // key: name (or uri)
   };
+
+  // E4 (SEP-2133): an extension request method bound to one extension.
+  // `protocolVersion` (empty = any) restricts the method to a wire revision;
+  // the request's _meta must also advertise `extensionId`.
+  struct ExtensionMethod {
+    std::string extensionId;
+    std::string protocolVersion;
+    Handler handler;
+  };
+  std::map<std::string, ExtensionMethod> extensionMethods_;
 
   // handler dispatch, after meta/version/capability validation
   void addServerInfoToResult(Json& result) const;
@@ -343,6 +358,15 @@ class Builder {
   // requests for the extension's methods are MethodNotFound because they
   // are not in kRoutes.
   Builder& extension(std::string id, Json settings = Json(R"({})"));
+  // E4 (SEP-2133): bind an extension REQUEST METHOD to a handler and advertise
+  // the extension. Additive only: `method` must not name a spec-defined route
+  // (shadowing is rejected), so extensions cannot silently replace core
+  // behavior. `protocolVersion` ("" = every revision) is the (method, version)
+  // boundary: a request at another revision answers MethodNotFound.
+  // Dispatch additionally requires the client to advertise `id` under
+  // params._meta.clientCapabilities.extensions.
+  Builder& extension(std::string id, std::string method, std::string protocolVersion,
+                     Handler handler);
   Builder& instructions(std::string text);
   // Adds a supported protocol version. Repeatable. NOTE: the default is
   // Latest-only, and the FIRST explicit call REPLACES that default - to keep

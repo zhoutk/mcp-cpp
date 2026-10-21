@@ -154,7 +154,8 @@ Json subscriptionFilterToJson(const SubscriptionFilter& f) {
 }
 
 Server::Server(Server&& other) noexcept
-    : tools_(std::move(other.tools_)),
+    : extensionMethods_(std::move(other.extensionMethods_)),
+      tools_(std::move(other.tools_)),
       resources_(std::move(other.resources_)),
       resourceTemplates_(std::move(other.resourceTemplates_)),
       prompts_(std::move(other.prompts_)),
@@ -531,8 +532,10 @@ void Server::processLine(const std::string& line, ITransport& out,
     return;
   }
 
-  const auto* route = findRoute(req.method);
-  if (route == nullptr) {
+  // A method is routable when it is a spec route or a registered extension
+  // method (E4); anything else is MethodNotFound before any handler can run.
+  if (findRoute(req.method) == nullptr &&
+      extensionMethods_.find(req.method) == extensionMethods_.end()) {
     (void)out.write(encodeErrorResponse(
         req.id, toErrorValue(McpErrorCode::MethodNotFound,
                              "Method not found: " + req.method)));
@@ -634,6 +637,30 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
                                         const std::function<bool()>& cancelled,
                                         const NotifyFn& notify, const std::string& principal) {
   const MethodRoute* route = findRoute(req.method);
+
+  // E4: extension methods are dynamic routes. They are served only when the
+  // request advertises the extension (SEP-2133 negotiation) and - when the
+  // binding names one - at the bound protocol revision. Both failures are
+  // MethodNotFound, exactly like an unadvertised core capability.
+  if (route == nullptr) {
+    auto it = extensionMethods_.find(req.method);
+    if (it == extensionMethods_.end()) {
+      return Err(McpErrorCode::MethodNotFound, "Method not found: " + req.method);
+    }
+    const ExtensionMethod& extension = it->second;
+    if (!capabilitiesIncludeExtension(meta.clientCapabilities, extension.extensionId)) {
+      return Err(McpErrorCode::MethodNotFound,
+                 "Method not found: " + req.method + " (extension not advertised)");
+    }
+    if (!extension.protocolVersion.empty() &&
+        extension.protocolVersion != meta.protocolVersion) {
+      return Err(McpErrorCode::MethodNotFound,
+                 "Method not found: " + req.method + " at protocol version " +
+                     meta.protocolVersion);
+    }
+    Ctx ctx = makeCtx(req.params, meta, cancelled, notify, {}, principal);
+    return extension.handler(ctx);
+  }
 
   // Capability gate: the server must have advertised the feature.
   if (!route->capability.empty() && !capabilitiesInclude(capabilities_, route->capability)) {
@@ -1069,6 +1096,49 @@ void Builder::capabilityFlag(std::string_view capability, std::string_view flag)
 
 Builder& Builder::listChanged(std::string capability) {
   capabilityFlag(capability, "listChanged");
+  return *this;
+}
+
+bool Server::isKnownMethod(std::string_view method) const {
+  return findRoute(method) != nullptr || extensionMethods_.count(std::string(method)) > 0;
+}
+
+Builder& Builder::extension(std::string id, std::string method, std::string protocolVersion,
+                            Handler handler) {
+  if (id.find('/') == std::string::npos) {
+    std::cerr << "[mcp-cpp] builder: extension id without a namespace ignored: " << id << '\n';
+    return *this;
+  }
+  // SEP-2133: extension methods are additive. A binding that names a spec
+  // route would shadow (or be shadowed by) the server's own handler.
+  if (method.empty() || method.find('/') == std::string::npos) {
+    std::cerr << "[mcp-cpp] builder: extension method without a namespace ignored: " << method
+              << '\n';
+    return *this;
+  }
+  if (isKnownMethod(method)) {
+    std::cerr << "[mcp-cpp] builder: extension method shadows a spec method, ignored: " << method
+              << '\n';
+    return *this;
+  }
+  if (!protocolVersion.empty() && !fromString(protocolVersion)) {
+    std::cerr << "[mcp-cpp] builder: extension method bound to unknown protocol version: "
+              << protocolVersion << '\n';
+    return *this;
+  }
+  server_.extensionMethods_[method] =
+      Server::ExtensionMethod{std::move(id), std::move(protocolVersion), std::move(handler)};
+  // Advertise the extension (empty settings) unless it is already advertised;
+  // an explicit extension(id, settings) call keeps its settings.
+  const std::string extensionId =
+      server_.extensionMethods_[method].extensionId;  // copy before potential rehash
+  Json extensions = member(server_.capabilities_, "extensions");
+  if (!extensions.isObject()) extensions = Json(R"({})");
+  if (member(extensions, extensionId).isNull()) {
+    extensions.add(extensionId, Json(R"({})"));
+    server_.capabilities_.remove(std::string("extensions"));
+    server_.capabilities_.add("extensions", std::move(extensions));
+  }
   return *this;
 }
 
