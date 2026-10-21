@@ -27,8 +27,20 @@ constexpr const char* kHeaderProtocolVersion = "MCP-Protocol-Version";
 constexpr const char* kHeaderMethod = "Mcp-Method";
 constexpr const char* kHeaderName = "Mcp-Name";
 
+// The params key mirrored as Mcp-Name, or nullptr when the method carries no
+// name. SEP-2663 makes the tasks/* methods mirror params.taskId so
+// intermediaries can route polling to the instance holding the task state.
+const char* nameParamKey(std::string_view method) {
+  if (method == "tools/call" || method == "prompts/get") return "name";
+  if (method == "resources/read") return "uri";
+  if (method == "tasks/get" || method == "tasks/update" || method == "tasks/cancel") {
+    return "taskId";
+  }
+  return nullptr;
+}
+
 bool methodNeedsNameHeader(std::string_view method) {
-  return method == "tools/call" || method == "resources/read" || method == "prompts/get";
+  return nameParamKey(method) != nullptr;
 }
 
 std::string errorBody(const std::optional<RequestId>& id, int32_t code, std::string message) {
@@ -190,7 +202,7 @@ struct HttpServerTransport::Impl {
 
     if (methodNeedsNameHeader(method)) {
       const std::string headerName = req.get_header_value(kHeaderName);
-      const char* sourceKey = (method == "tools/call" || method == "prompts/get") ? "name" : "uri";
+      const char* sourceKey = nameParamKey(method);
       const Json name = member(params, sourceKey);
       if (!name.isString() || (headerName.empty() && !legacy)) {
         return {400, errorBody(id, static_cast<int32_t>(McpErrorCode::HeaderMismatch),
@@ -1043,7 +1055,7 @@ McpResult<void> HttpClientTransport::postOne(std::string_view message) {
   if (version.isString()) headers.emplace(kHeaderProtocolVersion, std::string(version.toString()));
   headers.emplace(kHeaderMethod, method);
   if (methodNeedsNameHeader(method)) {
-    const char* key = (method == "tools/call" || method == "prompts/get") ? "name" : "uri";
+    const char* key = nameParamKey(method);
     const Json name = member(params, key);
     if (name.isString()) {
       headers.emplace(kHeaderName, detail::encodeHeaderValue(name.toString()));

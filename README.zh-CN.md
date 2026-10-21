@@ -82,7 +82,7 @@ v0.3.1（2026-10-19）发布了 v0.3.0 评审发现的两个订阅传输缺陷�
 | 2026-07-28 一致性测试套件（仓库内，`mcp_test_conformance_2026`） | ✅ | n/a |
 | CMake 包（`find_package(mcp CONFIG)`，导出 `mcp::mcp`） | ✅ | n/a |
 | Roots / Sampling（已被 SEP-2577 弃用） | ❌ 有意不支持 | Tier-1 保留兼容垫片 |
-| Tasks 扩展（`io.modelcontextprotocol/tasks`） | ⏳ 路线图 | 扩展 |
+| Tasks 扩展（`io.modelcontextprotocol/tasks`） | ✅ `Builder::tasks()` + `mcp/tasks.hpp` | 扩展 |
 
 值语义的消息模型、不抛异常的协议层、带 `Ok`/`Err` 工厂的 `[[nodiscard]]`
 结果类型——无论 `McpResult<T>` 是 `std::expected` 的别名还是使用内置回退，

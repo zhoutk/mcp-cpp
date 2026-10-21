@@ -12,6 +12,7 @@
 #include <mcp/request_state.hpp>
 #include <mcp/client.hpp>
 #include <mcp/server.hpp>
+#include <mcp/tasks.hpp>
 #include <mcp/transport.hpp>
 #include <mcp/types.hpp>
 #include <mcp/version.hpp>

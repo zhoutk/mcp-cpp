@@ -63,7 +63,7 @@ bin/mcp_test_server.exe --gtest_filter=ServerTest.DiscoverAdvertisesCapabilities
 
 The `mcp_test_*` names are exactly the CTest registration names (`mcp_test_version`, `_error`, `_jsonrpc`,
 `_types`, `_transport`, `_server`, `_client`, `_schema`, `_request_state`, `_stdio_e2e`, `_http_e2e`,
-`_oauth`, `_oauth_server`, `_conformance_2026`, `_wire_fixtures`).
+`_oauth`, `_oauth_server`, `_conformance_2026`, `_wire_fixtures`, `_tasks`).
 Benchmarks
 (`mcp_bench_parse|dispatch|e2e`) are **not** registered with CTest — run them manually from `bin/`.
 
@@ -92,6 +92,7 @@ aggregate include; use it in examples/tests.
 | `include/mcp/server.hpp` / `src/server.cpp` | `Server` dispatch loop + `Builder` registration API |
 | `include/mcp/request_state.hpp` / `src/request_state.cpp` | `RequestStateCodec` — HMAC-sealed MRTR `requestState` (`src/sha256.*` is the in-tree primitive); enabled per-server via `Builder::requestStateCodec()`, surfaced to handlers as `Ctx::sealRequestState`/`Ctx::openRequestState` |
 | `include/mcp/client.hpp` / `src/client.cpp` | blocking `Client` over any `ITransport` |
+| `include/mcp/tasks.hpp` / `src/tasks.cpp` | Tasks extension (SEP-2663): `TaskRecord`/TTL/pluggable `TaskStore`, `Builder::tasks()` wiring `tasks/get`/`tasks/update`/`tasks/cancel` |
 | `include/mcp/schema.hpp` / `src/schema.cpp` | JSON Schema 2020-12 validator (local `$ref` only) |
 | `include/mcp/transport_http.hpp` / `src/transport_http.cpp` | Streamable HTTP + SSE (httplib), both sides |
 | `include/mcp/oauth.hpp` / `src/oauth.cpp` | `mcp::oauth::OAuthClient` — OAuth 2.1 client for remote HTTP servers: PRM/AS metadata discovery, DCR/CIMD/pre-registration, PKCE (S256), RFC 8707 `resource`, RFC 9207 `iss`, scope step-up, SEP-2352 migration. HTTP-only, like `transport_http` |

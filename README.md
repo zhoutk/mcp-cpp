@@ -89,7 +89,7 @@ fix; see `CHANGELOG.md`.
 | 2026-07-28 conformance suite (in-repo, `mcp_test_conformance_2026`) | ✅ | n/a |
 | CMake package (`find_package(mcp CONFIG)`, exported `mcp::mcp`) | ✅ | n/a |
 | Roots / Sampling (deprecated by SEP-2577) | ❌ intentionally | Tier-1 keeps compat shims |
-| Tasks extension (`io.modelcontextprotocol/tasks`) | ⏳ roadmap | extension |
+| Tasks extension (`io.modelcontextprotocol/tasks`) | ✅ `Builder::tasks()` + `mcp/tasks.hpp` | extension |
 
 Value-semantic message model, exception-free protocol layer, `[[nodiscard]]` result
 types with `Ok`/`Err` factories that read identically whether `McpResult<T>` aliases

@@ -77,6 +77,7 @@ add_library(mcp STATIC
   src/jsonrpc.cpp
   src/transport.cpp
   src/server.cpp
+  src/tasks.cpp
   src/client.cpp
   src/schema.cpp
   src/base64.cpp
@@ -217,6 +218,7 @@ if(MCP_BUILD_TESTS)
   add_executable(mcp_test_types tests/test_types.cpp)
   add_executable(mcp_test_transport tests/test_transport.cpp)
   add_executable(mcp_test_server tests/test_server.cpp)
+  add_executable(mcp_test_tasks tests/test_tasks.cpp)
   add_executable(mcp_test_client tests/test_client.cpp)
   add_executable(mcp_test_schema tests/test_schema.cpp)
   add_executable(mcp_test_request_state tests/test_request_state.cpp)
@@ -225,7 +227,7 @@ if(MCP_BUILD_TESTS)
   # 2026-07-28 conformance scenarios (the official suite has no 2026 scenarios yet).
   add_executable(mcp_test_conformance_2026 tests/test_conformance_2026.cpp)
   foreach(t mcp_test_version mcp_test_error mcp_test_jsonrpc mcp_test_types mcp_test_transport
-           mcp_test_server mcp_test_client mcp_test_schema mcp_test_request_state)
+           mcp_test_server mcp_test_tasks mcp_test_client mcp_test_schema mcp_test_request_state)
     target_link_libraries(${t} PRIVATE mcp gtest gtest_main)
     target_compile_options(${t} PRIVATE ${MCP_CXX_WARNINGS})
     add_test(NAME ${t} COMMAND ${t})

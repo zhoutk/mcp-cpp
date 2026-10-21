@@ -11,6 +11,14 @@ while auditing it.
 
 ### Added
 
+- Tasks extension (E1, SEP-2663, `io.modelcontextprotocol/tasks`):
+  `include/mcp/tasks.hpp` provides `TaskRecord`/`TaskStatus` with the spec's
+  `Task`/`DetailedTask` wire shape, TTL enforcement, lifecycle helpers, and a
+  pluggable `TaskStore` (`InMemoryTaskStore` by default). `Builder::tasks(store)`
+  advertises the extension and serves `tasks/get`, `tasks/update` and
+  `tasks/cancel` (unknown ids are `-32602`); the HTTP layer mirrors
+  `params.taskId` into `Mcp-Name` on both sides.
+
 - `Client` honors CacheableResult hints (E3) by default: `tools/list`,
   `resources/list`, `resources/templates/list`, `prompts/list` and
   `resources/read` are cached for their positive `ttlMs` when `cacheScope` is

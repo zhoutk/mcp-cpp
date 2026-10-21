@@ -45,6 +45,11 @@
 #include <vector>
 
 namespace mcp {
+
+namespace tasks {
+class TaskStore;  // mcp/tasks.hpp (Tasks extension, SEP-2663)
+}
+
 namespace server {
 
 // ---- handler surface ---------------------------------------------------------
@@ -367,6 +372,12 @@ class Builder {
   // params._meta.clientCapabilities.extensions.
   Builder& extension(std::string id, std::string method, std::string protocolVersion,
                      Handler handler);
+
+  // E1 (SEP-2663): advertise the Tasks extension and serve tasks/get,
+  // tasks/update and tasks/cancel from `store`. Tool handlers opt into async
+  // work by returning tasks::createTaskResult(record); the embedder's worker
+  // completes the record through the store. See mcp/tasks.hpp.
+  Builder& tasks(std::shared_ptr<tasks::TaskStore> store);
   Builder& instructions(std::string text);
   // Adds a supported protocol version. Repeatable. NOTE: the default is
   // Latest-only, and the FIRST explicit call REPLACES that default - to keep

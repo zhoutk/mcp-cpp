@@ -1050,7 +1050,7 @@ TEST(HttpE2E, TokenValidatorGatesRequests) {
 TEST(ExtensionHttpE2E, ExtensionMethodIsRoutedNot404) {
   Builder b;
   b.name("ext-http").version("1.0");
-  b.extension("io.modelcontextprotocol/tasks", "tasks/get", "",
+  b.extension("example.test/ping", "example/ping", "",
               [](Ctx& c) -> McpResult<Json> {
                 Json r;
                 r.add("taskId", c.params["taskId"]);
@@ -1065,12 +1065,12 @@ TEST(ExtensionHttpE2E, ExtensionMethodIsRoutedNot404) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
   Json params = encodeRequestMeta(
-      "2026-07-28", Json(R"({"extensions":{"io.modelcontextprotocol/tasks":{}}})"),
+      "2026-07-28", Json(R"({"extensions":{"example.test/ping":{}}})"),
       std::nullopt);
   params.add("taskId", Json::str("t1"));
-  const std::string body = encodeRequest(RequestId("x1"), "tasks/get", params);
+  const std::string body = encodeRequest(RequestId("x1"), "example/ping", params);
   httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
-                              {"Mcp-Method", "tasks/get"}};
+                              {"Mcp-Method", "example/ping"}};
   httplib::Client raw("127.0.0.1", *bound);
   auto res = raw.Post("/mcp", headers, body, "application/json");
   ASSERT_TRUE(res);
@@ -1080,6 +1080,53 @@ TEST(ExtensionHttpE2E, ExtensionMethodIsRoutedNot404) {
   ASSERT_NE(result, nullptr);
   EXPECT_EQ(std::string(member(result->result, "taskId").toString()), "t1");
 
+  http.stop();
+  runner.join();
+}
+
+// E1 (SEP-2663): tasks/* mirror params.taskId into Mcp-Name on both sides.
+// The client emits it; a raw POST without it is rejected as -32020.
+TEST(TasksHttpE2E, McpNameMirrorsTaskId) {
+  auto store = std::make_shared<tasks::InMemoryTaskStore>();
+  const auto record = tasks::makeTask();
+  ASSERT_TRUE(store->put(record));
+
+  Builder b;
+  b.name("tasks-http").version("1.0");
+  b.tasks(store);
+  auto server = b.build();
+  HttpServerTransport http(*server);
+  auto bound = http.bind("127.0.0.1");
+  ASSERT_TRUE(bound.has_value());
+  std::thread runner([&] { (void)http.run(); });
+  for (int i = 0; i < 10000 && !http.running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+  HttpClientTransport transport("127.0.0.1", *bound);
+  Client client("tasks-client", "1.0",
+                Json(R"({"extensions":{"io.modelcontextprotocol/tasks":{}}})"));
+  client.connect(transport);
+  Json params;
+  params.add("taskId", Json::str(record.taskId));
+  auto got = client.request("tasks/get", params);
+  ASSERT_TRUE(got.has_value()) << "client must emit Mcp-Name for tasks/get";
+  EXPECT_EQ(std::string(member(*got, "taskId").toString()), record.taskId);
+
+  // Raw POST without the mirrored name header.
+  Json rawParams = encodeRequestMeta(
+      "2026-07-28", Json(R"({"extensions":{"io.modelcontextprotocol/tasks":{}}})"),
+      std::nullopt);
+  rawParams.add("taskId", Json::str(record.taskId));
+  const std::string body = encodeRequest(RequestId("r1"), "tasks/get", rawParams);
+  httplib::Headers headers = {{"MCP-Protocol-Version", "2026-07-28"},
+                              {"Mcp-Method", "tasks/get"}};
+  httplib::Client raw("127.0.0.1", *bound);
+  auto rejected = raw.Post("/mcp", headers, body, "application/json");
+  ASSERT_TRUE(rejected);
+  EXPECT_EQ(rejected->status, 400);
+  EXPECT_NE(rejected->body.find("-32020"), std::string::npos);
+
+  transport.closeSubscriptions();
   http.stop();
   runner.join();
 }
