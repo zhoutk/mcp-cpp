@@ -129,4 +129,20 @@ no async runtime.
 - Issue triage: ≤ 2 business days; critical (P0) bugs: ≤ 7 days.
 - Conformance job stays green on `main`.
 
+## Milestone G — Conformance surface completion (v0.4)
+
+Milestones E and F shipped the features; the official suite still cannot score
+some of them because the fixture (`examples/conformance_server.cpp`) does not
+expose the tools those scenarios call. Closing that gap turns the remaining
+red scenarios into scored evidence.
+
+| Item | Class |
+| --- | --- |
+| G1 · Fixture: the MRTR tools the `input-required-result-*` family calls (single/multiple input requests, multi-round, non-tool request, capability check, tampered state) — 11 scenarios | 🔜 P0 |
+| G2 · Run every suite twice in CI: legacy-mode fixture (2025-era) and `--strict` fixture (2026 stateless), so `server-stateless` and `http-header-validation` stop failing for fixture-policy reasons | 🔜 P0 |
+| G3 · Fixture: tools carrying `x-mcp-header` annotations, so `http-custom-header-server-validation` (5 checks) is scored | 🔜 P1 |
+| G4 · Client-side task surface: `tasks/get` polling, `tasks/update`, cancel helpers (the server side shipped in E1) | 🔜 P1 |
+| G5 · `setSseKeepAlive` upper bound; make `MCP_WORKERS` internal (no PUBLIC define in the installed interface); `tasks::clientSupports(Ctx)` helper; optional `notifications/tasks/status` emitter | 🔜 P2 |
+| G6 · Release **v0.4.0** (Milestones D/E/F + G) with the CHANGELOG entries already staged | 🔜 P0 |
+
 *Last updated: 2026-10-21.*

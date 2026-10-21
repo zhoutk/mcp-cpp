@@ -129,6 +129,10 @@ class HttpClientTransport final : public ITransport {
   // SENT as-is (the mirrored-header contract allows an empty parameter); use
   // removeHeader() to drop one.
   bool mirrorsHeaders() const override { return true; }
+  // The Authorization header currently configured on this transport. The client
+  // keys its response cache by this, so a `cacheScope: "private"` result is not
+  // reused after the bearer token changes.
+  std::string authorizationContext() const override;
   void setHeader(std::string name, std::string value) override;
   void removeHeader(const std::string& name) override;
 

@@ -797,9 +797,15 @@ TEST(ServerExtensions, MethodRequiresClientAdvertisement) {
   EXPECT_EQ(std::string(member(ok.result->result, "taskId").toString()), "t1");
 
   // A client that does not advertise the extension cannot call its methods.
+  // SEP-2575: that is MissingRequiredClientCapability (-32021), with the
+  // capability object naming the extension under its `extensions` map.
   Out denied = serveOnce(server, makeRequest("e2", "tasks/get", Json(R"({"taskId":"t1"})")));
   ASSERT_NE(denied.error, nullptr);
-  EXPECT_EQ(denied.error->error.code, -32601);
+  EXPECT_EQ(denied.error->error.code, -32021);
+  const Json required = member(denied.error->error.data, "requiredCapabilities");
+  EXPECT_FALSE(member(member(required, "extensions"),
+                      "io.modelcontextprotocol/tasks")
+                   .isNull());
 }
 
 TEST(ServerExtensions, ProtocolVersionBoundary) {

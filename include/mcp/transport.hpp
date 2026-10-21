@@ -41,6 +41,14 @@ class ITransport {
   // are perfectly usable over stdio. Default false (no header layer).
   virtual bool mirrorsHeaders() const { return false; }
 
+  // Identifies the authorization context of the current connection (typically
+  // the bearer token in use). The client includes it in response-cache keys so
+  // a `cacheScope: "private"` result is never served to a different
+  // authorization context (basic/index.md caching; a token change must not
+  // reuse another context's cache). Empty means "no context" - the default for
+  // transports that carry no credentials.
+  virtual std::string authorizationContext() const { return {}; }
+
   // Optional per-message header injection (Streamable HTTP mirrored headers).
   // No-op on transports without a header layer (stdio).
   virtual void setHeader(std::string /*name*/, std::string /*value*/) {}

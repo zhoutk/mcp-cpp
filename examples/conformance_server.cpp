@@ -20,6 +20,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <functional>
+#include <memory>
 #include <thread>
 
 using namespace mcp;
@@ -229,6 +231,272 @@ int main(int argc, char** argv) {
   // The sampling / elicitation tools need a server->client REQUEST, which
   // 2026-07-28 replaced with MRTR. They are intentionally absent here; the
   // scenarios are listed in conformance/expected-failures.yaml.
+
+  // ---- tasks extension (SEP-2663) -----------------------------------------
+  // The suite's tasks-* scenarios drive these tools. `taskSupport = required`
+  // is fixture policy (not library policy): without the extension the call is
+  // rejected with -32021, with it the work becomes a Task.
+  auto store = std::make_shared<tasks::InMemoryTaskStore>();
+  b.tasks(store);
+
+  const auto hasTasks = [](Ctx& c) {
+    return capabilitiesIncludeExtension(c.meta.clientCapabilities,
+                                        std::string(tasks::kExtensionId));
+  };
+
+  auto missingTasks = [] {
+    McpError error;
+    error.code = McpErrorCode::MissingRequiredClientCapability;
+    error.message = "client did not declare the 'io.modelcontextprotocol/tasks' extension";
+    Json extensions = Json(R"({})");
+    extensions.add(std::string(tasks::kExtensionId), Json(R"({})"));
+    Json required = Json(R"({})");
+    required.add("extensions", std::move(extensions));
+    Json data;
+    data.add("requiredCapabilities", std::move(required));
+    error.data = std::move(data);
+    return error;
+  };
+
+  // Creates a task and settles it from a detached worker. The worker polls so
+  // tasks/cancel is observed promptly (the suite cancels a 60 s task and
+  // expects `cancelled` well inside its poll window).
+  const auto startTask =
+      [store](int64_t seconds,
+              std::function<Json(const tasks::TaskRecord&)> produce) {
+        tasks::TaskOptions options;
+        options.pollIntervalMs = 100;
+        tasks::TaskRecord record = tasks::makeTask(options);
+        const std::string id = record.taskId;
+        store->put(record);
+        std::thread([store, id, seconds, produce]() {
+          const auto deadline =
+              std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+          while (std::chrono::steady_clock::now() < deadline) {
+            auto current = store->get(id);
+            if (!current.has_value() || current->cancelRequested) {
+              tasks::cancelTask(*store, id);
+              return;
+            }
+            sleepMs(20);
+          }
+          auto current = store->get(id);
+          if (!current.has_value()) return;
+          if (current->cancelRequested) {
+            tasks::cancelTask(*store, id);
+            return;
+          }
+          tasks::finishTask(*store, id, produce(*current));
+        }).detach();
+        return record;
+      };
+
+  // Parks the (already created) task on `inputRequests` and completes it once
+  // every key has been answered through tasks/update. Answers arrive in
+  // TaskRecord::inputResponses (store-internal), which is what the worker polls.
+  const auto parkForInput =
+      [store](const std::string& id, Json inputRequests,
+              std::vector<std::string> keys,
+              std::function<Json(const tasks::TaskRecord&)> produce) {
+        if (!tasks::requestTaskInput(*store, id, inputRequests)) return;
+        std::thread([store, id, keys, produce]() {
+          for (;;) {
+            auto current = store->get(id);
+            if (!current.has_value()) return;
+            if (current->cancelRequested) {
+              tasks::cancelTask(*store, id);
+              return;
+            }
+            bool complete = current->inputResponses.isObject();
+            for (const auto& key : keys) {
+              if (complete && member(current->inputResponses, key).isNull()) {
+                complete = false;
+              }
+            }
+            if (complete) break;
+            sleepMs(20);
+          }
+          tasks::finishTask(*store, id, produce(*store->get(id)));
+        }).detach();
+      };
+
+  // greet: sync-only ("Hello, {name}!").
+  b.tool(toolDef("greet", "Greets by name",
+                 R"({"type":"object","properties":{"name":{"type":"string"}},
+                     "required":["name"]})"),
+         [](Ctx& c) -> McpResult<Json> {
+           const Json name = member(c.params["arguments"], "name");
+           return Ok(oneText("Hello, " + std::string(name.toString()) + "!"));
+         });
+
+  // slow_compute: task-supporting. seconds == 0 takes the immediate path.
+  b.tool(toolDef("slow_compute", "Sleeps then returns a result",
+                 R"({"type":"object","properties":{"seconds":{"type":"integer"},
+                     "label":{"type":"string"}}})"),
+         [startTask, hasTasks](Ctx& c) -> McpResult<Json> {
+           const int64_t seconds = c.params["arguments"]["seconds"].isNumber()
+                                       ? c.params["arguments"]["seconds"].toInt64()
+                                       : 1;
+           const std::string label = member(c.params["arguments"], "label").isString()
+                                         ? std::string(c.params["arguments"]["label"].toString())
+                                         : std::string("unnamed");
+           if (!hasTasks(c)) {
+             if (seconds > 0) sleepMs(static_cast<int>(seconds * 1000));
+             return Ok(oneText("computed:" + label));
+           }
+           const auto record = startTask(seconds, [label](const tasks::TaskRecord&) {
+             return oneText("computed:" + label);
+           });
+           return Ok(tasks::createTaskResult(record));
+         });
+
+  // failing_job: task support REQUIRED; settles as completed with an isError
+  // result (a tool execution error is not a failed task).
+  b.tool(toolDef("failing_job", "Always fails as a tool execution error",
+                 R"({"type":"object"})"),
+         [startTask, hasTasks, missingTasks](Ctx& c) -> McpResult<Json> {
+           if (!hasTasks(c)) return Err(missingTasks());
+           const auto record = startTask(0, [](const tasks::TaskRecord&) {
+             Json content = Json("[]");
+             content.push_back(textContent("intentional tool execution error"));
+             Json result;
+             result.add("content", std::move(content));
+             result.add("isError", Json(true));
+             return result;
+           });
+           return Ok(tasks::createTaskResult(record));
+         });
+
+  // protocol_error_job: task-supporting; settles as failed with a JSON-RPC
+  // error object (a protocol-level error, not a tool execution error).
+  b.tool(toolDef("protocol_error_job", "Fails with a protocol error",
+                 R"({"type":"object"})"),
+         [store, hasTasks, missingTasks](Ctx& c) -> McpResult<Json> {
+           if (!hasTasks(c)) return Err(missingTasks());
+           tasks::TaskOptions options;
+           options.pollIntervalMs = 100;
+           tasks::TaskRecord record = tasks::makeTask(options);
+           const std::string id = record.taskId;
+           store->put(record);
+           std::thread([store, id]() {
+             sleepMs(20);
+             Json error;
+             error.add("code", Json(static_cast<int64_t>(McpErrorCode::InternalError)));
+             error.add("message", Json::str("intentional protocol error"));
+             tasks::failTask(*store, id, std::move(error));
+           }).detach();
+           return Ok(tasks::createTaskResult(record));
+         });
+
+  // confirm_delete: task-supporting; parks on one elicitation input request.
+  b.tool(toolDef("confirm_delete", "Asks for confirmation before deleting",
+                 R"({"type":"object"})"),
+         [startTask, parkForInput, store, hasTasks, missingTasks](Ctx& c) -> McpResult<Json> {
+           if (!hasTasks(c)) return Err(missingTasks());
+           tasks::TaskOptions options;
+           options.pollIntervalMs = 100;
+           tasks::TaskRecord record = tasks::makeTask(options);
+           const std::string id = record.taskId;
+           store->put(record);
+           Json requests = Json(R"({})");
+           Json elicit;
+           elicit.add("method", Json::str("elicitation/create"));
+           Json params;
+           params.add("mode", Json::str("form"));
+           params.add("message", Json::str("Delete everything?"));
+           params.add("requestedSchema",
+                      Json(R"({"type":"object","properties":{"confirm":{"type":"boolean"}},
+                              "required":["confirm"]})"));
+           elicit.add("params", std::move(params));
+           requests.add("confirm", std::move(elicit));
+           parkForInput(id, std::move(requests), {"confirm"},
+                        [](const tasks::TaskRecord& record) {
+                          const Json confirm =
+                              member(member(record.inputResponses, "confirm"), "content");
+                          return oneText(member(confirm, "confirm").isTrue()
+                                             ? "deleted"
+                                             : "cancelled by user");
+                        });
+           return Ok(tasks::createTaskResult(record));
+         });
+
+  // multi_input: two simultaneous input requests (partial answers must keep the
+  // task in input_required until both arrive).
+  b.tool(toolDef("multi_input", "Fans out two input requests",
+                 R"({"type":"object"})"),
+         [store, parkForInput, hasTasks, missingTasks](Ctx& c) -> McpResult<Json> {
+           if (!hasTasks(c)) return Err(missingTasks());
+           tasks::TaskOptions options;
+           options.pollIntervalMs = 100;
+           tasks::TaskRecord record = tasks::makeTask(options);
+           const std::string id = record.taskId;
+           store->put(record);
+           Json requests = Json(R"({})");
+           for (const char* key : {"first", "second"}) {
+             Json elicit;
+             elicit.add("method", Json::str("elicitation/create"));
+             Json params;
+             params.add("mode", Json::str("form"));
+             params.add("message", Json::str(std::string("Value for ") + key + "?"));
+             params.add("requestedSchema",
+                        Json(R"({"type":"object","properties":{"v":{"type":"string"}}})"));
+             elicit.add("params", std::move(params));
+             requests.add(std::string(key), std::move(elicit));
+           }
+           parkForInput(id, std::move(requests), {"first", "second"},
+                        [](const tasks::TaskRecord& record) {
+                          const Json first =
+                              member(member(record.inputResponses, "first"), "content");
+                          const Json second =
+                              member(member(record.inputResponses, "second"), "content");
+                          return oneText("first=" + std::string(member(first, "v").toString()) +
+                                         " second=" + std::string(member(second, "v").toString()));
+                        });
+           return Ok(tasks::createTaskResult(record));
+         });
+
+  // test_tool_with_task: task support REQUIRED. Round 1 answers MRTR
+  // (InputRequiredResult), round 2 - with inputResponses echoed back - creates
+  // the task, whose result carries the gathered name.
+  b.tool(toolDef("test_tool_with_task", "Gathers input, then runs as a task",
+                 R"({"type":"object"})"),
+         [startTask, hasTasks, missingTasks](Ctx& c) -> McpResult<Json> {
+           if (!hasTasks(c)) return Err(missingTasks());
+           Json requests = Json(R"({})");
+           Json elicit;
+           elicit.add("method", Json::str("elicitation/create"));
+           Json params;
+           params.add("mode", Json::str("form"));
+           params.add("message", Json::str("Your name?"));
+           params.add("requestedSchema",
+                      Json(R"({"type":"object","properties":{"user_name":{"type":"string"}},
+                              "required":["user_name"]})"));
+           elicit.add("params", std::move(params));
+           requests.add("user_name", std::move(elicit));
+
+           const Json responses = member(c.params, "inputResponses");
+           if (!responses.isObject()) {
+             return c.inputRequired(std::move(requests), "");
+           }
+           const Json content = member(member(responses, "user_name"), "content");
+           // Read the gathered value leniently: the client echoes what the user
+           // typed under the schema's key, but harnesses have also been seen to
+           // answer with a generic `name` field.
+           std::string name = "anonymous";
+           if (content.isObject()) {
+             for (const char* key : {"user_name", "name"}) {
+               const Json value = member(content, key);
+               if (value.isString()) {
+                 name = std::string(value.toString());
+                 break;
+               }
+             }
+           }
+           const auto record = startTask(0, [name](const tasks::TaskRecord&) {
+             return oneText("task completed for " + name);
+           });
+           return Ok(tasks::createTaskResult(record));
+         });
 
   // ---- resources -----------------------------------------------------------
   auto textResource = [](const char* uri, const char* name, const char* mime,

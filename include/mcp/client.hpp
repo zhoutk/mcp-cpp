@@ -243,6 +243,8 @@ class Client {
   std::map<std::string, CacheEntry> responseCacheEntries_;
   std::optional<Json> cacheLookup(const std::string& key);
   void cacheStore(const std::string& key, const Json& result);
+  // Drops every entry of one cached method (list-change notifications).
+  void invalidateCacheFor(std::string_view cachedMethod);
 
   // Request timeout. A watchdog thread (lazily started by setRequestTimeout)
   // fires transport_->interruptRead() when the in-flight exchange passes its

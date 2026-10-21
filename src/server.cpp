@@ -672,8 +672,23 @@ McpResult<Json> Server::dispatchRequest(const JsonRpcRequest& req, const Request
     }
     const ExtensionMethod& extension = it->second;
     if (!capabilitiesIncludeExtension(meta.clientCapabilities, extension.extensionId)) {
-      return Err(McpErrorCode::MethodNotFound,
-                 "Method not found: " + req.method + " (extension not advertised)");
+      // SEP-2575 Missing Required Capabilities: the client did not declare the
+      // extension this method belongs to. `data.requiredCapabilities` is a
+      // ClientCapabilities object, so the extension lives under its
+      // `extensions` map. -32021 (not -32601) is what the conformance suite
+      // requires for extension-gated methods such as tasks/*.
+      McpError e;
+      e.code = McpErrorCode::MissingRequiredClientCapability;
+      e.message = "client did not declare the '" + extension.extensionId +
+                  "' extension required by " + req.method;
+      Json required = Json(R"({})");
+      Json extensions = Json(R"({})");
+      extensions.add(extension.extensionId, Json(R"({})"));
+      required.add("extensions", std::move(extensions));
+      Json data;
+      data.add("requiredCapabilities", std::move(required));
+      e.data = std::move(data);
+      return Err(std::move(e));
     }
     if (!extension.protocolVersion.empty() &&
         extension.protocolVersion != meta.protocolVersion) {

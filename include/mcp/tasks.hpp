@@ -55,8 +55,11 @@ inline constexpr std::string_view kExtensionId = "io.modelcontextprotocol/tasks"
 // Result discriminator of a CreateTaskResult.
 inline constexpr std::string_view kResultTypeTask = "task";
 
-// Server-to-client status notification (params = a DetailedTask).
-inline constexpr std::string_view kNotificationTaskStatus = "notifications/tasks";
+// Server-to-client status notification (params = a DetailedTask). Optional per
+// SEP-2663 ("receivers are not required to send these"), hence not emitted by
+// the TaskStore helpers.
+inline constexpr std::string_view kNotificationTaskStatus =
+    "notifications/tasks/status";
 
 // Defaults (SEP-2663 example values; both are server policy).
 inline constexpr int64_t kDefaultTtlMs = 300'000;   // 5 minutes

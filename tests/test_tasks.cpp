@@ -279,7 +279,7 @@ TEST(TasksServer, MethodsServeFromTheStore) {
   EXPECT_EQ(unknownCancel.error->error.code, -32602);
 }
 
-TEST(TasksServer, ClientWithoutExtensionGetsMethodNotFound) {
+TEST(TasksServer, ClientWithoutExtensionGetsMissingRequiredCapability) {
   auto store = std::make_shared<tasks::InMemoryTaskStore>();
   const auto record = tasks::makeTask();
   ASSERT_TRUE(store->put(record));
@@ -293,5 +293,10 @@ TEST(TasksServer, ClientWithoutExtensionGetsMethodNotFound) {
   Out denied = serveOnce(
       server, encodeRequest(RequestId("x1"), "tasks/get", params));
   ASSERT_NE(denied.error, nullptr);
-  EXPECT_EQ(denied.error->error.code, -32601);
+  // SEP-2575 Missing Required Capabilities: the official suite requires -32021
+  // (not -32601) for an extension-gated method whose extension the client did
+  // not declare, with the missing capability under data.requiredCapabilities.
+  EXPECT_EQ(denied.error->error.code, -32021);
+  const Json required = member(denied.error->error.data, "requiredCapabilities");
+  EXPECT_FALSE(member(required, "extensions").isNull());
 }

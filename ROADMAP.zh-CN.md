@@ -123,4 +123,19 @@
 - Issue 分类：≤ 2 个工作日；严重（P0）缺陷：≤ 7 天。
 - 一致性任务在 `main` 上保持绿色。
 
+## 里程碑 G —— 一致性覆盖面收尾（v0.4）
+
+里程碑 E/F 已交付功能，但官方套件仍无法给其中一部分计分，因为夹具
+（`examples/conformance_server.cpp`）没有暴露这些场景调用的工具。
+补齐后，剩余的红色场景将变成可计分的证据。
+
+| 事项 | 级别 |
+| --- | --- |
+| G1 · 夹具：补齐 `input-required-result-*` 家族调用的 MRTR 工具（单/多输入请求、多轮、非工具请求、能力校验、篡改 state）——共 11 个场景 | 🔜 P0 |
+| G2 · CI 中把每个套件跑两遍：legacy 模式夹具（2025 时代）与 `--strict` 夹具（2026 无状态），使 `server-stateless` 与 `http-header-validation` 不再因夹具策略而失败 | 🔜 P0 |
+| G3 · 夹具：提供带 `x-mcp-header` 注解的工具，使 `http-custom-header-server-validation`（5 项检查）可计分 | 🔜 P1 |
+| G4 · 客户端任务面：`tasks/get` 轮询、`tasks/update`、取消封装（服务端已在 E1 交付） | 🔜 P1 |
+| G5 · `setSseKeepAlive` 加上限；`MCP_WORKERS` 改为内部定义（不进入安装目标的 PUBLIC 接口）；`tasks::clientSupports(Ctx)` 便利函数；可选的 `notifications/tasks/status` 发送助手 | 🔜 P2 |
+| G6 · 发布 **v0.4.0**（里程碑 D/E/F + G），CHANGELOG 条目已就位 | 🔜 P0 |
+
 *最后更新：2026-10-21。*

@@ -929,6 +929,26 @@ void HttpClientTransport::removeHeader(const std::string& name) {
   impl_->headers.erase(name);
 }
 
+std::string HttpClientTransport::authorizationContext() const {
+  // Case-insensitive lookup: header names are case-insensitive on the wire, so
+  // "authorization" and "Authorization" name the same context.
+  std::lock_guard<std::mutex> lock(impl_->sharedMutex);
+  for (const auto& [name, value] : impl_->headers) {
+    if (name.size() != 13) continue;
+    static constexpr std::string_view kName = "authorization";
+    bool match = true;
+    for (size_t i = 0; i < kName.size(); ++i) {
+      const unsigned char c = static_cast<unsigned char>(name[i]);
+      if (static_cast<char>(std::tolower(c)) != kName[i]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return value;
+  }
+  return {};
+}
+
 void HttpClientTransport::closeRequestStreams() {
   std::vector<httplib::Client*> toStop;
   {

@@ -104,6 +104,36 @@ while auditing it.
   forced reconnect is no longer reported as a lost peer (which aborted the
   in-flight call), and a forced reconnect without `retry:` advice waits the
   conservative 3 s default instead of 100 ms.
+- An extension-gated method (`tasks/get`, `tasks/update`, `tasks/cancel`, and
+  any `Builder::extension(id, method, ...)` route) now answers `-32021`
+  (MissingRequiredClientCapability) with the extension named under
+  `data.requiredCapabilities.extensions` when the client did not advertise it.
+  It answered `-32601`, which the official SEP-2663 scenarios reject. This is
+  the SEP-2575 "missing required capabilities" error; core capability gating is
+  still `-32601`.
+- `tasks::kNotificationTaskStatus` names `notifications/tasks/status` (it said
+  `notifications/tasks`, which no peer sends).
+- The response cache no longer serves a `cacheScope: "private"` result to a
+  different authorization context: keys include
+  `ITransport::authorizationContext()` (the HTTP transport reports its
+  `Authorization` header), so a token refresh cannot reuse another credential's
+  entry.
+- Cached lists and resource reads are invalidated by
+  `notifications/{tools,prompts,resources}/list_changed` and
+  `notifications/resources/updated` instead of waiting for `ttlMs` to lapse.
+
+- The conformance fixture now exposes the SEP-2663 surface the official suite
+  drives (`greet`, `slow_compute`, `failing_job`, `protocol_error_job`,
+  `confirm_delete`, `multi_input`, `test_tool_with_task`): all nine
+  `tasks-*` scenarios pass (was 0/9), and the full `--suite all` run improves
+  from 127 passed / 66 failed to 159 passed / 36 failed.
+
+### Restored
+
+- `CODE_OF_CONDUCT.md`, `DEPENDENCY_POLICY.md`, `MAINTAINERS.md` and
+  `VERSIONING.md` were deleted by the documentation commit, breaking links from
+  README, CONTRIBUTING, AGENTS.md and PLAN.md. Restored; they are required by
+  the SDK Tiering System.
 
 ## [0.3.1] - 2026-10-19
 

@@ -121,6 +121,22 @@ bool isCacheableMethod(std::string_view method) {
          method == "resources/read";
 }
 
+// The cached-method prefix a *ListChanged notification invalidates. A list
+// change notification means the fresh list differs from any cached copy, so
+// serving the cache until ttlMs expires would hand the caller a stale list
+// even though the server just said it changed.
+std::string_view invalidatedMethodFor(std::string_view notificationMethod) {
+  if (notificationMethod == "notifications/tools/list_changed") return "tools/list";
+  if (notificationMethod == "notifications/prompts/list_changed") return "prompts/list";
+  // resources/list_changed also invalidates the template list: templates are
+  // resources, and servers commonly change both together.
+  if (notificationMethod == "notifications/resources/list_changed") return "resources/list";
+  // A resource body change invalidates reads (the URI is not parsed out of the
+  // key: dropping every cached read is conservative and cheap at 256 entries).
+  if (notificationMethod == "notifications/resources/updated") return "resources/read";
+  return {};
+}
+
 }  // namespace
 
 McpResult<Json> Client::request(std::string_view method, const Json& extraParams,
@@ -133,6 +149,12 @@ McpResult<Json> Client::request(std::string_view method, const Json& extraParams
     key.assign(method.data(), method.size());
     key += '\n';
     key += extraParams.toString();  // explicit params only (no _meta envelope)
+    // Authorization context: a `cacheScope: "private"` result belongs to the
+    // credential that fetched it, so a token change must not hit its entry
+    // (basic/index.md caching: caches MUST NOT be shared across authorization
+    // contexts). Including it for public results too only costs reuse.
+    key += '\n';
+    key += transport_ != nullptr ? transport_->authorizationContext() : std::string();
     if (auto hit = cacheLookup(key)) return Ok(std::move(*hit));
   }
   auto result = exchange(method, buildParams(extraParams, progressToken));
@@ -186,6 +208,19 @@ void Client::setResponseCache(bool enabled) {
 }
 
 void Client::clearResponseCache() { responseCacheEntries_.clear(); }
+
+void Client::invalidateCacheFor(std::string_view cachedMethod) {
+  // Keys are "<method>\n<params>\n<authContext>"; the method prefix is exact,
+  // so "tools/list" cannot match "tools/list_changed"-style lookalikes.
+  const std::string prefix = std::string(cachedMethod) + '\n';
+  for (auto it = responseCacheEntries_.begin(); it != responseCacheEntries_.end();) {
+    if (it->first.compare(0, prefix.size(), prefix) == 0) {
+      it = responseCacheEntries_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
 
 McpResult<Json> Client::initialize(std::string_view protocolVersion,
                                    const Implementation& clientInfo) {
@@ -273,6 +308,16 @@ McpResult<Json> Client::exchange(std::string_view method, const Json& params) {
     }
     const ParsedMessage parsed = parseMessage(**raw);
     if (const auto* notification = std::get_if<JsonRpcNotification>(&parsed)) {
+      // E3: a cached list/read must not outlive the notification that says it
+      // changed. Done before the user callback so a handler that immediately
+      // re-fetches observes the fresh result.
+      if (responseCache_ && !responseCacheEntries_.empty()) {
+        const std::string_view stale = invalidatedMethodFor(notification->method);
+        if (!stale.empty()) invalidateCacheFor(stale);
+        if (notification->method == "notifications/resources/list_changed") {
+          invalidateCacheFor("resources/templates/list");
+        }
+      }
       // subscribe() resolves on the server's acknowledgment for this request.
       if (awaitAck_ && notification->method == "notifications/subscriptions/acknowledged") {
         const Json subId = member(member(notification->params, "_meta"), kMetaSubscriptionId);
