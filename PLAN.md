@@ -660,3 +660,46 @@ that pins exactly this).
 
 ---
 *Document maintenance rule: after each milestone completes, record the deviations encountered, the measured performance numbers, and rejected designs as newly added "Update YYYY-MM-DD" entries under the corresponding section; the original text is never deleted.*
+
+### 2026-10-21 Update 11 — Milestones E/F and Beyond Tier 1
+
+**Landed.** F1–F4 (authenticated principal on `Ctx`, transport-scoped
+x-mcp-header filtering, configured headers on the legacy GET stream, all
+missing client capabilities in one `-32021`; F5 was already fixed). E1–E7:
+Tasks extension, client era auto-negotiation, client response cache, extension
+method seam, configurable SSE keep-alive, golden wire fixtures, MRTR hardening.
+Beyond Tier 1: compile-time multi-worker dispatch (`MCP_WORKERS`). E8
+(subscription bus / middleware / legacy `input_required` shim) stays deferred:
+it is optional and would add surface without conformance value.
+
+**Deviations.**
+- **Tasks has no async runtime.** `Builder::tasks(store)` owns only the
+  protocol half (three request methods + TTL sweep); background work is the
+  embedder's (any thread updates the store through `finishTask`/`failTask`/
+  `cancelTask`). Cancellation is cooperative: `tasks/cancel` records intent,
+  the worker settles the record. Unknown ids are `-32602` for all three
+  methods; `tasks/*` mirror `params.taskId` into `Mcp-Name`.
+- **Extension methods are gated.** A request only reaches a bound extension
+  method when its `_meta.clientCapabilities.extensions` advertises that
+  extension, and at the bound wire revision when one is named. Spec routes
+  cannot be shadowed. Dynamic routes also enter the HTTP 404 gate through
+  `Server::isKnownMethod()`.
+- **The client cache is conservative.** Entries need a positive `ttlMs` and a
+  `public`/`private` scope; `server/discover` is never cached; progress-token
+  requests never are.
+- **Era probing has a deadline only where reads are interruptible.** The
+  default 5 s probe timeout cannot fire on stdio (`interruptRead` is a no-op),
+  so a silent stdio peer still needs an external bound.
+- **Multi-worker uses slots.** `MCP_WORKERS` (default 1) counting slots replace
+  the single dispatch mutex; `logLevel_` gained its own mutex because a legacy
+  `logging/setLevel` can race a concurrent `Ctx` build.
+
+**Verification.** 16/16 CTest suites (including the new `mcp_test_tasks` and
+`mcp_test_wire_fixtures`), pure-stdio configure/build, C++23 `-Werror` build,
+and a `MCP_WORKERS=4` build where two handlers provably overlap.
+
+**Rejected.** Per-request `Server` instances (isolation is a bigger change than
+the concurrency win justifies today); caching `ttlMs: 0` results; serving
+extension methods to clients that did not advertise the extension; a
+background TTL sweeper thread in the task store (the protocol entry points
+sweep opportunistically instead).

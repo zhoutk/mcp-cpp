@@ -535,3 +535,37 @@ server.run(StdioTransport{});     // 或 server.serve_http("0.0.0.0", 8080)
 
 ---
 *文档维护规则：每个里程碑完成后，把遇到的偏差、性能实测数字、被否决的设计记录到对应用节下新增「Update YYYY-MM-DD」条目，原文不删。*
+
+### 2026-10-21 Update 11 — 里程碑 E/F 与超越 Tier 1
+
+**已完成。** F1–F4（`Ctx` 暴露认证 principal、x-mcp-header 过滤按传输层限定、
+legacy GET 流携带配置头、一次 `-32021` 报告全部缺失能力；F5 此前已修）。E1–E7：
+Tasks 扩展、客户端 era 自动协商、客户端响应缓存、扩展方法接缝、可配置 SSE
+keep-alive、金标准 wire fixtures、MRTR 加固。超越 Tier 1：编译期多 worker
+派发（`MCP_WORKERS`）。E8（订阅总线 / 中间件 / legacy `input_required`
+适配）继续搁置：它是可选项，且只增加表面积、不带来 conformance 收益。
+
+**偏离。**
+- **Tasks 不带异步运行时。** `Builder::tasks(store)` 只负责协议半边（三个
+  请求方法 + TTL 清扫）；后台工作由使用者负责（任意线程通过 `finishTask`/
+  `failTask`/`cancelTask` 更新 store）。取消是协作式的：`tasks/cancel` 记录
+  意图，由 worker 结算记录。三个方法对未知 id 均返回 `-32602`；`tasks/*`
+  把 `params.taskId` 镜像到 `Mcp-Name`。
+- **扩展方法有门控。** 只有当请求的 `_meta.clientCapabilities.extensions`
+  声明了该扩展（且绑定了 wire revision 时版本匹配）才会命中；规范方法不可被
+  遮蔽。动态路由通过 `Server::isKnownMethod()` 进入 HTTP 404 判定。
+- **客户端缓存保守。** 只缓存 `ttlMs` 为正且 scope 为 `public`/`private` 的
+  结果；`server/discover` 与带 progressToken 的请求永不缓存。
+- **era 探测的超时只在可中断读上生效。** stdio 的 `interruptRead` 是空操作，
+  默认 5 秒探测超时不会触发，静默 peer 仍需外部兜底。
+- **多 worker 用槽位。** `MCP_WORKERS`（默认 1）个计数槽位取代单一派发锁；
+  `logLevel_` 增加互斥，因为 legacy `logging/setLevel` 可能与并发 `Ctx`
+  构建竞争。
+
+**验证。** 16/16 CTest 套件（新增 `mcp_test_tasks`、`mcp_test_wire_fixtures`）、
+纯 stdio 配置/构建、C++23 `-Werror` 构建，以及 `MCP_WORKERS=4` 构建下两个
+handler 确实重叠执行。
+
+**否决。** 每请求独立 `Server`（隔离性收益不足以支撑当前改动量）；缓存
+`ttlMs: 0` 的结果；向未声明扩展的客户端提供扩展方法；在 TaskStore 里起后台
+TTL 清扫线程（改在协议入口机会式清扫）。

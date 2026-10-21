@@ -129,4 +129,4 @@ no async runtime.
 - Issue triage: ≤ 2 business days; critical (P0) bugs: ≤ 7 days.
 - Conformance job stays green on `main`.
 
-*Last updated: 2026-10-20.*
+*Last updated: 2026-10-21.*
