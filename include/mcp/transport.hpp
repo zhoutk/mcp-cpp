@@ -35,6 +35,12 @@ class ITransport {
   // Flushes the output channel.
   virtual McpResult<void> flush() = 0;
 
+  // True when write() carries per-message headers (Streamable HTTP's mirrored
+  // header layer). Client scopes x-mcp-header validation to such transports:
+  // stdio MAY ignore the annotations, so filtering there would hide tools that
+  // are perfectly usable over stdio. Default false (no header layer).
+  virtual bool mirrorsHeaders() const { return false; }
+
   // Optional per-message header injection (Streamable HTTP mirrored headers).
   // No-op on transports without a header layer (stdio).
   virtual void setHeader(std::string /*name*/, std::string /*value*/) {}

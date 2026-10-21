@@ -31,7 +31,9 @@ while auditing it.
 ### Changed
 
 - `Client::listTools()` excludes tools whose `x-mcp-header` annotations are
-  invalid (SEP-2243 client MUST), and no longer caches them for mirroring.
+  invalid (SEP-2243 client MUST), and no longer caches them for mirroring. The
+  filter now applies only to transports that mirror headers
+  (`ITransport::mirrorsHeaders()`); stdio keeps every usable tool (F2).
 - `x-mcp-header` validation is spec-strict: RFC 9110 `1*tchar` names, no
   annotation reachable through `items`/composition/conditionals/`$defs`, no
   non-string or root-level annotations.

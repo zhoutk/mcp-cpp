@@ -276,11 +276,14 @@ McpResult<Json> Client::listTools(const std::string& cursor) {
   auto result = request("tools/list", extra);
   if (!result.has_value()) return result;
 
-  // SEP-2243 client MUST: a tool whose x-mcp-header annotations are invalid
-  // is EXCLUDED from the list (one malformed definition must not block the
-  // valid ones). This used to live only in the conformance fixture; the rule
-  // belongs to the library. Filtering also keeps toolSchemas_ honest, so
-  // header mirroring never consults an invalid definition.
+  // SEP-2243 client MUST: on a transport that mirrors headers (Streamable
+  // HTTP), a tool whose x-mcp-header annotations are invalid is EXCLUDED from
+  // the list (one malformed definition must not block the valid ones). On a
+  // transport without a header layer (stdio) the annotations are irrelevant -
+  // the spec lets such a client ignore them - so filtering there would hide
+  // tools that are perfectly usable. Filtering also keeps toolSchemas_
+  // honest, so header mirroring never consults an invalid definition.
+  const bool mirroring = transport_ != nullptr && transport_->mirrorsHeaders();
   toolSchemas_.clear();
   Json kept = Json("[]");
   const Json tools = member(*result, "tools");
@@ -288,7 +291,7 @@ McpResult<Json> Client::listTools(const std::string& cursor) {
     for (const auto& item : tools.toVector()) {
       const Json name = member(item, "name");
       if (!name.isString()) continue;
-      if (!detail::headerAnnotationsValid(member(item, "inputSchema"))) continue;
+      if (mirroring && !detail::headerAnnotationsValid(member(item, "inputSchema"))) continue;
       toolSchemas_[std::string(name.toString())] = item;
       kept.push_back(item);
     }

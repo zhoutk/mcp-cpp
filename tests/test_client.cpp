@@ -24,9 +24,15 @@ namespace {
 // echoed back so correlation is exercised for real.
 class ScriptedTransport final : public ITransport {
  public:
-  ScriptedTransport(std::vector<std::string> responses, std::vector<std::string> notifications)
+  ScriptedTransport(std::vector<std::string> responses, std::vector<std::string> notifications,
+                    bool mirrorHeaders = true)
       : responses_(responses.begin(), responses.end()),
-        notifications_(notifications.begin(), notifications.end()) {}
+        notifications_(notifications.begin(), notifications.end()),
+        mirrorHeaders_(mirrorHeaders) {}
+
+  // This transport records setHeader calls, i.e. it behaves like the HTTP
+  // transport for header mirroring. Tests can opt out to model stdio.
+  bool mirrorsHeaders() const override { return mirrorHeaders_; }
 
   McpResult<std::optional<std::string>> read() override {
     // Serve queued notifications first (interleaving), then responses.
@@ -61,6 +67,7 @@ class ScriptedTransport final : public ITransport {
  private:
   std::deque<std::string> responses_;
   std::deque<std::string> notifications_;
+  bool mirrorHeaders_ = true;
 };
 
 std::string idToString(const RequestId& id) {
@@ -636,10 +643,10 @@ TEST(ClientTimeout, NonInterruptibleTransportIgnoresTheDeadline) {
 
 namespace {
 // Serves one tools/list result and echoes tools/call success.
-int listToolsThrough(const std::string& toolsJson) {
+int listToolsThrough(const std::string& toolsJson, bool mirrorHeaders = true) {
   ScriptedTransport t({encodeResultResponse(
       RequestId(int64_t(1)),
-      Json("{\"resultType\":\"complete\",\"tools\":" + toolsJson + "}"))}, {});
+      Json("{\"resultType\":\"complete\",\"tools\":" + toolsJson + "}"))}, {}, mirrorHeaders);
   Client c("c", "1");
   c.connect(t);
   auto listed = c.listTools();
@@ -707,5 +714,18 @@ TEST(ClientToolFilter, ExcludesInvalidHeaderAnnotations) {
                      "a":{"type":"number","x-mcp-header":"X-A"}}}},
                     {"name":"ok","inputSchema":{"type":"object","properties":{
                      "b":{"type":"string","x-mcp-header":"X-B"}}}}])json"),
+            1);
+}
+
+// F2: on a transport that does NOT mirror headers (stdio), the annotations are
+// irrelevant and an invalid one must not hide a usable tool.
+TEST(ClientToolFilter, NonMirroringTransportKeepsAllTools) {
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object","properties":{
+                     "a":{"type":"number","x-mcp-header":"X-A"}}}}])json",
+                             false),
+            1);
+  EXPECT_EQ(listToolsThrough(R"json([{"name":"bad","inputSchema":{"type":"object",
+                     "x-mcp-header":"X-Root"}}])json",
+                             false),
             1);
 }

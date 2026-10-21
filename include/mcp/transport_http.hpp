@@ -118,6 +118,7 @@ class HttpClientTransport final : public ITransport {
   // per-request mirrored headers (Mcp-Param-*). An empty value is stored and
   // SENT as-is (the mirrored-header contract allows an empty parameter); use
   // removeHeader() to drop one.
+  bool mirrorsHeaders() const override { return true; }
   void setHeader(std::string name, std::string value) override;
   void removeHeader(const std::string& name) override;
 
